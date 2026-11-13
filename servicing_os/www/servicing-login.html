@@ -1,0 +1,34 @@
+<style>
+*{box-sizing:border-box}.sos-login-page{position:fixed;inset:0;z-index:99999;overflow:auto;background:#f5f0e7;color:#55432d;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;display:grid;place-items:center;padding:18px}
+.login-shell{width:min(990px,100%);display:grid;grid-template-columns:1fr 1fr;min-height:570px;border:1px solid #e1d4c2;border-radius:24px;box-shadow:0 22px 80px #65503e20;overflow:hidden;background:white}
+.visual{background:linear-gradient(150deg,#75563a,#362c24);color:#fff6eb;padding:53px 44px;display:flex;flex-direction:column;justify-content:space-between}
+.logo{font-weight:900;letter-spacing:2px;font-size:24px}.logo span{color:#e5cba3}.visual h1{font-size:42px;line-height:1.1;letter-spacing:-2px;margin:0}.visual p{line-height:1.7;color:#ebdbc8;font-size:14px;max-width:320px}.stamp{font-size:11px;letter-spacing:2px;color:#dfc7a4;text-transform:uppercase}
+.content{padding:67px 51px 40px;display:flex;flex-direction:column;justify-content:center}.eyebrow{font-size:11px;font-weight:800;color:#a38662;letter-spacing:1.8px}.content h2{font-size:29px;letter-spacing:-1px;margin:12px 0 8px}.sub{font-size:13px;color:#96846d;margin-bottom:26px;line-height:1.6}
+form{display:grid;gap:14px}.field{display:grid;gap:7px;font-size:12px;color:#725c3f;font-weight:700}.field input{width:100%;border:1px solid #ddd0bf;background:#fffdfa;border-radius:10px;padding:14px 13px;font-size:14px;color:#463522;outline-color:#b59c7e}.password-wrap{position:relative}.password-wrap input{padding-right:74px}.password-wrap button{position:absolute;right:5px;top:5px;border:0;background:transparent;padding:10px;color:#806449;cursor:pointer}
+.submit{border:none;border-radius:12px;background:#725538;padding:15px;color:white;font-size:14px;font-weight:800;cursor:pointer;margin-top:8px}.submit:disabled{opacity:.6;cursor:wait}.error{display:none;background:#fff0e9;border:1px solid #efcabc;color:#aa3f2c;border-radius:10px;padding:11px;font-size:12px;line-height:1.4}.error.visible{display:block}.note{font-size:11px;color:#998876;line-height:1.65;margin-top:22px}
+@media(max-width:750px){.login-shell{grid-template-columns:1fr}.visual{padding:24px}.visual h1{font-size:27px;margin-top:15px}.visual p{display:none}.stamp{margin-top:15px}.content{padding:35px 24px}}
+</style>
+<div class="sos-login-page"><div class="login-shell"><section class="visual"><div class="logo">SERVICING <span>OS</span></div><div><h1>Your entire shop.<br>One simple workspace.</h1><p>Sales, service receiving, repairs, inventory, customers and reports in one secure system.</p></div><div class="stamp">AL MODINA COMPUTERS LIMITED · BDT</div></section>
+<section class="content"><div class="eyebrow">WELCOME BACK</div><h2>Sign in to your shop</h2><p class="sub">Use the account issued by your shop administrator.</p>
+<form id="loginForm" autocomplete="on"><label class="field">Email or username<input id="usr" name="usr" autocomplete="username" required autofocus placeholder="Your username or email"></label><label class="field">Password<div class="password-wrap"><input id="pwd" name="pwd" type="password" autocomplete="current-password" required placeholder="Your password"><button type="button" id="showPwd" aria-label="Show password">Show</button></div></label>
+<div id="error" class="error" role="alert" aria-live="polite"></div><button id="submit" class="submit" type="submit">Sign In →</button></form>
+<p class="note">Secure sign-in uses your existing shop user account. If your organization uses two-factor authentication or single sign-on, use the standard secure login flow when prompted.</p>
+</section></div>
+<script>
+(function(){
+ const form=document.getElementById('loginForm'),btn=document.getElementById('submit'),err=document.getElementById('error'),pass=document.getElementById('pwd');
+ document.getElementById('showPwd').addEventListener('click',function(){pass.type=pass.type==='password'?'text':'password';this.textContent=pass.type==='password'?'Show':'Hide'});
+ function alertMessage(message){err.textContent=message;err.classList.add('visible')}
+ function csrf(){try{return decodeURIComponent(document.cookie.split('; ').find(c=>c.startsWith('csrf_token='))?.split('=').slice(1).join('=')||'')}catch{return ''}}
+ form.addEventListener('submit',async function(e){e.preventDefault();err.classList.remove('visible');btn.disabled=true;btn.textContent='Signing in…';try{
+  const body=new URLSearchParams({usr:document.getElementById('usr').value.trim(),pwd:pass.value});
+  const response=await fetch('/api/method/login',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/x-www-form-urlencoded','Accept':'application/json','X-Frappe-CSRF-Token':csrf()},body});
+  const data=await response.json();
+  if(!response.ok || data.exc || data.exc_type)throw Error('Unable to sign in. Check your username and password.');
+  if(data.verification || data.message?.verification || data.message?.two_factor_auth){location.replace('/login?redirect-to=%2Fservicing-os');return}
+  const check=await fetch('/api/method/frappe.auth.get_logged_user',{credentials:'same-origin'});const who=await check.json();
+  if(!check.ok || !who.message || who.message==='Guest')throw Error('Sign-in needs additional verification. Please use the standard sign-in page.');
+  location.replace('/servicing-os');
+ }catch(ex){alertMessage(ex.message||'Sign-in failed. Please try again.')}finally{btn.disabled=false;btn.textContent='Sign In →'}});
+})();
+</script></div>

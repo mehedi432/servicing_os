@@ -5,3 +5,24 @@
 tags
 node_modules
 __pycache__
+# Local development backups
+/barcode_backup_*/
+/receipt_backup_*/
+
+# Dependencies and caches
+node_modules/
+__pycache__/
+*.pyc
+.DS_Store
+
+# Local secrets
+.env
+.env.*
+!.env.example
+site_config.json
+
+# Source backup copies
+*.bak
+*.bak_*
+*.backup
+*.backup_*
