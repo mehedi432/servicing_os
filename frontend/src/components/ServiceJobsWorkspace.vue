@@ -1,4 +1,24 @@
 <script setup>
+// S44_SERVICE_JOBS_INVOICE: only wire existing actions; no sidebar or layout replacement.
+import { ref as s44Ref, computed as s44Computed } from 'vue';
+import ServiceJobQuickInvoice644 from './ServiceJobQuickInvoice644.vue';
+const s44InvoiceOpen = s44Ref(false);
+// Only use the existing selection if this particular workspace exposes it.
+const s44InitialJob = s44Computed(() => {
+  let selected = null;
+  if (typeof selectedJob !== 'undefined') selected = selectedJob?.value ?? selectedJob;
+  else if (typeof selectedJobName !== 'undefined') selected = selectedJobName?.value ?? selectedJobName;
+  else if (typeof selectedName !== 'undefined') selected = selectedName?.value ?? selectedName;
+  else if (typeof activeJob !== 'undefined') selected = activeJob?.value ?? activeJob;
+  return typeof selected === 'string' ? selected : (selected?.name || '');
+});
+function s44OpenCounterReceive() {
+  window.dispatchEvent(new CustomEvent('servicing-os:open-counter-service-receive'));
+}
+function s44InvoiceCreated(invoice) {
+  window.dispatchEvent(new CustomEvent('servicing-os:service-invoice-created', { detail: invoice }));
+}
+
 // SERVICING_SERVICE_JOBS_624B
 import { computed, ref, watch, onMounted, onBeforeUnmount } from 'vue';
 import ServiceJobSticker629 from './ServiceJobSticker629.vue'
@@ -59,14 +79,17 @@ async function sos629Start(){
 onMounted(sos629Start);
 </script>
 <template>
+<!-- S44_SERVICE_JOBS_INVOICE: same Service Jobs screen, one invoice dialog -->
+<ServiceJobQuickInvoice644 :open="s44InvoiceOpen" :initial-job="s44InitialJob" @close="s44InvoiceOpen = false" @created="s44InvoiceCreated" />
+
   <div class="sj-app sos629-jobs">
     <header class="sj-header">
       <div><small>SERVICING OS / DAILY OPERATIONS</small><h1>Service Jobs</h1><p>Search, inspect, assign and advance real repair jobs. No other screen required for everyday work.</p></div>
-      <div class="sj-actions"><button type="button" class="sj-outline" @click="emit('manage')">Repair Management</button><button type="button" class="sj-primary" @click="emit('receive')">＋ Receive Computer</button></div>
+      <div class="sj-actions"><button type="button" class="sj-outline" @click="emit('manage')">Repair Management</button><button type="button" class="sj-primary" @click.stop="s44OpenCounterReceive">＋ Receive Computer</button><button type="button" class="sj-outline" @click.stop="s44InvoiceOpen = true">Create Invoice</button></div>
     </header>
     <div class="sj-kpis">
       <div><span>Showing</span><strong>{{stats.total}}</strong><small>Recent or filtered jobs</small></div>
-      <div><span>In Progress</span><strong>{{stats.active}}</strong><small>Not delivered / cancelled</small></div>
+      <div><span>Undelivered</span><strong>{{stats.active}}</strong><small>Not delivered / cancelled</small></div>
       <div><span>Ready / Completed</span><strong>{{stats.completed}}</strong><small>Awaiting delivery process</small></div>
       <div><span>Unassigned</span><strong>{{stats.unassigned}}</strong><small>Needs technician</small></div>
     </div>

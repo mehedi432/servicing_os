@@ -1,0 +1,45 @@
+/* SERVICING_COUNTER_648: styles the ORIGINAL working action cards, not duplicates. */
+.servicing-counter-647 { min-width:0; }
+.servicing-counter-647 .sos648-grid {
+  display:grid!important;
+  grid-template-columns:repeat(3,minmax(0,1fr))!important;
+  gap:10px!important;
+  align-items:stretch!important;
+  margin-block:8px 12px!important;
+  width:100%;
+}
+.servicing-counter-647 .sos648-grid > .sos648-tile {
+  box-sizing:border-box!important;
+  min-width:0!important;
+  width:100%!important;
+  min-height:72px!important;
+  height:auto!important;
+  padding:12px!important;
+  margin:0!important;
+  border:1px solid #e5dfd5!important;
+  border-radius:12px!important;
+  background:#fffefa!important;
+  box-shadow:0 1px 2px #283d3110!important;
+  color:#2a4336!important;
+  text-align:left!important;
+  display:flex!important;
+  align-items:center!important;
+  gap:8px!important;
+  white-space:normal!important;
+  overflow-wrap:anywhere;
+  transition:background .15s,border-color .15s,transform .15s;
+}
+.servicing-counter-647 .sos648-tile:hover { background:#f0f4ee!important;border-color:#a1b9aa!important;transform:translateY(-1px); }
+.servicing-counter-647 .sos648-tile:focus-within {outline:2px solid #39664f;outline-offset:2px;}
+.servicing-counter-647 .sos648-tile:has(.bg-emerald-700),
+.servicing-counter-647 .sos648-tile[aria-pressed="true"] {border-color:#648c73!important;background:#eef5ee!important;}
+.servicing-counter-647 .sos648-grid > .sos648-tile h2,
+.servicing-counter-647 .sos648-grid > .sos648-tile h3,
+.servicing-counter-647 .sos648-grid > .sos648-tile strong {font-size:13px!important;line-height:1.35!important;}
+.servicing-counter-647 .sos648-grid > .sos648-tile p {font-size:11px!important;line-height:1.4!important;margin:2px 0 0!important;}
+.servicing-counter-647 .sos648-grid > .sos648-tile svg {flex-shrink:0;width:19px;height:19px;}
+/* Make the large operational form the visual priority. */
+.servicing-counter-647.sos648-ready {padding:0!important;}
+.servicing-counter-647.sos648-ready :is(input,textarea,select) {max-width:100%;}
+@media(max-width:950px){.servicing-counter-647 .sos648-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important;}}
+@media(max-width:480px){.servicing-counter-647 .sos648-grid{gap:7px!important;}.servicing-counter-647 .sos648-grid > .sos648-tile{min-height:64px!important;padding:9px!important;}}

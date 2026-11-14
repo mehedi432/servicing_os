@@ -1,4 +1,80 @@
 <script setup>
+// SERVICING_COUNTER_EXACT_649 — route screenshot tiles into existing workspaces.
+import CounterIvory653 from './components/CounterIvory653.vue'
+import CounterInvoiceModal653 from './components/CounterInvoiceModal653.vue'
+import CounterBilling653 from './components/CounterBilling653.vue';
+const counter649Selection = ref('receive');
+// SERVICING_COUNTER_PATCH_651: select operations inside the Counter workspace.
+function counter649Select(action) {
+  if (!['receive', 'sale', 'repair', 'billing', 'used', 'stock'].includes(action)) return;
+  counter649Selection.value = action;
+  activeNav.value = 'Counter';
+  if (action === 'receive') activeOperation.value = 'Service Receive';
+  if (action === 'billing') activeOperation.value = 'Service Delivery';
+}
+
+// SERVICING_COUNTER_648: enhance existing native Counter cards, retain click handlers.
+import { installCounter648 } from "./counterLayout648.js";
+import "./counterLayout648.css";
+onMounted(() => installCounter648());
+
+// SERVICING_STEP_647: independent ERPNext Supplier workspace
+import SupplierWorkspace from "./components/SupplierWorkspace.vue";
+// S44_NATIVE_COUNTER_RECEIVE: share the ACTUAL Counter form via Vue Teleport.
+import { ref as s44Ref, watch as s44Watch, onMounted as s44OnMounted, onUnmounted as s44OnUnmounted } from 'vue';
+const s44ReceiveModalOpen = s44Ref(false);
+const s44ReceiptPending = s44Ref(false);
+let s44ReturnNav = 'Service Jobs';
+let s44ReturnOperation = 'Service Receive';
+let s44LastCreatedJob = '';
+function s44OpenNativeReceive() {
+  if (s44ReceiveModalOpen.value || s44ReceiptPending.value) return;
+  s44ReturnNav = activeNav.value || 'Service Jobs';
+  s44ReturnOperation = activeOperation.value || 'Service Receive';
+  activeNav.value = 'Counter';
+  activeOperation.value = 'Service Receive';
+  s44ReceiveModalOpen.value = true;
+}
+function s44ReturnToJobs() {
+  s44ReceiptPending.value = false;
+  activeOperation.value = s44ReturnOperation;
+  activeNav.value = s44ReturnNav;
+  if (s44LastCreatedJob) {
+    window.dispatchEvent(new CustomEvent('servicing-os:service-job-created', { detail: { name: s44LastCreatedJob } }));
+    s44LastCreatedJob = '';
+  }
+}
+function s44CloseNativeReceive() {
+  if (savingJob.value || !s44ReceiveModalOpen.value) return;
+  s44ReceiveModalOpen.value = false;
+  s44ReturnToJobs();
+}
+function s44AfterCounterSaved(jobName) {
+  if (!s44ReceiveModalOpen.value) return;
+  s44LastCreatedJob = String(jobName || '');
+  s44ReceiveModalOpen.value = false;
+  // Keep Counter mounted while the existing QR/receipt dialog is open.
+  if (receiptOpen.value) s44ReceiptPending.value = true;
+  else s44ReturnToJobs();
+}
+function s44Keydown(event) {
+  if (event.key === 'Escape' && s44ReceiveModalOpen.value) s44CloseNativeReceive();
+}
+let s44StopReceiptWatcher = null;
+s44OnMounted(() => {
+  // Defer receiptOpen access until after the entire Vue setup has initialized.
+  s44StopReceiptWatcher = s44Watch(receiptOpen, (open) => {
+    if (!open && s44ReceiptPending.value) s44ReturnToJobs();
+  });
+  window.addEventListener('servicing-os:open-counter-service-receive', s44OpenNativeReceive);
+  window.addEventListener('keydown', s44Keydown);
+});
+s44OnUnmounted(() => {
+  if (s44StopReceiptWatcher) s44StopReceiptWatcher();
+  window.removeEventListener('servicing-os:open-counter-service-receive', s44OpenNativeReceive);
+  window.removeEventListener('keydown', s44Keydown);
+});
+
 // SOS_632_RECEIPT_PRINT_CENTER: Unified print controls beside Print / Reprint Receipt.
 import ServiceJobSticker629 from './components/ServiceJobSticker629.vue'
 // SOS_629B_VISIBLE_QR_PRINT
@@ -566,6 +642,7 @@ async function submitDemo() {
     message.value = "Service Job " + result.service_job + " saved successfully!";
     receiptJobNumber.value = result.service_job;
     await openServiceReceipt(result.service_job);
+    s44AfterCounterSaved(result.service_job); // S44_NATIVE_COUNTER_RECEIVE
     if (receiptError.value) message.value += " Receipt: " + receiptError.value;
 
     await refreshDashboard();
@@ -700,6 +777,7 @@ function counterChooseOperation620G(operation) {
 </script>
 
 <template>
+  <SupplierWorkspace v-if="activeNav === 'Suppliers'" />
 	<div
   class="ivory-app min-h-screen lg:flex"
   :class="{ 'ivory-is-collapsed': ivorySidebarCollapsed }"
@@ -754,7 +832,7 @@ function counterChooseOperation620G(operation) {
 <RepairManagement v-if="repairManagementOpen" @close="repairManagementOpen = false" />
 <div v-show="(!repairManagementOpen && activeNav !== 'Inventory' && activeNav !== 'Reports') && activeNav !== 'New Sales'">
 
-			<header
+			<header v-if="activeNav !== 'Counter'"
 				class="bg-white border-b px-4 sm:px-6 py-3 sm:py-4 flex flex-wrap gap-3 sm:gap-4 justify-between items-center"
 			>
 				<div>
@@ -851,11 +929,10 @@ function counterChooseOperation620G(operation) {
   </div>
 </div>
 
-			</header>
-
-			<div class="p-3 sm:p-5 lg:p-7 space-y-4 sm:space-y-6 min-w-0">
-				<div
-					class="flex flex-wrap items-center gap-3 rounded-xl border bg-white px-4 py-3 text-sm"
+			
+<!-- SERVICING_COUNTER_647: existing live status moved into top bar -->
+<div
+					class="flex flex-wrap items-center gap-3 rounded-xl border bg-white px-4 py-3 text-sm counter-647-status"
 				>
 					<span
 						class="h-2.5 w-2.5 rounded-full"
@@ -890,8 +967,12 @@ function counterChooseOperation620G(operation) {
 						<span class="font-medium text-emerald-700">Backend Connected</span>
 					</template>
 				</div>
+</header>
 
-				<section class="flex flex-wrap justify-between gap-4 items-start">
+			<div class="p-3 sm:p-5 lg:p-7 space-y-4 sm:space-y-6 min-w-0" :class="{'sos652-full-counter': activeNav === 'Counter'}">
+				
+
+				<section v-if="activeNav !== 'Counter'" class="flex flex-wrap justify-between gap-4 items-start counter-647-heading">
 					<div>
 						<h1 class="text-2xl font-bold text-slate-900">
 							{{ title }}
@@ -902,7 +983,7 @@ function counterChooseOperation620G(operation) {
 					</div>
 				</section>
 
-				<div class="grid grid-cols-2 xl:grid-cols-4 gap-2 sm:gap-4 sos636c-obsolete-preview">
+				<div v-if="activeNav !== 'Counter'" class="grid grid-cols-2 xl:grid-cols-4 gap-2 sm:gap-4 sos636c-obsolete-preview">
 					<div
 						v-for="card in dashboardCards"
 						:key="card[0]"
@@ -918,10 +999,28 @@ function counterChooseOperation620G(operation) {
 					</div>
 				</div>
 
-				<section v-if="activeNav === 'Counter'" class="sos627-counter-root">
-<CounterWorkspace627 :tab="sos627Tab" @select="sos627Choose" />
+				<section v-if="activeNav === 'Counter'" class="sos627-counter-root sos649-counter-root">
+<!-- SERVICING_COUNTER_EXACT_649: the ONE visible action grid; original working content is slotted below -->
+<CounterIvory653
+  :company="servicingShop?.company || 'AL MODINA COMPUTERS LIMITED'"
+  :active="counter649Selection"
+  :user="appInfo?.full_name || appInfo?.user || 'Administrator'"
+  :currency="appInfo?.currency || 'BDT'"
+  :connected="!backendLoading && !backendError"
+  :loading="backendLoading"
+  :error="backendError"
+  v-model:search-value="search"
+  :billing-mode="activeOperation"
+  @billing-mode="activeOperation = $event"
+  @select="counter649Select"
+  @settings="selectNavigation('Settings')"
+  @open-menu="mobileMenuOpen = true"
+>
+  <template #workspace>
+    <div v-if="counter649Selection === 'receive' || counter649Selection === 'billing'" class="sos649-original-workspace">
 
-					<div class="flex flex-wrap gap-2 mb-5 sos627-old-operations">
+
+					<div class="flex flex-wrap gap-2 mb-5 sos627-old-operations counter-647-actions">
 						<button
 							v-for="operation in operations"
 							:key="operation"
@@ -959,8 +1058,19 @@ function counterChooseOperation620G(operation) {
 								</span>
 							</div>
 
-							<form :class="{ 'existing-job-view': viewingServiceJob }"
-								v-if="activeOperation === 'Service Receive'"
+							<!-- S44_NATIVE_COUNTER_RECEIVE: the original Counter form is teleported, never copied -->
+<Teleport v-if="activeOperation === 'Service Receive'" to="body" :disabled="!s44ReceiveModalOpen">
+  <div class="s44-receive-layer" :class="{ 's44-receive-open': s44ReceiveModalOpen }" @click.self="s44CloseNativeReceive">
+    <div class="s44-receive-shell">
+      <header v-if="s44ReceiveModalOpen" class="s44-receive-header">
+        <div>
+          <span class="s44-receive-eyebrow">SERVICING OS · SERVICE JOBS</span>
+          <h2>Receive Computer <small>· কম্পিউটার গ্রহণ</small></h2>
+          <p>কাউন্টার পেজের একই ফর্ম · কাস্টমার খোঁজা · রসিদ প্রিন্ট</p>
+        </div>
+        <button type="button" class="s44-receive-close" aria-label="Close" :disabled="savingJob" @click="s44CloseNativeReceive">×</button>
+      </header>
+      <form :class="{ 'existing-job-view': viewingServiceJob }"
 								@submit.prevent="submitDemo"
 								class="space-y-4"
 							>
@@ -1247,6 +1357,9 @@ function counterChooseOperation620G(operation) {
 									{{ message }}
 								</p>
 							</form>
+    </div>
+  </div>
+</Teleport>
 
 							<div v-else class="py-20 text-center text-slate-500">
 								{{ activeOperation }} will be implemented in its own milestone.
@@ -1367,9 +1480,45 @@ function counterChooseOperation620G(operation) {
               </div>
             </section>
 					</div>
-				</section>
+				
+    </div>
+  </template>
 
-				<section v-else class="bg-white border rounded-xl p-10 text-center">
+  <!-- SERVICING_COUNTER_PATCH_651: actual ServiceJobsWorkspace, not navigation -->
+  <template #repair>
+    <ServiceJobsWorkspace @receive="sosReceiveFromJobs624B" @manage="sosManageFromJobs624B" />
+  </template>
+  <!-- SERVICING_COUNTER_PATCH_652: real ERPNext draft invoice workflow -->
+  <template #invoice><CounterInvoiceModal653 :initial-job="viewedServiceJob?.name || ''" /></template>
+
+  <!-- SERVICING_COUNTER_PATCH_653: actual source feature components, never placeholders -->
+  <template #sale>
+    <div class="sos653-embedded-module">
+      <RetailSales v-if="counter649Selection === 'sale' && !repairManagementOpen" />
+    </div>
+  </template>
+  <template #used>
+    <div class="sos653-embedded-module">
+      <UsedLaptopWorkspace v-if="counter649Selection === 'used'" />
+    </div>
+  </template>
+  <template #stock>
+    <div class="sos653-embedded-module">
+      <StockManagement v-if="counter649Selection === 'stock' && !repairManagementOpen" />
+    </div>
+  </template>
+  <template #delivery>
+    <div class="sos653-embedded-module">
+      <ServiceJobsWorkspace @receive="sosReceiveFromJobs624B" @manage="sosManageFromJobs624B" />
+    </div>
+  </template>
+  <template #billing="{ openInvoice }">
+    <CounterBilling653 @create="openInvoice" />
+  </template>
+</CounterIvory653>
+</section>
+
+				<section v-else-if="activeNav !== 'Service Jobs'" class="bg-white border rounded-xl p-10 text-center">
 					<h2 class="text-lg font-semibold">
 						{{ activeNav }}
 					</h2>
@@ -2255,4 +2404,78 @@ main>.sos-fin-reports{display:block!important;width:100%;min-width:0}
 <style>
 /* SOS_636C_HIDE_LEGACY_PREVIEW: legacy hard-coded Counter preview, not the live KPI cards */
 .sos636c-obsolete-preview{display:none!important}
+</style>
+
+
+<!-- S44_NATIVE_COUNTER_RECEIVE: modal presentation only; the existing Counter form remains untouched -->
+<style>
+.s44-receive-layer:not(.s44-receive-open),
+.s44-receive-layer:not(.s44-receive-open) > .s44-receive-shell { display: contents; }
+.s44-receive-layer.s44-receive-open {
+  position: fixed; inset: 0; z-index: 9900; overflow-y: auto; display: flex;
+  align-items: flex-start; justify-content: center; padding: clamp(10px, 3vw, 32px);
+  background: rgba(36, 32, 27, .52); backdrop-filter: blur(3px);
+}
+.s44-receive-open .s44-receive-shell {
+  width: min(940px, 100%); margin: auto; max-height: calc(100vh - 24px); overflow-y: auto;
+  background: var(--card, #fffcf6); color: var(--text, #352f28);
+  border: 1px solid var(--border, #e3dacf); border-radius: 17px;
+  box-shadow: 0 30px 90px rgba(32,26,19,.25);
+}
+.s44-receive-header { display: flex; justify-content: space-between; align-items: flex-start;
+  gap: 14px; padding: 22px 26px 18px; border-bottom: 1px solid #e9e1d5; }
+.s44-receive-eyebrow { font-size: 10px; letter-spacing: .12em; font-weight: 750; color: #8f795a; }
+.s44-receive-header h2 { margin: 5px 0 0; font-size: 21px; font-weight: 750; }
+.s44-receive-header h2 small { font-size: 14px; font-weight: 500; }
+.s44-receive-header p { margin: 6px 0 0; font-size: 12px; color: #786e60; }
+.s44-receive-close { cursor: pointer; border: 1px solid #ded5c8; border-radius: 9px;
+  width: 36px; height: 36px; flex: none; font-size: 23px; line-height: 1;
+  color: #54493d; background: #fffdf9; }
+.s44-receive-close:disabled { cursor: not-allowed; opacity: .45; }
+.s44-receive-open .s44-receive-shell > form { padding: 23px 26px 28px; }
+@media (max-width: 620px) {
+  .s44-receive-layer.s44-receive-open { padding: 6px; }
+  .s44-receive-open .s44-receive-shell { max-height: calc(100dvh - 12px); }
+  .s44-receive-header { padding: 16px; }
+  .s44-receive-open .s44-receive-shell > form { padding: 16px; }
+}
+</style>
+
+<style>
+
+/* SERVICING_COUNTER_647: ivory compact operational workspace */
+.servicing-counter-647 { min-width: 0; }
+.servicing-counter-647 .counter-647-actions {
+  display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px!important;
+  margin-bottom:12px!important;align-items:stretch;
+}
+.servicing-counter-647 .counter-647-actions > button {
+  min-width:0;min-height:66px;padding:10px 12px!important;border:1px solid #e5e0d7!important;
+  border-radius:12px!important;background:#fffefa;color:#34473e;
+  font-size:13px;line-height:1.35;text-align:left;font-weight:650;
+  box-shadow:0 1px 2px rgba(42,54,45,.035);transition:background .15s,border-color .15s;
+}
+.servicing-counter-647 .counter-647-actions > button:hover {background:#edf3ed;border-color:#99b5a5!important;}
+.servicing-counter-647 .counter-647-actions > button:focus-visible {outline:2px solid #315e49;outline-offset:2px;}
+.servicing-counter-647 .counter-647-actions > button[class*="bg-blue"],
+.servicing-counter-647 .counter-647-actions > button[class*="bg-slate-900"] {
+  background:#294c3d!important;color:#fff!important;border-color:#294c3d!important;
+}
+.servicing-counter-647 .counter-647-actions > button[class*="bg-blue"]:hover {background:#1f3c30!important;}
+.servicing-counter-647 .counter-647-actions > button {white-space:normal!important;}
+.servicing-counter-647 .counter-647-actions + * {min-width:0;}
+.servicing-counter-647 .counter-647-heading {margin-bottom:10px!important;}
+.servicing-counter-647 .counter-647-heading h1 {font-size:18px!important;line-height:1.3!important;}
+.servicing-counter-647 .counter-647-heading p {font-size:11px!important;margin-top:2px!important;}
+.counter-647-status {
+  display:flex!important;align-items:center!important;justify-content:flex-end;flex-wrap:wrap;
+  gap:7px!important;padding:0!important;margin:0!important;background:transparent!important;
+  border:0!important;box-shadow:none!important;font-size:11px!important;min-width:0;
+}
+.counter-647-status .font-semibold {font-size:11px!important;}
+.counter-647-status .text-slate-500 {font-size:11px!important;}
+.counter-647-status .rounded-full {flex-shrink:0;}
+@media(max-width:920px){.servicing-counter-647 .counter-647-actions{grid-template-columns:repeat(2,minmax(0,1fr));}}
+@media(max-width:560px){.counter-647-status{justify-content:flex-start;}.servicing-counter-647 .counter-647-actions > button{min-height:58px;padding:8px!important;}}
+
 </style>

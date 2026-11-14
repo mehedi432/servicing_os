@@ -24,14 +24,19 @@ function toggle() {
   catch (_) { /* Storage disabled: no impact on toggling. */ }
 }
 
+// SERVICING_NAVBAR_6452: preserve parent-provided items and existing navigation events.
 const menuItems = computed(() => {
   const entries = [...(props.items || [])].filter(x => x && x !== 'Repair Management');
   const index = entries.indexOf('Service Jobs');
   if (index >= 0) entries.splice(index + 1, 0, 'Repair Management');
   else entries.push('Repair Management');
+  if (!entries.includes('Suppliers')) {
+    const position = entries.indexOf('Customers');
+    if (position >= 0) entries.splice(position + 1, 0, 'Suppliers');
+    else entries.push('Suppliers');
+  }
   return entries;
 });
-
 function choose(item) {
   if (item === 'Repair Management') emit('repair');
   else emit('navigate', item);
@@ -39,6 +44,8 @@ function choose(item) {
 }
 
 const ICON = {
+  'Suppliers': ['M1 5h13v12H1z','M14 9h4l4 4v4h-8z','M8 19a2 2 0 1 1-4 0 2 2 0 0 1 4 0','M21 19a2 2 0 1 1-4 0 2 2 0 0 1 4 0'],
+
   'Counter': ['M3 3h8v8H3z','M13 3h8v5h-8z','M13 10h8v11h-8z','M3 13h8v8H3z'],
   'New Sales': ['M3 4h2l2.4 11h11.5l2-8H6','M9 20h.01','M18 20h.01'],
   'Used Laptops': ['M4 5h16v12H4z','M2 21h20','M8 17l-1 4','M16 17l1 4'],
@@ -54,6 +61,28 @@ function isActive(item) {
   return item === 'Repair Management' ? props.repairOpen :
     (!props.repairOpen && props.active === item);
 }
+
+// SERVICING_NAVBAR_646: only expose entries already provided by the parent.
+const menuSearch = ref('');
+const menuGroups = [
+  { id: 'workspace', label: 'WORKSPACE', entries: ['Overview','Counter','New Sales','Service Jobs','Repair Management'] },
+  { id: 'inventory', label: 'INVENTORY & CUSTOMERS', entries: ['Used Laptops','Inventory','Customers','Suppliers'] },
+  { id: 'management', label: 'MANAGEMENT', entries: ['Reports','Settings'] }
+];
+const filteredGroups = computed(() => {
+  const available = menuItems.value;
+  const q = menuSearch.value.trim().toLocaleLowerCase();
+  const seen = new Set();
+  const groups = menuGroups.map(group => {
+    const entries = group.entries.filter(item => available.includes(item));
+    entries.forEach(item => seen.add(item));
+    return { ...group, entries: entries.filter(item => item.toLocaleLowerCase().includes(q)) };
+  });
+  const other = available.filter(item => !seen.has(item) && item.toLocaleLowerCase().includes(q));
+  if (other.length) groups.push({ id:'other', label:'OTHER', entries:other });
+  return groups.filter(group => group.entries.length);
+});
+
 </script>
 
 <template>
@@ -85,34 +114,37 @@ function isActive(item) {
       <button class="sos4-close" type="button" @click.stop="emit('close-mobile')"
               aria-label="Close navigation">×</button>
     </div>
-    <div class="sos4-scroll">
-      <div class="sos4-group-label">WORKSPACE</div>
-      <nav class="sos4-nav" aria-label="Main menu">
-        <button v-for="item in menuItems" :key="item"
-                type="button" class="sos4-item"
-                :class="{ 'sos4-active': isActive(item) }"
-                :title="compact ? item : undefined"
-                :aria-label="item"
-                :aria-current="isActive(item) ? 'page' : undefined"
-                @click.stop="choose(item)">
-          <svg class="sos4-icon" viewBox="0 0 24 24" width="20" height="20"
-               fill="none" stroke="currentColor" stroke-width="1.75"
-               stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path v-for="(path,index) in iconPaths(item)" :key="index" :d="path" />
-          </svg>
-          <span class="sos4-label">{{ item }}</span>
-        </button>
-      </nav>
+        <div class="sos4-scroll">
+      <div class="sos646-search" v-show="!compact">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m16 16 4 4"/></svg>
+        <input v-model="menuSearch" type="search" placeholder="Search menu..." aria-label="Search menu" autocomplete="off" />
+      </div>
+      <template v-for="group in filteredGroups" :key="group.id">
+        <div class="sos4-group-label">{{ group.label }}</div>
+        <nav class="sos4-nav" :aria-label="group.label">
+          <button v-for="item in group.entries" :key="item" type="button" class="sos4-item"
+                  :class="{ 'sos4-active': isActive(item) }"
+                  :title="compact ? item : undefined" :aria-label="item"
+                  :aria-current="isActive(item) ? 'page' : undefined"
+                  @click.stop="choose(item)">
+            <svg class="sos4-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path v-for="(path,index) in iconPaths(item)" :key="index" :d="path" />
+            </svg>
+            <span class="sos4-label">{{ item }}</span>
+          </button>
+        </nav>
+      </template>
+      <p v-if="!filteredGroups.length && !compact" class="sos646-empty">No matching sections</p>
     </div>
-    <!-- SERVICING_OS_LANGUAGE_637 : persistent sidebar language switch -->
+<!-- SERVICING_OS_LANGUAGE_637 : persistent sidebar language switch -->
     <div class="sos37-language" data-sos-language-control role="group" aria-label="Language / ভাষা">
-      <div class="sos37-caption">ভাষা / LANGUAGE</div>
+      <div class="sos37-caption"><svg class="sos648-language-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 8 6 6"/><path d="m4 14 6-6 2-3H2"/><path d="M2 5h12"/><path d="M7 2v3"/><path d="m13 21 5-11 5 11"/><path d="M15 17h6"/></svg><span class="sos648-language-label">{{ currentLanguage === 'bn' ? 'ভাষা' : 'Language' }}</span></div>
       <div class="sos37-choices">
         <button type="button" class="sos37-choice"
                 :class="{ 'sos37-selected': currentLanguage === 'en' }"
                 :aria-pressed="currentLanguage === 'en'" title="English"
                 @click.stop="setLanguage('en')">
-          <span class="sos37-choice-full">English</span><span class="sos37-choice-short">EN</span>
+          <span class="sos37-choice-full">EN</span><span class="sos37-choice-short">EN</span>
         </button>
         <button type="button" class="sos37-choice" lang="bn"
                 :class="{ 'sos37-selected': currentLanguage === 'bn' }"
@@ -248,4 +280,71 @@ function isActive(item) {
 .sos4-sidebar.sos4-compact .sos37-choice-short {display:inline;}
 }
 @media(prefers-reduced-motion:reduce){.sos37-choice{transition:none;}}
+</style>
+
+
+
+
+<!-- SERVICING_NAVBAR_646 : approved ivory navigation visual -->
+<style scoped>
+.sos4-sidebar{background:#faf8f3;border-right-color:#e8ded0;color:#66584a}
+.sos4-brandbar{height:86px;min-height:86px;flex-basis:86px;background:#faf8f3;border-bottom-color:#e8ded0;padding:0 15px}
+.sos4-logo{background:#765338;color:#fff;border:0;box-shadow:0 3px 9px #76533820;border-radius:13px;width:44px;height:44px;flex-basis:44px;font-size:24px}
+.sos4-brandwords strong{font-size:14px;color:#463628;letter-spacing:-.35px}
+.sos4-brandwords b{color:#a98253}
+.sos4-brandwords small{font-size:10px;letter-spacing:1px;font-weight:700;color:#998a77}
+.sos4-scroll{padding:18px 12px 12px}
+.sos646-search{display:flex;align-items:center;gap:10px;height:44px;padding:0 12px;margin:0 1px 21px;background:#fff;border:1px solid #e6ded3;border-radius:11px;color:#a79a88}
+.sos646-search:focus-within{border-color:#a98253;box-shadow:0 0 0 3px #a982531b}
+.sos646-search input{border:0;outline:0;background:transparent;min-width:0;width:100%;font:500 12px inherit;color:#463628;font-size:12px}
+.sos646-search input::placeholder{color:#a79a88}
+.sos4-group-label{padding:0 12px 10px;color:#a89a86;font-size:10px;font-weight:800;letter-spacing:1.3px}
+.sos4-nav{gap:4px;margin-bottom:15px}
+.sos4-nav+.sos4-group-label{border-top:1px solid #e8ded0;padding-top:18px}
+.sos4-item{min-height:43px;padding:10px 12px;gap:12px;color:#66584a;border-radius:10px;font-size:13px;font-weight:600}
+.sos4-icon{color:#817464}
+.sos4-item:hover{background:#f1ece4;color:#463628}
+.sos4-item.sos4-active{background:#ede2d2;color:#765338;font-weight:750;box-shadow:none}
+.sos4-item.sos4-active .sos4-icon{color:#765338}
+.sos37-language{background:#faf8f3;border-top-color:#e8ded0}
+.sos4-foot{border-top-color:#e8ded0}
+.sos646-empty{font-size:12px;color:#998a77;padding:0 12px}
+@media(min-width:1024px){
+ .sos4-sidebar.sos4-compact .sos646-search{display:none}
+ .sos4-sidebar.sos4-compact .sos4-nav{margin-bottom:9px}
+ .sos4-sidebar.sos4-compact .sos4-group-label{height:0;padding:0;visibility:hidden}
+ .sos4-sidebar.sos4-compact .sos4-brandbar{padding:0 8px}
+}
+</style>
+
+<!-- SERVICING_STEP_647 language control, aligned to approved ivory preview -->
+<style scoped>
+.sos37-language{display:flex;align-items:center;justify-content:space-between;gap:9px;padding:12px 13px 13px;background:#faf8f3;border-top:1px solid #e8ded0;min-height:69px}
+.sos37-caption{display:flex;align-items:center;gap:7px;white-space:nowrap;font-size:11px;letter-spacing:0;text-transform:none;margin:0;font-weight:750;color:#66584a}
+.sos37-caption::before{content:'🌐';font-size:16px;line-height:1}
+.sos37-choices{display:flex;gap:2px;padding:3px;border-radius:10px;background:#eee6da;border:0;min-width:123px;flex:0 0 auto}
+.sos37-choice{min-height:30px;padding:5px 7px;font-size:11px;border-radius:8px;font-weight:800;color:#765338;line-height:19px}
+.sos37-choice.sos37-selected{background:#765338;color:#fff;box-shadow:none}
+.sos37-choice-full{display:inline}
+@media(min-width:1024px){
+.sos4-sidebar.sos4-compact .sos37-language{display:block;padding:8px 6px;min-height:0}
+.sos4-sidebar.sos4-compact .sos37-choices{min-width:0;flex-direction:column;gap:4px}
+.sos4-sidebar.sos4-compact .sos37-choice-full{display:none}
+.sos4-sidebar.sos4-compact .sos37-choice-short{display:inline}
+}
+@media(max-width:340px){.sos37-choices{min-width:105px}.sos37-choice{padding:4px}}
+</style>
+
+<!-- SERVICING_STEP_648: approved compact ivory language control -->
+<style scoped>
+.sos37-language {display:flex!important;align-items:center!important;justify-content:space-between!important;gap:6px!important;width:100%;min-width:0!important;min-height:61px!important;padding:10px!important;overflow:hidden;background:#faf8f3!important;border-top:1px solid #e8ded0!important;}
+.sos37-caption{display:flex!important;align-items:center!important;gap:5px!important;flex:0 1 auto;min-width:0;white-space:nowrap;padding:0!important;margin:0!important;font-size:11px!important;letter-spacing:0!important;color:#66584a!important;}
+.sos37-caption::before{content:none!important;display:none!important;}
+.sos648-language-icon{display:block;flex:none;color:#765338;}
+.sos648-language-label{min-width:0;overflow:hidden;text-overflow:ellipsis;}
+.sos37-choices{display:flex!important;flex:0 0 111px!important;width:111px!important;min-width:0!important;gap:2px!important;padding:3px!important;background:#eee6da!important;border:0!important;border-radius:10px!important;}
+.sos37-choice{display:flex;justify-content:center;align-items:center;flex:1 1 0!important;min-width:0!important;min-height:31px!important;padding:5px 3px!important;border-radius:8px!important;font-size:11px!important;}
+.sos37-choice.sos37-selected{background:#765338!important;color:#fffdf8!important;}
+.sos37-choice-full{display:inline!important;}.sos37-choice-short{display:none!important;}
+@media(min-width:1024px){.sos4-sidebar.sos4-compact .sos37-language{display:block!important;padding:9px 6px!important;min-height:0!important;}.sos4-sidebar.sos4-compact .sos37-caption{display:none!important;}.sos4-sidebar.sos4-compact .sos37-choices{display:flex!important;flex-direction:column!important;width:100%!important;min-width:0!important;}.sos4-sidebar.sos4-compact .sos37-choice-full{display:none!important;}.sos4-sidebar.sos4-compact .sos37-choice-short{display:inline!important;}}
 </style>

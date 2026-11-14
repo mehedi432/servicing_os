@@ -264,3 +264,8 @@ app_license = "mit"
 # List of apps whose translatable strings should be excluded from this app's translations.
 # ignore_translatable_strings_from = []
 
+
+# S645_SERVICING_AUTH_IVORY
+homepage = 'servicing-login'
+get_website_user_home_page = 'servicing_os.login_routes645.home_page'
+website_path_resolver = 'servicing_os.login_routes645.resolve'
