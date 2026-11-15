@@ -1,8 +1,10 @@
 <script setup>
+import NewSaleCounter655 from './components/NewSaleCounter655.vue'
+
 // SERVICING_COUNTER_EXACT_649 — route screenshot tiles into existing workspaces.
-import CounterIvory653 from './components/CounterIvory653.vue'
-import CounterInvoiceModal653 from './components/CounterInvoiceModal653.vue'
-import CounterBilling653 from './components/CounterBilling653.vue';
+import CounterIvory654 from './components/CounterIvory654.vue'
+import CounterInvoiceModal654 from './components/CounterInvoiceModal654.vue'
+import CounterBilling654 from './components/CounterBilling654.vue';
 const counter649Selection = ref('receive');
 // SERVICING_COUNTER_PATCH_651: select operations inside the Counter workspace.
 function counter649Select(action) {
@@ -1001,7 +1003,7 @@ function counterChooseOperation620G(operation) {
 
 				<section v-if="activeNav === 'Counter'" class="sos627-counter-root sos649-counter-root">
 <!-- SERVICING_COUNTER_EXACT_649: the ONE visible action grid; original working content is slotted below -->
-<CounterIvory653
+<CounterIvory654
   :company="servicingShop?.company || 'AL MODINA COMPUTERS LIMITED'"
   :active="counter649Selection"
   :user="appInfo?.full_name || appInfo?.user || 'Administrator'"
@@ -1489,14 +1491,19 @@ function counterChooseOperation620G(operation) {
     <ServiceJobsWorkspace @receive="sosReceiveFromJobs624B" @manage="sosManageFromJobs624B" />
   </template>
   <!-- SERVICING_COUNTER_PATCH_652: real ERPNext draft invoice workflow -->
-  <template #invoice><CounterInvoiceModal653 :initial-job="viewedServiceJob?.name || ''" /></template>
+  <template #invoice="{ initialKind }"><CounterInvoiceModal654 :initial-job="viewedServiceJob?.name || ''"  :initial-kind="initialKind" /></template>
 
   <!-- SERVICING_COUNTER_PATCH_653: actual source feature components, never placeholders -->
   <template #sale>
+  <NewSaleCounter655>
+    <template #legacy>
     <div class="sos653-embedded-module">
       <RetailSales v-if="counter649Selection === 'sale' && !repairManagementOpen" />
     </div>
-  </template>
+  
+    </template>
+  </NewSaleCounter655>
+</template>
   <template #used>
     <div class="sos653-embedded-module">
       <UsedLaptopWorkspace v-if="counter649Selection === 'used'" />
@@ -1513,9 +1520,10 @@ function counterChooseOperation620G(operation) {
     </div>
   </template>
   <template #billing="{ openInvoice }">
-    <CounterBilling653 @create="openInvoice" />
+    <CounterBilling654 @create="openInvoice" />
   </template>
-</CounterIvory653>
+<!-- SERVICING_COUNTER_PATCH_654 -->
+</CounterIvory654>
 </section>
 
 				<section v-else-if="activeNav !== 'Service Jobs'" class="bg-white border rounded-xl p-10 text-center">
@@ -2478,4 +2486,29 @@ main>.sos-fin-reports{display:block!important;width:100%;min-width:0}
 @media(max-width:920px){.servicing-counter-647 .counter-647-actions{grid-template-columns:repeat(2,minmax(0,1fr));}}
 @media(max-width:560px){.counter-647-status{justify-content:flex-start;}.servicing-counter-647 .counter-647-actions > button{min-height:58px;padding:8px!important;}}
 
+</style>
+
+<!-- SERVICING_OS_COUNTER_655 -->
+
+<style>
+/* SERVICING_OS_COUNTER_655 — equal-height selects and warm-ivory form controls. */
+.sos652-shell .sos652-workbody :is(select,input,textarea),
+.sos653-embedded-module :is(select,input,textarea),
+.sos649-original-workspace :is(select,input,textarea) {
+ box-sizing:border-box!important; min-width:0; max-width:100%;
+ border:1px solid #ddc8b5!important; background:#fffdfa!important;
+ border-radius:9px!important; color:#3c2c25!important;
+}
+.sos652-shell .sos652-workbody select,
+.sos653-embedded-module select,
+.sos649-original-workspace select {
+ width:100%!important; height:43px!important; min-height:43px!important;
+ padding:9px 32px 9px 11px!important; line-height:22px!important;
+ font-size:13px!important; appearance:auto!important;
+}
+.sos652-shell .sos652-workbody :is(input:not([type=checkbox]):not([type=radio]),textarea),
+.sos649-original-workspace input:not([type=checkbox]):not([type=radio]) {min-height:43px;padding:9px 11px}
+.sos652-shell .sos652-workbody label,.sos649-original-workspace label{min-width:0}
+.sos652-shell .sos652-workbody :is(select,input,textarea):focus-visible {outline:2px solid #bd9274;outline-offset:1px}
+/* Embedded native POS remains unmodified. New counter uses a focused product grid. */
 </style>

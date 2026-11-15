@@ -1,4 +1,13 @@
 <script setup>
+// SERVICING_COUNTER_PATCH_654: show product suggestions only while item search is selected.
+import { ref as sos654Ref } from 'vue'
+const sos654RetailFocused = sos654Ref(false)
+let sos654RetailBlurTimer = null
+function sos654RetailClose() {
+  if (sos654RetailBlurTimer) clearTimeout(sos654RetailBlurTimer)
+  sos654RetailBlurTimer = setTimeout(() => { sos654RetailFocused.value = false }, 230)
+}
+
 // SERVICING_COUNTER_620E
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 
@@ -214,13 +223,13 @@ onBeforeUnmount(()=>{clearTimeout(searchTimer);clearTimeout(customerTimer)})
   <div class="cc-layout">
     <section class="cc-products">
       <label class="cc-label" for="cc-product-search">Search product or scan barcode</label>
-      <div class="cc-searchbox"><span aria-hidden="true">⌕</span><input id="cc-product-search" v-model="search" @input="onProducts" @keydown.enter.prevent="loadProducts" autocomplete="off" placeholder="SSD, RAM, barcode or Item Code"/><button type="button" @click="loadProducts">Search</button></div>
+      <div class="cc-searchbox"><span aria-hidden="true">⌕</span><input id="cc-product-search" v-model="search" @input="onProducts" @keydown.enter.prevent="loadProducts" autocomplete="off" placeholder="SSD, RAM, barcode or Item Code" @focusin="sos654RetailFocused = true" @focusout="sos654RetailClose" @keydown.esc="sos654RetailFocused = false" /><button type="button" @click="loadProducts">Search</button></div>
       <p v-if="!loading && products.length && !products.some(p => Number(p.stock_qty) > 0 && p.rate != null)" class="cc-stock-help" role="status">
         All listed products currently have 0 saleable stock in <strong>Stores - AMCL</strong>. You can browse prices, but you cannot add them to the cart until stock is received.
       </p>
       <div class="cc-product-header"><b>Products</b><small>{{products.length}} results · Stores - AMCL</small></div>
       <div class="cc-product-list">
-        <button v-for="p in products" :key="p.item_code" type="button" class="cc-product" :disabled="p.rate==null || Number(p.stock_qty)<=0 || checking" @click="add(p)">
+        <button v-for="p in (sos654RetailFocused ? (products) : [])" :key="p.item_code" type="button" class="cc-product" :disabled="p.rate==null || Number(p.stock_qty)<=0 || checking" @click="add(p)">
           <span class="cc-product-icon">▣</span><span class="cc-product-info"><b>{{p.item_name}}</b><small>{{p.item_code}}</small></span>
           <span class="cc-product-price"><b>{{p.rate==null?'No price':money(p.rate)}}</b><small :class="Number(p.stock_qty)>0?'cc-available':'cc-out'">{{Number(p.stock_qty)>0?p.stock_qty+' in stock':'Out of stock'}}</small></span><span class="cc-add">+</span>
         </button>

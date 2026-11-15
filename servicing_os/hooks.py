@@ -269,3 +269,29 @@ app_license = "mit"
 homepage = 'servicing-login'
 get_website_user_home_page = 'servicing_os.login_routes645.home_page'
 website_path_resolver = 'servicing_os.login_routes645.resolve'
+
+# SERVICING_OS_COUNTER_657 — automated customer delivery status AFTER native invoice submission.
+# Retain existing doc_events handlers; append rather than overwrite them.
+_sos657_events = {
+    'on_submit': 'servicing_os.api.invoice_delivery_657.on_invoice_submit',
+    'on_cancel': 'servicing_os.api.invoice_delivery_657.on_invoice_cancel',
+}
+try:
+    doc_events
+except NameError:
+    doc_events = {}
+for _sos657_dt in ('Sales Invoice', 'POS Invoice'):
+    _sos657_dt_events = doc_events.setdefault(_sos657_dt,{})
+    for _sos657_ev, _sos657_handler in _sos657_events.items():
+        _sos657_prior = _sos657_dt_events.get(_sos657_ev)
+        if not _sos657_prior:
+            _sos657_dt_events[_sos657_ev] = _sos657_handler
+        elif isinstance(_sos657_prior, str):
+            _sos657_dt_events[_sos657_ev] = [_sos657_prior,_sos657_handler]
+        elif isinstance(_sos657_prior, (list, tuple)):
+            _sos657_dt_events[_sos657_ev] = list(_sos657_prior) + [_sos657_handler]
+        else:
+            raise TypeError('Unsupported existing doc_events entry in SERVICING OS hooks.py')
+del _sos657_events, _sos657_dt, _sos657_dt_events, _sos657_ev, _sos657_handler, _sos657_prior
+
+# SERVICING_OS_COUNTER_657
