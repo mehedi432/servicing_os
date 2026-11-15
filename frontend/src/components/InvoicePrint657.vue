@@ -9,7 +9,8 @@ const invoice = ref(null)
 const busy = ref(false)
 const error = ref('')
 const qr = ref('')
-const barcode = ref(null)
+const barcodeMarkup = ref('')
+const barcodeFailure = ref('')
 const paper = ref(null)
 const paperSize = ref('A4')
 const printing = ref(false)
@@ -21,9 +22,9 @@ let loadNumber = 0
 
 async function load() {
   const seq = ++loadNumber
-  busy.value = true; error.value=''; invoice.value=null; qr.value=''
+  busy.value = true; error.value=''; invoice.value=null; qr.value=''; barcodeMarkup.value=''; barcodeFailure.value=''
   try {
-    const url = new URL('/api/method/servicing_os.api.invoice_delivery_657.get_branded_invoice',location.origin)
+    const url = new URL('/api/method/servicing_os.api.invoice_warranty_659.get_invoice_with_warranty',location.origin)
     url.searchParams.set('invoice_name',props.invoiceName)
     url.searchParams.set('doctype',props.doctype)
     const response = await fetch(url,{credentials:'same-origin',headers:{Accept:'application/json'},cache:'no-store'})
@@ -31,15 +32,89 @@ async function load() {
     if (!response.ok || result.exc || result.exception) throw new Error(typeof result.message==='string'?result.message:'Could not load invoice details.')
     if(seq!==loadNumber)return
     invoice.value=result.message
-    qr.value=await QRCode.toDataURL(invoice.value.qr_reference||invoice.value.name,{width:190,margin:1,errorCorrectionLevel:'M'})
+    warrantyForms.value=(result.message.items||[]).map(row=>({
+      row_name:row.row_name, warranty_type:row.warranty_type||'',
+      warranty_period_days:row.warranty_period_days||0,
+      warranty_start_date:row.warranty_start_date||'',
+      warranty_expiry_date:row.warranty_expiry_date||'',
+      warranty_terms:row.warranty_terms||''
+    }))
+    // Build CODE128 in a detached SVG; ref timing and Teleport rendering cannot hide it.
+    try {
+      const svg=document.createElementNS('http://www.w3.org/2000/svg','svg')
+      JsBarcode(svg, barcodeString.value,{format:'CODE128',lineColor:'#3c2c25',width:1.45,height:49,margin:2,displayValue:false})
+      barcodeMarkup.value=svg.outerHTML
+    }catch(barcodeError){barcodeMarkup.value='';barcodeFailure.value='Barcode could not be generated. '+String(barcodeError?.message||'')}
+    try { qr.value=await QRCode.toDataURL(invoice.value.qr_reference||invoice.value.name,{width:190,margin:1,errorCorrectionLevel:'M'}) }
+    catch(qrError){console.warn('Invoice QR generation failed',qrError)}
     await nextTick()
-    if (barcode.value) JsBarcode(barcode.value, barcodeString.value,{format:'CODE128',lineColor:'#3c2c25',width:1.4,height:35,margin:2,displayValue:false})
   } catch(e) { if(seq===loadNumber)error.value=e?.message||'Unable to prepare invoice.' }
   finally { if(seq===loadNumber)busy.value=false }
 }
 watch(()=>[props.invoiceName,props.doctype],load,{immediate:true})
 
+
+
+// SOS659: On-invoice warranty maintenance; no accounting or stock mutation.
+const warrantyEditing = ref(false)
+const warrantyForms = ref([])
+const warrantySavingRow = ref('')
+const warrantyMessage = ref('')
+async function saveWarranty(index) {
+  const row = warrantyForms.value[index]
+  if(!invoice.value || !row?.row_name || warrantySavingRow.value)return
+  warrantyMessage.value=''; warrantySavingRow.value=row.row_name
+  try {
+    const token = window.csrf_token || window.frappe?.csrf_token || ''
+    if(!token)throw new Error('Session security token is missing. Refresh the page and sign in again.')
+    const response=await fetch('/api/method/servicing_os.api.invoice_warranty_659.update_invoice_warranty',{
+      method:'POST', credentials:'same-origin',
+      headers:{Accept:'application/json','Content-Type':'application/json','X-Frappe-CSRF-Token':token},
+      body:JSON.stringify({data:{doctype:props.doctype,invoice_name:props.invoiceName,item_row_name:row.row_name,
+        warranty_type:row.warranty_type||'', warranty_period_days:row.warranty_period_days||0,
+        warranty_start_date:row.warranty_start_date||'',warranty_expiry_date:row.warranty_expiry_date||'',
+        warranty_terms:row.warranty_terms||''}}),
+    })
+    const result=await response.json()
+    if(!response.ok || result.exc || result.exception || !result.message?.success){
+      const detail=typeof result.message==='string'?result.message:'Warranty could not be saved. Check document permissions and fields.'
+      throw new Error(detail)
+    }
+    await load()
+    warrantyMessage.value='Warranty saved on the existing invoice. Print preview refreshed.'
+    warrantyEditing.value=true
+  }catch(e){warrantyMessage.value=e?.message||'Warranty save failed.'}
+  finally{warrantySavingRow.value=''}
+}
+
 const sheetCSS = `
+
+/* SOS659 — safe brand wrapping, scannable barcode, distinct warranty block */
+.sos657-print-brand{min-width:0!important;overflow:visible!important;align-items:flex-start!important;gap:13px!important}
+.sos657-brand-title{min-width:0!important;flex:1 1 59%!important;width:auto!important;overflow:visible!important;gap:10px!important;align-items:flex-start!important}
+.sos657-brand-title>div:last-child{min-width:0!important;flex:1 1 auto!important;overflow:visible!important}
+.sos657-brand-title strong{max-width:100%!important;white-space:normal!important;overflow:visible!important;overflow-wrap:break-word!important;word-break:normal!important;line-height:1.28!important}
+.sos657-invoice-caption{flex:0 1 36%!important;min-width:0!important;overflow:visible!important}
+.sos657-invoice-caption h1{overflow-wrap:break-word!important}
+.sos657-verify{min-width:0!important;flex-wrap:wrap!important}
+.sos659-barcode{display:block!important;max-width:100%!important;line-height:0}
+.sos659-barcode svg{display:block!important;width:154px!important;max-width:100%!important;height:auto!important;min-height:40px!important}
+.sos659-barcode-warning{font-size:9px;color:#9a3a26;font-weight:750}
+.sos659-warranty-sheet{break-inside:avoid;margin-top:18px;padding:12px 14px;background:#fdf8f2;border:1px solid #e5d5c6;border-radius:9px}
+.sos659-warranty-sheet h3{margin:0 0 8px;font-size:10px;letter-spacing:1px;color:#6e4930}
+.sos659-warranty-record{display:grid;grid-template-columns:minmax(80px,35%) minmax(0,1fr);gap:7px 12px;padding:7px 0;border-top:1px solid #ebdfd2;font-size:9px}
+.sos659-warranty-record:first-of-type{border-top:0}
+.sos659-warranty-record strong{overflow-wrap:anywhere}
+.sos659-warranty-record span{overflow-wrap:anywhere;color:#5e4738}
+.sos659-warranty-terms{grid-column:2}
+.sos659-warranty-sheet p{margin:8px 0 0;font-size:8px;color:#85705f}
+.sos657-receipt .sos657-print-brand{display:block!important;text-align:center!important}
+.sos657-receipt .sos657-brand-title{width:100%!important;justify-content:center!important;align-items:center!important}
+.sos657-receipt .sos657-brand-title strong{font-size:11px!important;overflow-wrap:anywhere!important}
+.sos657-receipt .sos657-invoice-caption{width:100%!important;text-align:center!important;margin-top:8px!important}
+.sos657-receipt .sos659-warranty-record{display:block!important;padding:5px 0!important}
+.sos657-receipt .sos659-warranty-record span{display:block!important;margin-top:3px!important}
+.sos657-receipt .sos659-warranty-sheet{padding:7px!important}
 .sos658-duplicate-ribbon{font-family:Arial,Helvetica,sans-serif;text-align:center;font-weight:800;font-size:11px;letter-spacing:1.3px;color:#70462e;background:#f4e3d3;border:1px solid #dcc4aa;border-radius:6px;padding:8px 10px;margin:0 0 13px;page-break-inside:avoid}
 .sos657-receipt .sos658-duplicate-ribbon{font-size:8px;letter-spacing:.4px;padding:5px;margin-bottom:8px}
 * { box-sizing:border-box } html,body {padding:0;margin:0;color:#3b2a22;background:#fff;font-family:Arial,Helvetica,sans-serif;-webkit-print-color-adjust:exact;print-color-adjust:exact}
@@ -96,8 +171,27 @@ async function printInvoice() {
           <div class="sos657-dialoghead"><strong>{{ duplicate ? 'Duplicate invoice copy' : 'Invoice preview' }}</strong><small>{{ invoiceName }} · AL MODINA COMPUTERS LIMITED</small></div>
           <label>Paper <select v-model="paperSize"><option value="A4">A4 Invoice</option><option value="80mm">80mm Receipt</option></select></label>
           <button type="button" class="sos657-print" :disabled="!invoice || printing" @click="printInvoice">{{ printing?'Preparing…':duplicate?'Print Duplicate Copy':'Print Invoice' }}</button>
+          <button type="button" class="sos659-warranty-action" :disabled="!invoice" @click="warrantyEditing=!warrantyEditing">{{ warrantyEditing ? 'Hide Warranty Fields' : 'Edit Warranty Details' }}</button>
           <button type="button" @click="emit('close')">Close ×</button>
         </div>
+        
+        <!-- SOS659: Edit recorded per-item warranty; never silently invent a policy -->
+        <div v-if="warrantyEditing && invoice" class="sos659-warranty-editor">
+          <div class="sos659-editor-heading"><strong>Warranty on sold items</strong><span>Saved to this invoice only. Requires permission to edit the document.</span></div>
+          <div v-for="(entry,index) in warrantyForms" :key="entry.row_name" class="sos659-editor-item">
+            <strong>{{ invoice.items[index]?.item_name }}</strong><small>{{ invoice.items[index]?.serial_no ? 'Serial: '+invoice.items[index].serial_no : 'No serial recorded' }}</small>
+            <div class="sos659-editor-fields">
+              <label>Warranty Type<select v-model="entry.warranty_type"><option value="">Not recorded</option><option>Shop Warranty</option><option>Manufacturer Warranty</option><option>No Warranty</option></select></label>
+              <label>Period (days)<input type="number" min="0" max="36500" step="1" v-model.number="entry.warranty_period_days" /></label>
+              <label>Start Date<input type="date" v-model="entry.warranty_start_date" /></label>
+              <label>Expiry Date<input type="date" v-model="entry.warranty_expiry_date" /></label>
+              <label class="sos659-terms-input">Coverage / Terms<textarea v-model="entry.warranty_terms" rows="2" placeholder="For example, shop repair warranty covering manufacturing faults; write actual agreed terms" /></label>
+              <button type="button" :disabled="Boolean(warrantySavingRow)" class="sos659-save" @click="saveWarranty(index)">{{ warrantySavingRow===entry.row_name?'Saving…':'Save Warranty' }}</button>
+            </div>
+          </div>
+          <p v-if="warrantyMessage" role="status" class="sos659-edit-message">{{ warrantyMessage }}</p>
+        </div>
+
         <p v-if="busy" class="sos657-message">Preparing invoice with barcode and QR code…</p>
         <p v-else-if="error" role="alert" class="sos657-error">{{ error }}</p>
         <div v-if="invoice" class="sos657-scroll" :class="{'sos657-receipt':paperSize==='80mm'}">
@@ -115,11 +209,27 @@ async function printInvoice() {
             <table class="sos657-lines"><thead><tr><th style="width:7%">#</th><th style="width:46%">Product / Service</th><th style="width:10%">Qty</th><th style="width:17%" class="number">Rate</th><th style="width:20%" class="number">Amount</th></tr></thead><tbody>
               <tr v-for="(item,i) in invoice.items" :key="i"><td>{{ i+1 }}</td><td><span class="item-name">{{ item.item_name }}</span><div class="description">{{ item.item_code }} · {{ item.uom }}<template v-if="item.discount_percentage"> · {{ item.discount_percentage }}% off</template></div><div v-if="item.serial_no" class="serial">Serial: {{ item.serial_no }}</div></td><td>{{ item.qty }}</td><td class="number">{{ money(item.rate) }}</td><td class="number">{{ money(item.amount) }}</td></tr>
             </tbody></table>
+            
+            <!-- SOS659: warranty terms appear on the customer copy, even if not recorded -->
+            <section class="sos659-warranty-sheet">
+              <h3>WARRANTY &amp; AFTER-SALES SUPPORT</h3>
+              <div v-for="(item,i) in invoice.items" :key="item.row_name || i" class="sos659-warranty-record">
+                <strong>{{ item.item_name }}</strong>
+                <span v-if="item.warranty_type==='No Warranty'">NO WARRANTY — explicitly recorded for this item</span>
+                <template v-else-if="item.warranty_recorded">
+                  <span>{{ item.warranty_type || 'Warranty details' }}<template v-if="item.warranty_period_days"> · {{ item.warranty_period_days }} days</template><template v-if="item.warranty_start_date"> · From {{ item.warranty_start_date }}</template><template v-if="item.warranty_expiry_date"> · Until {{ item.warranty_expiry_date }}</template></span>
+                  <span v-if="item.warranty_terms" class="sos659-warranty-terms">Coverage: {{ item.warranty_terms }}</span>
+                </template>
+                <span v-else>Warranty terms not recorded on this invoice</span>
+              </div>
+              <p>Warranty applies only where explicitly recorded above. Keep the invoice and device serial number for support.</p>
+            </section>
+
             <div class="sos657-total-grid">
-              <div class="sos657-total-note"><strong>Thank you for choosing {{ invoice.company }}.</strong><span>Keep this invoice for warranty and return support. Serial numbers on this invoice identify the supplied devices where recorded.</span><p v-if="invoice.remarks">{{ invoice.remarks }}</p></div>
+              <div class="sos657-total-note"><strong>Thank you for choosing {{ invoice.company }}.</strong><span>Keep this invoice for after-sales support. Warranty coverage, if agreed, is stated per item below. Device serial numbers identify individual supplied units.</span><p v-if="invoice.remarks && invoice.remarks.toLowerCase()!=='no remarks'">{{ invoice.remarks }}</p></div>
               <div class="sos657-amount-box"><div><span>Net amount</span><b>{{ money(invoice.net_total) }}</b></div><div v-if="invoice.discount_amount"><span>Additional discount</span><b>− {{ money(invoice.discount_amount) }}</b></div><div v-for="(tax,i) in invoice.taxes" :key="i"><span>{{ tax.description }}</span><b>{{ money(tax.amount) }}</b></div><div class="grand"><span>Grand total</span><b>{{ cash }} {{ money(invoice.grand_total) }}</b></div><div><span>Paid</span><b>{{ money(invoice.paid_amount) }}</b></div><div><span>Outstanding</span><b>{{ money(invoice.outstanding_amount) }}</b></div></div>
             </div>
-            <div class="sos657-bottom"><div><strong>Authorized signature / received by customer</strong><p>____________________________________________</p><p>Invoice generated by SERVICING OS · {{ invoice.company }}</p><p>QR is an invoice reference, not a public authenticity verification.</p></div><div class="sos657-verify"><div class="sos657-code"><svg ref="barcode"></svg><small>{{ invoice.name }}</small><small>Invoice serial / Code 128</small></div><img v-if="qr" :src="qr" alt="Invoice reference QR code" /></div></div>
+            <div class="sos657-bottom"><div><strong>Authorized signature / received by customer</strong><p>____________________________________________</p><p>Invoice generated by SERVICING OS · {{ invoice.company }}</p><p>QR is an invoice reference, not a public authenticity verification.</p></div><div class="sos657-verify"><div class="sos657-code"><span v-if="barcodeMarkup" class="sos659-barcode" v-html="barcodeMarkup"></span><span v-else class="sos659-barcode-warning">{{ barcodeFailure || 'Barcode not ready' }}</span><small>{{ invoice.name }}</small><small>Code 128 · Invoice number</small></div><img v-if="qr" :src="qr" alt="Invoice reference QR code" /></div></div>
             <div v-if="isDraft" class="sos657-draftmark">{{ invoice.status }}</div>
           </article>
         </div>
@@ -153,6 +263,21 @@ async function printInvoice() {
 .sos657-message,.sos657-error{padding:25px;text-align:center;color:#795940;font-size:13px}.sos657-error{color:#a04129}
 .sos657-scroll .sos658-duplicate-ribbon{text-align:center;font-size:11px;font-weight:800;letter-spacing:1px;color:#70462e;background:#f4e3d3;border:1px solid #dcc4aa;border-radius:6px;padding:9px;margin:0 0 13px}
 .sos657-scroll.sos657-receipt .sos658-duplicate-ribbon{font-size:8px;letter-spacing:0;padding:5px}
+
+/* SOS659: invoice-only warranty editor and print preview */
+.sos659-warranty-editor{background:#fff9f3;border-bottom:1px solid #e7d6c5;padding:13px 18px;overflow-y:auto;max-height:38vh;flex:0 0 auto;color:#3c2c25}
+.sos659-editor-heading{display:flex;justify-content:space-between;gap:12px;align-items:center;margin:0 0 12px}.sos659-editor-heading strong{font-size:13px}.sos659-editor-heading span{font-size:10px;color:#8b725e}
+.sos659-editor-item{padding:10px 0;border-top:1px solid #e7d6c5}.sos659-editor-item>strong{display:block;font-size:12px}.sos659-editor-item>small{display:block;font-size:10px;color:#8b725e;margin-top:3px}
+.sos659-editor-fields{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;align-items:end;margin-top:10px}.sos659-editor-fields label{font-size:10px;font-weight:700;color:#5b4232;display:flex;flex-direction:column;gap:4px;min-width:0}.sos659-editor-fields input,.sos659-editor-fields select,.sos659-editor-fields textarea{background:#fff!important;border:1px solid #ddc7b4!important;border-radius:8px!important;min-height:39px!important;padding:8px!important;font-size:12px!important;min-width:0;width:100%;color:#3c2c25!important}
+.sos659-editor-fields .sos659-terms-input{grid-column:1/span 3}.sos659-editor-fields button.sos659-save{min-height:40px;padding:8px 12px;background:#805a3e;border:1px solid #805a3e;color:white;border-radius:8px;font-weight:800;cursor:pointer}.sos659-editor-fields button:disabled{opacity:.5}
+.sos659-edit-message{font-size:12px;color:#5c4130}.sos657-scroll .sos659-warranty-sheet{margin-top:18px;padding:12px 14px;background:#fdf8f2;border:1px solid #e5d5c6;border-radius:9px}.sos657-scroll .sos659-warranty-sheet h3{margin:0 0 8px;font-size:10px;letter-spacing:1px;color:#6e4930}.sos657-scroll .sos659-warranty-record{display:grid;grid-template-columns:minmax(80px,35%) minmax(0,1fr);gap:7px 12px;padding:7px 0;border-top:1px solid #ebdfd2;font-size:9px}.sos657-scroll .sos659-warranty-record strong{overflow-wrap:anywhere}.sos657-scroll .sos659-warranty-record span{overflow-wrap:anywhere}.sos657-scroll .sos659-warranty-terms{grid-column:2}.sos657-scroll .sos659-warranty-sheet p{font-size:8px;color:#85705f}
+.sos657-scroll .sos657-print-brand{min-width:0!important;overflow:visible!important;gap:13px!important}.sos657-scroll .sos657-brand-title{min-width:0!important;flex:1 1 59%!important;width:auto!important;overflow:visible!important}.sos657-scroll .sos657-brand-title>div:last-child{min-width:0!important;flex:1 1 auto!important}.sos657-scroll .sos657-brand-title strong{white-space:normal!important;overflow-wrap:break-word!important;line-height:1.28!important}.sos657-scroll .sos657-invoice-caption{flex:0 1 36%!important;min-width:0!important}.sos657-scroll .sos657-verify{flex-wrap:wrap!important}.sos657-scroll .sos659-barcode{display:block;line-height:0}.sos657-scroll .sos659-barcode svg{display:block;width:154px;height:auto;min-height:40px;max-width:100%}.sos657-scroll .sos659-barcode-warning{font-size:9px;color:#9a3a26;font-weight:750}
+.sos657-scroll.sos657-receipt .sos657-print-brand{display:block!important;text-align:center!important}.sos657-scroll.sos657-receipt .sos657-brand-title{width:100%!important;justify-content:center!important}.sos657-scroll.sos657-receipt .sos657-brand-title strong{font-size:11px!important;overflow-wrap:anywhere!important}.sos657-scroll.sos657-receipt .sos657-invoice-caption{width:100%!important;margin-top:8px!important;text-align:center!important}.sos657-scroll.sos657-receipt .sos659-warranty-record{display:block!important}.sos657-scroll.sos657-receipt .sos659-warranty-record span{display:block!important;margin-top:3px!important}
+@media(max-width:720px){.sos659-editor-fields{grid-template-columns:repeat(2,minmax(0,1fr))}.sos659-editor-fields .sos659-terms-input{grid-column:1/-1}.sos659-editor-fields button.sos659-save{grid-column:1/-1}.sos659-editor-heading{display:block}}
+
+.sos657-tools .sos659-warranty-action{background:#fff0df!important;color:#5c3b29!important;border-color:#d5b89e!important}
 </style>
 
 <!-- SERVICING_OS_COUNTER_658 -->
+
+<!-- SERVICING_OS_COUNTER_659 -->

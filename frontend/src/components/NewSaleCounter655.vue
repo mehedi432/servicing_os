@@ -39,6 +39,45 @@ async function request(method, params={}, body=null){
  if(!res.ok||data.exc||data.exception)throw new Error(errMessage(data,'Invoice API request failed'))
  return data.message||{}
 }
+
+// SERVICING_OS_AUTO_SELLING_PRICE_660 — read from ERPNext selling Item Price.
+async function sos660FetchPrice(itemCode) {
+  const url = new URL('/api/method/servicing_os.api.counter_selling_price_660.get_selling_price', window.location.origin)
+  url.searchParams.set('item_code', String(itemCode))
+  const response = await fetch(url, {
+    method: 'GET', credentials: 'same-origin', cache: 'no-store',
+    headers: { Accept: 'application/json' }
+  })
+  const data = await response.json()
+  if (!response.ok || data.exc || data.exception) {
+    throw new Error(errMessage(data, 'Unable to fetch ERPNext selling price'))
+  }
+  if (!data.message?.found || data.message.rate === null || data.message.rate === undefined) {
+    throw new Error(data.message?.message || 'No valid selling price is configured for this item.')
+  }
+  return data.message
+}
+async function sos660LoadPrice(row) {
+  if (row.priceLoading) return
+  row.priceLoading = true
+  row.priceError = ''
+  row.rate = null
+  try {
+    const result = await sos660FetchPrice(row.item_code)
+    if (!cart.value.includes(row)) return
+    row.rate = Number(result.rate)
+    row.priceList = result.price_list
+    row.priceSource = result.item_price
+  } catch (e) {
+    if (cart.value.includes(row)) {
+      row.priceError = e?.message || 'Selling price unavailable'
+      error.value = row.priceError
+    }
+  } finally {
+    row.priceLoading = false
+  }
+}
+
 function closeItems(){setTimeout(()=>{itemFocused.value=false;itemHits.value=[]},190)}
 function closeCustomers(){setTimeout(()=>{customerFocused.value=false;customerHits.value=[]},190)}
 function lookupItems(){
@@ -53,11 +92,19 @@ function lookupCustomers(){
 }
 function selectCustomer(c){selectedCustomer.value=c;customerQuery.value=c.customer_name||c.name;customerFocused.value=false;customerHits.value=[]}
 function addItem(product){
- const code=product.name||product.item_code
- let existing=cart.value.find(x=>x.item_code===code&&!x.has_serial_no)
- if(existing)existing.qty+=1
- else cart.value.push({item_code:code,item_name:product.item_name||code,qty:1,rate:0,discount_percentage:0,serial_no:'',has_serial_no:!!product.has_serial_no,stock_qty:product.stock_qty})
- query.value='';itemHits.value=[]; itemFocused.value=false; info.value='Added '+code+' to cart';saved.value=null
+ const code = product.name || product.item_code
+ let row = cart.value.find(x => x.item_code === code && !x.has_serial_no)
+ if (row) row.qty += 1
+ else {
+   row = {item_code:code,item_name:product.item_name||code,qty:1,
+     rate:null,discount_percentage:0,serial_no:'',has_serial_no:!!product.has_serial_no,
+     stock_qty:product.stock_qty,priceLoading:false,priceError:'',priceList:'',priceSource:''}
+   cart.value.push(row)
+ }
+ // Never silently substitute purchase price, valuation rate or zero.
+ if (row.rate === null || row.rate === undefined || row.priceError) sos660LoadPrice(row)
+ query.value='';itemHits.value=[];itemFocused.value=false;
+ info.value='Added '+code+' to cart';saved.value=null
 }
 function removeItem(i){cart.value.splice(i,1); saved.value=null}
 function newSale(){cart.value=[];selectedCustomer.value=null;customerQuery.value='';discountMode.value='none';discountValue.value=0;saved.value=null;error.value='';info.value='';query.value=''}
@@ -65,6 +112,7 @@ async function createDraft(){
  error.value='';info.value=''
  if(!selectedCustomer.value?.name){error.value='Select an existing Customer from suggestions.';return}
  if(!cart.value.length){error.value='Add one or more items to cart.';return}
+ if(cart.value.some(x=>x.priceLoading || x.priceError || x.rate === null || x.rate === undefined || x.rate === '')){error.value='Wait for the selling price or update the missing Item Price in ERPNext.';return}
  if(cart.value.some(x=>!x.item_code||!(Number(x.qty)>0)||!Number.isFinite(Number(x.rate))||Number(x.rate)<0||Number(x.discount_percentage)<0||Number(x.discount_percentage)>100)){
   error.value='Review all item quantities, rates, and line discounts.';return
  }
@@ -104,7 +152,12 @@ onUnmounted(()=>{clearTimeout(itemTimer);clearTimeout(customerTimer);++itemSeque
        <div v-for="(row,i) in cart" :key="row.item_code+'-'+i" class="sos655-cart-line">
          <div class="sos655-product-name"><strong>{{ row.item_name }}</strong><small>{{ row.item_code }}</small></div>
          <label>Qty<input v-model.number="row.qty" type="number" min="0.01" step="0.01" :max="row.stock_qty===null?undefined:row.stock_qty" /></label>
-         <label>Unit Price ৳<input v-model.number="row.rate" type="number" min="0" step="0.01" /></label>
+         <label>Unit Price ৳
+           <input :value="row.rate===null?'':row.rate" type="number" min="0" step="0.01" readonly :aria-busy="row.priceLoading" title="Fetched from ERPNext Selling Price List; use Discount for reductions" />
+           <small v-if="row.priceLoading" class="sos660-price-note">Fetching selling price…</small>
+           <small v-else-if="row.priceError" class="sos660-price-error">{{ row.priceError }} <button type="button" @click="sos660LoadPrice(row)">Retry</button></small>
+           <small v-else-if="row.priceList" class="sos660-price-note">{{ row.priceList }}</small>
+         </label>
          <label>Disc. %<input v-model.number="row.discount_percentage" type="number" min="0" max="100" step="0.01" /></label>
          <strong class="sos655-row-total">৳ {{ money(lineTotal(row)) }}</strong>
          <button class="sos655-remove" type="button" aria-label="Remove item" @click="removeItem(i)">×</button>
@@ -126,7 +179,7 @@ onUnmounted(()=>{clearTimeout(itemTimer);clearTimeout(customerTimer);++itemSeque
        <div class="sos655-summary-row"><span>Additional discount</span><strong>− ৳ {{ money(overall) }}</strong></div>
        <div class="sos655-summary-row grand"><span>Before tax</span><strong>৳ {{ money(total) }}</strong></div>
        <p class="sos655-notice">Saves an ERPNext <b>draft</b> Sales Invoice; no stock deduction or payment posting yet. Use Existing POS Checkout for your current direct checkout workflow.</p>
-       <button type="button" class="sos655-save" :disabled="saving||!cart.length||!!saved" @click="createDraft">{{ saving?'Saving…':'Save Draft Invoice' }}</button>
+       <button type="button" class="sos655-save" :disabled="saving||!cart.length||!!saved||cart.some(row=>row.priceLoading||row.priceError||row.rate===null||row.rate===undefined)" @click="createDraft">{{ saving?'Saving…':'Save Draft Invoice' }}</button>
        <div v-if="saved" class="sos655-success" role="status">Saved: <strong>{{ saved.invoice }}</strong> · {{ saved.currency }} {{ money(saved.grand_total) }}</div>
        <p v-if="error" role="alert" class="sos655-error">{{ error }}</p><p v-else-if="info" class="sos655-info">{{ info }}</p>
      </aside>
@@ -170,4 +223,12 @@ onUnmounted(()=>{clearTimeout(itemTimer);clearTimeout(customerTimer);++itemSeque
 @media(max-width:1160px){.sos655-sales-layout{grid-template-columns:minmax(0,2fr) minmax(260px,1fr)}.sos655-product-results{grid-template-columns:repeat(2,minmax(0,1fr))!important}.sos655-cart-line{grid-template-columns:minmax(120px,2fr) 58px 80px 74px;}.sos655-row-total{grid-column:2/4}.sos655-remove{grid-column:4}}
 @media(max-width:850px){.sos655-sales-layout{grid-template-columns:1fr}.sos655-checkout{position:static}.sos655-sales-footer{flex-direction:column;align-items:start}.sos655-sales-footer p{max-width:100%}}
 @media(max-width:540px){.sos655-product-results{grid-template-columns:repeat(2,minmax(0,1fr))!important}.sos655-cart-line{grid-template-columns:repeat(3,minmax(0,1fr))}.sos655-product-name{grid-column:1/-1}.sos655-row-total{grid-column:1/3}.sos655-remove{grid-column:3}.sos655-sales-main,.sos655-checkout{padding:11px}}
+</style>
+
+<style>
+/* SERVICING_OS_AUTO_SELLING_PRICE_660 */
+.sos655-new-sale .sos660-price-note{color:#866a52;font-size:10px;font-weight:500;line-height:1.2}
+.sos655-new-sale .sos660-price-error{color:#9d412c;font-size:10px;font-weight:600;overflow-wrap:anywhere}
+.sos655-new-sale .sos660-price-error button{font-size:10px;color:#805a3e;text-decoration:underline;background:transparent!important;border:0!important;padding:1px!important}
+.sos655-new-sale input[readonly]{background:#f5ebe2!important;color:#634633!important;cursor:default}
 </style>

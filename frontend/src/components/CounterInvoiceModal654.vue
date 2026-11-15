@@ -43,7 +43,31 @@ function onCustomerBlur(){setTimeout(()=>{customerFocus.value=false;customerSugg
 function itemSearch(i){clearTimeout(itemTimer);activeItem.value=i;matches.value=[];if(!suggestFocused.value||!rows.value[i]||!rows.value[i].item_code.trim())return;const seq=++itemSeq;itemTimer=setTimeout(async()=>{itemBusy.value=true;try{const x=await api('search_invoice_items',{params:{q:rows.value[i].item_code,invoice_kind:kind.value}});if(seq===itemSeq)matches.value=x.results||[]}catch(e){if(seq===itemSeq)error.value=e.message}finally{if(seq===itemSeq)itemBusy.value=false}},230)}
 function focusItem(i){suggestFocused.value=true;itemSearch(i)}
 function onItemBlur(){setTimeout(()=>{suggestFocused.value=false;matches.value=[];activeItem.value=-1},250)}
-function chooseItem(i,it){rows.value[i].item_code=it.name;rows.value[i].has_serial_no=!!it.has_serial_no;rows.value[i].stock_qty=it.stock_qty;matches.value=[];activeItem.value=-1;suggestFocused.value=false}
+
+// SERVICING_OS_AUTO_SELLING_PRICE_660: Invoice rate from Item Price.
+async function sos660ModalPrice(code) {
+  const url = new URL('/api/method/servicing_os.api.counter_selling_price_660.get_selling_price', window.location.origin)
+  url.searchParams.set('item_code', String(code))
+  const resp = await fetch(url,{method:'GET',credentials:'same-origin',cache:'no-store',headers:{Accept:'application/json'}})
+  const data = await resp.json()
+  if (!resp.ok || data.exc || data.exception) throw new Error(errorText(data,'Selling price lookup failed'))
+  if (!data.message?.found || data.message.rate === null || data.message.rate === undefined) throw new Error(data.message?.message||'Selling price missing')
+  return data.message
+}
+
+async function chooseItem(i,it){
+  const row=rows.value[i]
+  row.item_code=it.name;row.has_serial_no=!!it.has_serial_no;row.stock_qty=it.stock_qty
+  row.rate='';row.priceLoading=true;row.priceError='';row.priceList=''
+  matches.value=[];activeItem.value=-1;suggestFocused.value=false
+  try{
+    const value=await sos660ModalPrice(it.name)
+    if(rows.value[i]!==row||row.item_code!==it.name)return
+    row.rate=Number(value.rate);row.priceList=value.price_list
+  }catch(e){if(rows.value.includes(row)){
+    row.priceError=e?.message||'Selling price unavailable';error.value=row.priceError
+  }}finally{row.priceLoading=false}
+}
 function addItem(){if(rows.value.length<35)rows.value.push({item_code:'',qty:1,rate:'',discount_percentage:0,serial_no:''})}
 function removeItem(i){if(rows.value.length>1)rows.value.splice(i,1)}
 function reset(){saved.value=null;resetOnKind();load()}
@@ -54,7 +78,7 @@ async function save(){
   error.value=''
   if(kind.value==='service'&&!selectedJob.value){error.value='Choose a saved Service Job.';return}
   if(kind.value!=='service'&&!customerId.value){error.value='Choose a Customer from the search suggestions.';return}
-  if(rows.value.some(r=>!r.item_code||r.rate===''||!(Number(r.qty)>0)||Number(r.rate)<0||Number(r.discount_percentage)<0||Number(r.discount_percentage)>100)){
+  if(rows.value.some(r=>!r.item_code||r.rate===''||r.priceLoading||r.priceError||!(Number(r.qty)>0)||Number(r.rate)<0||Number(r.discount_percentage)<0||Number(r.discount_percentage)>100)){
     error.value='Complete all item codes, quantities, rates and line discounts.';return
   }
   if(!Number.isFinite(Number(discountValue.value))||Number(discountValue.value)<0||(discountMode.value==='percent'&&Number(discountValue.value)>=100)||(discountMode.value==='amount'&&Number(discountValue.value)>=subtotal.value)){
@@ -110,7 +134,9 @@ async function save(){
             </div>
           </label>
           <label><span>Qty</span><input v-model.number="row.qty" type="number" min="0.01" step="0.01" /></label>
-          <label><span>Rate (BDT)</span><input v-model="row.rate" type="number" min="0" step="0.01" /></label>
+          <label><span>Unit Selling Price (BDT)</span><input :value="row.rate" type="number" min="0" step="0.01" readonly title="Selling Price List rate, discount separately" />
+           <small v-if="row.priceLoading">Fetching selling price…</small><small v-else-if="row.priceError" class="sos660-modal-error">{{ row.priceError }}</small><small v-else-if="row.priceList">{{ row.priceList }}</small>
+         </label>
           <label><span>Disc. %</span><input v-model.number="row.discount_percentage" type="number" min="0" max="100" step="0.01" /></label>
           <label v-if="kind==='used'||row.has_serial_no" class="sos654-serial"><span>Serial Number(s)</span><input v-model.trim="row.serial_no" placeholder="For serialized items, one per unit" /></label>
           <div class="sos654-lineamount"><small>Line</small><strong>৳ {{ money(lineTotal(row)) }}</strong></div>
@@ -159,3 +185,9 @@ async function save(){
 </style>
 
 <!-- SERVICING_OS_COUNTER_657 -->
+
+<style>
+/* SERVICING_OS_AUTO_SELLING_PRICE_660 */
+.sos654-invoice input[readonly]{background:#f5ebe2!important;color:#634633!important}
+.sos654-invoice .sos660-modal-error{color:#9d412c!important;font-size:10px!important}
+</style>
