@@ -1,4 +1,7 @@
 <script setup>
+import InventoryWorkspace from './components/InventoryWorkspace.vue' // SOS_INVENTORY_V1
+
+import ServiceInvoiceHub661 from './components/ServiceInvoiceHub661.vue'
 import NewSaleCounter655 from './components/NewSaleCounter655.vue'
 
 // SERVICING_COUNTER_EXACT_649 — route screenshot tiles into existing workspaces.
@@ -814,9 +817,9 @@ function counterChooseOperation620G(operation) {
 <section v-if="activeNav === 'Service Jobs' && (typeof repairManagementOpen === 'undefined' || !repairManagementOpen)" class="sos-servicejobs-root">
   <ServiceJobsWorkspace @receive="sosReceiveFromJobs624B" @manage="sosManageFromJobs624B" />
 </section>
-<div v-if="activeNav === 'Inventory' && (typeof repairManagementOpen === 'undefined' || !repairManagementOpen)" class="sos-item-quick-624B">
-  <StockQuickAdd @changed="sosStockChanged624B" />
-</div>
+<template v-if="activeNav === 'Inventory' && (typeof repairManagementOpen === 'undefined' || !repairManagementOpen)">
+        <InventoryWorkspace />
+      </template>
 
 <!-- SERVICING_NAV_WORKSPACES_621_623: standalone workspace screens -->
 <CustomerWorkspace v-if="activeNav === 'Customers'" />
@@ -829,7 +832,7 @@ function counterChooseOperation620G(operation) {
 
 <OwnerReports v-if="activeNav === 'Reports' && !repairManagementOpen" />
 
-<StockManagement v-if="activeNav === 'Inventory' && !repairManagementOpen" />
+<!-- SOS_INVENTORY_V41: old Inventory stock table hidden; Counter stock panel remains intact -->
 
 <RepairManagement v-if="repairManagementOpen" @close="repairManagementOpen = false" />
 <div v-show="(!repairManagementOpen && activeNav !== 'Inventory' && activeNav !== 'Reports') && activeNav !== 'New Sales'">
@@ -1488,10 +1491,12 @@ function counterChooseOperation620G(operation) {
 
   <!-- SERVICING_COUNTER_PATCH_651: actual ServiceJobsWorkspace, not navigation -->
   <template #repair>
+    <!-- SERVICING_OS_SERVICE_INVOICE_662: live linked Service Job invoices -->
+    <ServiceInvoiceHub661 />
     <ServiceJobsWorkspace @receive="sosReceiveFromJobs624B" @manage="sosManageFromJobs624B" />
   </template>
   <!-- SERVICING_COUNTER_PATCH_652: real ERPNext draft invoice workflow -->
-  <template #invoice="{ initialKind }"><CounterInvoiceModal654 :initial-job="viewedServiceJob?.name || ''"  :initial-kind="initialKind" /></template>
+  <template #invoice="{ initialKind, initialJob }"><CounterInvoiceModal654 :initial-job="initialJob || (viewedServiceJob?.name || '')"  :initial-kind="initialKind" /></template>
 
   <!-- SERVICING_COUNTER_PATCH_653: actual source feature components, never placeholders -->
   <template #sale>

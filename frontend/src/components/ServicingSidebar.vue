@@ -130,7 +130,7 @@ const filteredGroups = computed(() => {
             <svg class="sos4-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <path v-for="(path,index) in iconPaths(item)" :key="index" :d="path" />
             </svg>
-            <span class="sos4-label">{{ item }}</span>
+            <span class="sos4-label">{{ item === 'Inventory' && currentLanguage === 'bn' ? 'ইনভেন্টরি' : item }}</span>
           </button>
         </nav>
       </template>

@@ -295,3 +295,29 @@ for _sos657_dt in ('Sales Invoice', 'POS Invoice'):
 del _sos657_events, _sos657_dt, _sos657_dt_events, _sos657_ev, _sos657_handler, _sos657_prior
 
 # SERVICING_OS_COUNTER_657
+
+
+# SERVICING_OS_671: merge with any existing invoice hooks; do not replace them.
+_sos671_doc_events = globals().get('doc_events')
+if _sos671_doc_events is None:
+    _sos671_doc_events = {}
+    doc_events = _sos671_doc_events
+if not isinstance(_sos671_doc_events, dict):
+    raise TypeError('SERVICING OS 6.71 expects doc_events to be a dict')
+for _sos671_dt in ('Sales Invoice', 'POS Invoice'):
+    _sos671_actions = _sos671_doc_events.setdefault(_sos671_dt, {})
+    if not isinstance(_sos671_actions, dict):
+        raise TypeError('doc_events entry is not a dict: ' + _sos671_dt)
+    _sos671_current = _sos671_actions.get('before_submit')
+    _sos671_target = 'servicing_os.api.item_warranty_671.populate_invoice_warranty'
+    if _sos671_current is None:
+        _sos671_actions['before_submit'] = _sos671_target
+    elif isinstance(_sos671_current, str):
+        if _sos671_current != _sos671_target:
+            _sos671_actions['before_submit'] = [_sos671_current, _sos671_target]
+    elif isinstance(_sos671_current, (list, tuple)):
+        if _sos671_target not in _sos671_current:
+            _sos671_actions['before_submit'] = list(_sos671_current) + [_sos671_target]
+    else:
+        raise TypeError('Unsupported before_submit hook type: '+_sos671_dt)
+del _sos671_doc_events, _sos671_dt, _sos671_actions, _sos671_current, _sos671_target

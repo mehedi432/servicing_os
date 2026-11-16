@@ -38,15 +38,24 @@ async function refresh() {
 }
 function open(row,duplicate=false){preview.value={name:row.name,doctype:row.doctype,duplicate}}
 const onSaved=()=>refresh()
+const sos671Completed = (event) => {
+  const data = event?.detail || {}
+  if (data.invoice && Number(data.docstatus)===1) {
+    records.value = records.value.map(i=>i.name===data.invoice && i.doctype==='Sales Invoice' ? {...i,docstatus:1,status:data.status||'Submitted'}:i)
+  }
+  refresh()
+}
 onMounted(()=>{
   refresh()
   window.addEventListener('servicing-os-invoice-draft-created',onSaved)
   window.addEventListener('servicing-os-sale-completed',onSaved)
+  window.addEventListener('servicing-os-invoice-completed',sos671Completed)
 })
 onUnmounted(()=>{
   requestSeq++
   window.removeEventListener('servicing-os-invoice-draft-created',onSaved)
   window.removeEventListener('servicing-os-sale-completed',onSaved)
+  window.removeEventListener('servicing-os-invoice-completed',sos671Completed)
 })
 watch(availableScope,refresh)
 </script>
@@ -109,3 +118,5 @@ watch(availableScope,refresh)
 .sos658-footnote{margin:11px 2px 0;color:#927964;font-size:10px;line-height:1.5}.sos658-error,.sos658-empty{padding:18px;text-align:center;font-size:12px;color:#896951}.sos658-error{color:#a3402d;background:#fff1e8;border-radius:9px}
 @media(max-width:650px){.sos658-head,.sos658-body{padding:11px}.sos658-title p{font-size:10px}.sos658-count{display:none}}
 </style>
+
+<!-- SERVICING_OS_671 -->

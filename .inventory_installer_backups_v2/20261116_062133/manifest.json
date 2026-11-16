@@ -1,0 +1,18 @@
+[
+  {
+    "path": "frontend/src/App.vue",
+    "existed": true
+  },
+  {
+    "path": "frontend/src/components/ServicingSidebar.vue",
+    "existed": true
+  },
+  {
+    "path": "frontend/src/components/InventoryWorkspace.vue",
+    "existed": true
+  },
+  {
+    "path": "servicing_os/api/inventory_workspace.py",
+    "existed": true
+  }
+]

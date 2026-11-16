@@ -47,7 +47,7 @@ def _details(row, child_meta):
 
 
 @frappe.whitelist(methods=["GET"])
-def get_invoice_with_warranty(invoice_name=None, doctype="Sales Invoice"):
+def _sos671_get_invoice_with_warranty_original(invoice_name=None, doctype="Sales Invoice"):
     base = get_branded_invoice(invoice_name=invoice_name, doctype=doctype)
     child, meta = _child_meta(doctype)
     inv = frappe.get_doc(doctype, invoice_name)
@@ -162,3 +162,33 @@ def setup_warranty_fields():
             anchor = fieldname
     frappe.db.commit()
     return {"created": installed, "message": "Warranty entry fields are available. Existing invoices unchanged."}
+
+
+# SERVICING_OS_671 — preserve invoice-line warranty, provide an explicit
+# *current* Item Master fallback for older invoices without warranty snapshots.
+_get_invoice_with_warranty_before_671 = _sos671_get_invoice_with_warranty_original
+
+@frappe.whitelist(methods=['GET'])
+def get_invoice_with_warranty(invoice_name=None, doctype='Sales Invoice'):
+    base = _get_invoice_with_warranty_before_671(invoice_name=invoice_name, doctype=doctype)
+    # Previous reader already validates company and invoice read permissions.
+    if not frappe.has_permission('Item', 'read'):
+        return base
+    unrecorded = [r for r in base.get('items', []) if not r.get('warranty_recorded') and r.get('item_code')]
+    if not unrecorded:
+        return base
+    from servicing_os.api.item_warranty_671 import _item_periods
+    codes = {r['item_code'] for r in unrecorded}
+    periods = _item_periods(codes)
+    for row in unrecorded:
+        days = periods.get(row['item_code'], 0)
+        if not days:
+            continue
+        row['warranty_type'] = 'Current Item Master reference'
+        row['warranty_period_days'] = days
+        row['warranty_start_date'] = ''
+        row['warranty_expiry_date'] = ''
+        row['warranty_terms'] = ('Reference only: this Item Master period is current; '
+                                 'the original sale warranty was not recorded.')
+        row['warranty_recorded'] = True
+    return base

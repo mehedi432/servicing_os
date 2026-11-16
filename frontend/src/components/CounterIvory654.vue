@@ -22,8 +22,23 @@ const brandLetters = computed(() => {
 })
 const bn = computed(() => String(unref(currentLanguage) || 'en').toLowerCase().startsWith('bn'))
 const invoiceMode = ref(false)
+// SERVICING_OS_SERVICE_INVOICE_662: selected job shared with existing invoice modal.
+const sos661Job = ref('')
+const sos661Kind = ref('')
+function sos661StartInvoice(jobName) {
+  sos661Job.value = String(jobName || '').trim()
+  sos661Kind.value = sos661Job.value ? 'service' : ''
+  invoiceMode.value = true
+}
+function sos661ReceiveInvoiceRequest(event) {
+  const job = String(event?.detail?.service_job || '').trim()
+  if (!job) return
+  sos661StartInvoice(job)
+}
+onMounted(() => window.addEventListener('servicing-os-create-service-invoice', sos661ReceiveInvoiceRequest))
+onUnmounted(() => window.removeEventListener('servicing-os-create-service-invoice', sos661ReceiveInvoiceRequest))
 const billingTab = ref('invoices')
-function openInvoice() { invoiceMode.value = true }
+function openInvoice() { sos661StartInvoice('') }
 const profileOpen = ref(false)
 const searching = ref(false)
 const logoutBusy = ref(false)
@@ -158,10 +173,10 @@ async function logout() {
           <slot v-else name="delivery" />
         </template>
         <!-- SERVICING_OS_COUNTER_658: real invoice history beneath live workspaces -->
-        <InvoiceHistory658 v-if="active === 'sale' || active === 'repair' || active === 'used'" :scope="active" />
+        <InvoiceHistory658 v-if="active === 'sale' || active === 'used'" :scope="active" />
       </div>
       <div class="sos653-invoice-action">
-        <button type="button" class="sos653-floating-invoice" @click="invoiceMode = true" :title="bn ? 'নতুন বিক্রয় বা সার্ভিস ইনভয়েস তৈরি' : 'Create Retail, Used Laptop or Service Invoice'">
+        <button type="button" class="sos653-floating-invoice" @click="sos661StartInvoice('')" :title="bn ? 'নতুন বিক্রয় বা সার্ভিস ইনভয়েস তৈরি' : 'Create Retail, Used Laptop or Service Invoice'">
           <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M5 3h14v18l-3-2-4 2-4-2-3 2V3Z"/><path d="M9 9h6M9 13h6"/></svg>
           {{ bn ? 'ইনভয়েস তৈরি করুন' : 'Create Invoice' }}
         </button>
@@ -174,7 +189,7 @@ async function logout() {
             <div><strong>{{ bn ? 'নতুন ইনভয়েস' : 'Create Invoice' }}</strong><p>{{ bn ? 'সার্ভিস জবের জন্য খসড়া ইনভয়েস' : 'Retail · Used Laptop · Service · Discounts' }}</p></div>
             <button type="button" aria-label="Close invoice modal" @click="invoiceMode=false">×</button>
           </div>
-          <div class="sos653-modal-content"><slot name="invoice" :initial-kind="active==='used'?'used':active==='sale'?'retail':'service'" /></div>
+          <div class="sos653-modal-content"><slot name="invoice" :initial-kind="sos661Kind || (active==='used'?'used':active==='sale'?'retail':'service')" :initial-job="sos661Job" /></div>
         </section>
       </div>
     </Teleport>

@@ -1,4 +1,95 @@
 <script setup>
+// SERVICING_OS_CUSTOMER_LOOKUP_666: hand off to existing native POS customer select.
+import CustomerQuickSearch666 from './CustomerQuickSearch666.vue'
+import { ref as sos666Ref } from 'vue'
+const sos666RetailSelected = sos666Ref(null)
+function sos666RetailChoose(c) {
+  if (!c || !c.name) return
+  chooseCustomer(c)
+  sos666RetailSelected.value = c
+}
+function sos666RetailClear() { sos666RetailSelected.value = null }
+
+
+
+// SERVICING_OS_FEATURED_665 — in-stock catalog before item search is selected.
+import { ref as sos665Ref, onMounted as sos665Mounted } from 'vue'
+const sos665Stock = sos665Ref([])
+const sos665Warehouse = sos665Ref('Retail warehouse')
+const sos665Loading = sos665Ref(false)
+const sos665Error = sos665Ref('')
+const sos665Cursors = sos665Ref([0])
+const sos665CursorIndex = sos665Ref(0)
+const sos665NextCursor = sos665Ref(null)
+let sos665Seq = 0
+async function sos665LoadStock(cursor=0) {
+ const seq=++sos665Seq
+ sos665Loading.value=true; sos665Error.value=''
+ try {
+   const url=new URL('/api/method/servicing_os.api.counter_fast_667.get_stock_products',window.location.origin)
+   url.searchParams.set('cursor',String(cursor))
+   const res=await fetch(url,{credentials:'same-origin',cache:'no-store',headers:{Accept:'application/json'}})
+   const data=await res.json()
+   if (!res.ok || data.exc || data.exception) throw new Error('Unable to load stock items from ERPNext')
+   if(seq!==sos665Seq)return
+   sos665Warehouse.value=data.message?.warehouse || 'Retail warehouse'
+   sos665Stock.value=(data.message?.items||[]).slice(0,20).map(x=>({
+     ...x, ledger_qty:x.stock_qty, list_price:x.list_price ?? null,
+     item_code:x.item_code || x.name
+   }))
+   sos665NextCursor.value=data.message?.has_next ? data.message.next_cursor : null
+ }catch(e){if(seq===sos665Seq)sos665Error.value=e?.message || 'Available stock could not be loaded.'}
+ finally{if(seq===sos665Seq)sos665Loading.value=false}
+}
+function sos665Next(){if(sos665Loading.value||sos665NextCursor.value==null)return;
+ sos665Cursors.value=sos665Cursors.value.slice(0,sos665CursorIndex.value+1);
+ sos665Cursors.value.push(sos665NextCursor.value);sos665CursorIndex.value++;
+ sos665LoadStock(sos665Cursors.value[sos665CursorIndex.value])}
+function sos665Previous(){if(sos665Loading.value||sos665CursorIndex.value<=0)return;
+ sos665CursorIndex.value--;sos665LoadStock(sos665Cursors.value[sos665CursorIndex.value])}
+sos665Mounted(()=>sos665LoadStock(0))
+
+// SERVICING_OS_CATALOG_664: show a maximum of 20 products at once in either layout.
+import { ref as sos664Ref, watch as sos664Watch, unref as sos664Unref } from 'vue'
+const sos664RetailPage = sos664Ref(1)
+function sos664RetailLength(items) { return Array.isArray(items) ? items.length : 0 }
+function sos664RetailPageOf(items) {
+  return Array.isArray(items) ? items.slice((sos664RetailPage.value-1)*20,sos664RetailPage.value*20) : []
+}
+sos664Watch(() => sos664Unref(search), () => { sos664RetailPage.value = 1 })
+
+// SERVICING_OS_ITEM_VIEW_663: one saved layout preference across both selling screens.
+import { ref as sos663Ref, onMounted as sos663Mounted, onUnmounted as sos663Unmounted } from 'vue'
+const sos663View = sos663Ref('grid')
+const sos663StorageKey = 'servicing-os-product-view-v1'
+function sos663SetView(layout) {
+  if (layout !== 'grid' && layout !== 'list') return
+  sos663View.value = layout
+  try { window.localStorage.setItem(sos663StorageKey, layout) } catch (_) { /* private browsing */ }
+  window.dispatchEvent(new CustomEvent('servicing-os-product-view', { detail: layout }))
+}
+function sos663SyncView(event) {
+  const next = event?.detail
+  if (next === 'grid' || next === 'list') sos663View.value = next
+}
+function sos663StorageChange(event) {
+  if (event?.key === sos663StorageKey && ['grid','list'].includes(event.newValue)) {
+    sos663View.value = event.newValue
+  }
+}
+sos663Mounted(() => {
+  try {
+    const value = window.localStorage.getItem(sos663StorageKey)
+    if (value === 'grid' || value === 'list') sos663View.value = value
+  } catch (_) { /* storage unavailable */ }
+  window.addEventListener('servicing-os-product-view', sos663SyncView)
+  window.addEventListener('storage', sos663StorageChange)
+})
+sos663Unmounted(() => {
+  window.removeEventListener('servicing-os-product-view', sos663SyncView)
+  window.removeEventListener('storage', sos663StorageChange)
+})
+
 // SERVICING_COUNTER_PATCH_654: show product suggestions only while item search is selected.
 import { ref as sos654Ref } from 'vue'
 const sos654RetailFocused = sos654Ref(false)
@@ -228,13 +319,57 @@ onBeforeUnmount(()=>{clearTimeout(searchTimer);clearTimeout(customerTimer)})
         All listed products currently have 0 saleable stock in <strong>Stores - AMCL</strong>. You can browse prices, but you cannot add them to the cart until stock is received.
       </p>
       <div class="cc-product-header"><b>Products</b><small>{{products.length}} results · Stores - AMCL</small></div>
-      <div class="cc-product-list">
-        <button v-for="p in (sos654RetailFocused ? (products) : [])" :key="p.item_code" type="button" class="cc-product" :disabled="p.rate==null || Number(p.stock_qty)<=0 || checking" @click="add(p)">
+      <div class="sos663-retail-viewbar">
+  <div class="sos663-viewbar" role="group" aria-label="Product view">
+  <span class="sos663-viewbar-label">View</span>
+  <button type="button" :class="{ 'sos663-selected': sos663View === 'grid' }"
+    :aria-pressed="sos663View === 'grid'" title="Grid view" @mousedown.prevent
+    @click="sos663SetView('grid')">
+    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor"
+      stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+    Grid
+  </button>
+  <button type="button" :class="{ 'sos663-selected': sos663View === 'list' }"
+    :aria-pressed="sos663View === 'list'" title="List view" @mousedown.prevent
+    @click="sos663SetView('list')">
+    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor"
+      stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M8 5h13M8 12h13M8 19h13M3 5h.01M3 12h.01M3 19h.01"/></svg>
+    List
+  </button>
+</div>
+</div>
+
+<div v-if="!sos654RetailFocused" class="sos665-retail-defaultbar">
+  <div><strong>In Stock · Ready to Sell</strong><small>Browse up to 20 available products, or search the full catalog above</small></div>
+  <button type="button" @click="sos665LoadStock(sos665Cursors[sos665CursorIndex])" :disabled="sos665Loading">Refresh Stock</button>
+</div>
+<div class="cc-product-list sos663-retail-results" :data-sos663-view="sos663View">
+        <button v-for="p in (sos654RetailFocused ? sos664RetailPageOf((products)) : sos665Stock)" :key="p.item_code" type="button" class="cc-product" :disabled="p.rate==null || Number(p.stock_qty)<=0 || checking" @click="add(p)"><span v-if="(p.ledger_qty ?? p.stock_qty) !== null && (p.ledger_qty ?? p.stock_qty) !== undefined"
+                class="sos664-retail-stock" :class="{'sos664-out':Number(p.ledger_qty ?? p.stock_qty)<=0}">
+        {{ Number(p.ledger_qty ?? p.stock_qty)>0 ? 'In stock: '+(p.ledger_qty ?? p.stock_qty) : 'Out of stock · 0' }}
+      </span>
           <span class="cc-product-icon">▣</span><span class="cc-product-info"><b>{{p.item_name}}</b><small>{{p.item_code}}</small></span>
           <span class="cc-product-price"><b>{{p.rate==null?'No price':money(p.rate)}}</b><small :class="Number(p.stock_qty)>0?'cc-available':'cc-out'">{{Number(p.stock_qty)>0?p.stock_qty+' in stock':'Out of stock'}}</small></span><span class="cc-add">+</span>
         </button>
         <div v-if="!products.length" class="cc-empty">No matching stock products. Try another search.</div>
       </div>
+
+<div v-if="!sos654RetailFocused" class="sos665-retail-footer">
+ <span v-if="sos665Loading">Loading in-stock items…</span>
+ <span v-else-if="sos665Error" role="alert">{{ sos665Error }}</span>
+ <span v-else-if="!sos665Stock.length">No stocked products found in the retail warehouse.</span>
+ <span v-else>Page {{ sos665CursorIndex+1 }} · {{ sos665Stock.length }} available products</span>
+ <div><button type="button" @click="sos665Previous" :disabled="sos665Loading||sos665CursorIndex===0">Previous</button>
+ <button type="button" @click="sos665Next" :disabled="sos665Loading||sos665NextCursor==null">Next 20</button></div>
+</div>
+
+<div class="sos664-retail-pager" v-if="sos654RetailFocused && sos664RetailLength((products))">
+  <span>Showing {{ Math.min(sos664RetailPage * 20, sos664RetailLength((products))) }} of {{ sos664RetailLength((products)) }} loaded products · 20 per page</span>
+  <div class="sos664-actions">
+    <button type="button" :disabled="sos664RetailPage<=1" @mousedown.prevent @click="sos664RetailPage--">Previous</button>
+    <button type="button" :disabled="sos664RetailPage*20>=sos664RetailLength((products))" @mousedown.prevent @click="sos664RetailPage++">Next 20</button>
+  </div>
+</div>
     </section>
     <section class="cc-checkout">
       <div class="cc-checkout-title"><div><div class="cc-eyebrow">CURRENT ORDER</div><h2>Shopping Cart <span>{{count}} items</span></h2></div><button type="button" class="cc-small" @click="reset" :disabled="checking">Clear</button></div>
@@ -249,7 +384,9 @@ onBeforeUnmount(()=>{clearTimeout(searchTimer);clearTimeout(customerTimer)})
         </div>
         <div v-else class="cc-customer-search-area">
           <div class="cc-customer-query"><span aria-hidden="true">⌕</span>
-            <input id="cc-customer-search" v-model="customerSearch" @focus="customerPickerOpen=true" @input="onCustomerSearch" @keydown.esc="customerPickerOpen=false" @keydown.enter.prevent="matchedCustomers.length===1 ? chooseCustomer(matchedCustomers[0]) : (customerPickerOpen=true)" placeholder="Customer name or mobile number" autocomplete="off" aria-label="Find customer by name or phone"/>
+            <div class="sos666-retail-picker"><CustomerQuickSearch666 :selected="sos666RetailSelected"
+  label="Customer · Search by name or mobile" @selected="sos666RetailChoose" @clear="sos666RetailClear" /></div>
+<input id="cc-customer-search" v-model="customerSearch" @focus="customerPickerOpen=true" @input="onCustomerSearch" @keydown.esc="customerPickerOpen=false" @keydown.enter.prevent="matchedCustomers.length===1 ? chooseCustomer(matchedCustomers[0]) : (customerPickerOpen=true)" placeholder="Customer name or mobile number" autocomplete="off" aria-label="Find customer by name or phone" class="sos666-native-old-search" />
             <span v-if="customerLoading" class="cc-customer-loader" aria-label="Searching">…</span>
           </div>
           <div v-if="customerPickerOpen && customerSearch.trim()" class="cc-customer-options" role="listbox" aria-label="Customer matches">
@@ -352,3 +489,91 @@ onBeforeUnmount(()=>{clearTimeout(searchTimer);clearTimeout(customerTimer)})
 <style>
 @media print{body *{visibility:hidden!important}.cc-receipt-layer,.cc-receipt-layer *{visibility:visible!important}.cc-receipt-layer{position:absolute!important;inset:0!important;background:#fff!important;display:block!important;padding:0!important}.cc-receipt{box-shadow:none!important;border:0!important;max-height:none!important;margin:0 auto!important}.cc-receipt-actions{display:none!important}}
 </style>
+
+<style>
+
+/* SERVICING_OS_ITEM_VIEW_663 — warm ivory product display switch. */
+.sos663-viewbar,.sos663-viewbar *{box-sizing:border-box}
+.sos663-viewbar{display:inline-flex;align-items:center;gap:4px;padding:4px;
+ background:#f6ede4!important;border:1px solid #e4cdb9!important;border-radius:11px;
+ flex-shrink:0;max-width:100%}
+.sos663-viewbar-label{font-size:11px;color:#8a6d57;font-weight:650;padding:0 7px}
+.sos663-viewbar button{display:inline-flex!important;align-items:center!important;justify-content:center!important;
+ gap:5px!important;white-space:nowrap;min-height:33px!important;padding:6px 11px!important;
+ border:1px solid transparent!important;border-radius:8px!important;background:transparent!important;
+ color:#78563f!important;font-size:12px!important;line-height:1.2!important;font-weight:700!important;
+ box-shadow:none!important;cursor:pointer}
+.sos663-viewbar button.sos663-selected{background:#fffcf7!important;border-color:#e4cdb9!important;
+ color:#4a3021!important;box-shadow:0 2px 5px #5a423017!important}
+.sos663-viewbar button:hover:not(.sos663-selected){background:#efe2d6!important}
+.sos663-viewbar button:focus-visible{outline:2px solid #996d4d!important;outline-offset:2px!important}
+.sos663-viewbar svg{display:block;flex-shrink:0}
+
+/* Only the existing product-results container is switched; cart/order handlers stay intact. */
+.sos663-retail-results[data-sos663-view="grid"]{display:grid!important;
+ grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:10px!important;
+ align-content:start!important;align-items:stretch!important;min-width:0}
+.sos663-retail-results[data-sos663-view="list"]{display:flex!important;
+ flex-direction:column!important;grid-template-columns:none!important;gap:7px!important;
+ align-items:stretch!important;min-width:0}
+.sos663-retail-results[data-sos663-view="grid"] > *{min-width:0;width:100%!important}
+.sos663-retail-results[data-sos663-view="list"] > *{min-width:0;width:100%!important;
+ min-height:56px!important;max-width:100%!important;margin:0!important}
+.sos663-retail-viewbar{display:flex;justify-content:flex-end;align-items:center;
+ flex-wrap:wrap;gap:8px;margin:8px 0 10px;min-width:0}
+@media(max-width:1100px){.sos663-retail-results[data-sos663-view="grid"]{
+ grid-template-columns:repeat(2,minmax(0,1fr))!important}}
+@media(max-width:600px){.sos663-retail-results[data-sos663-view="grid"]{
+ grid-template-columns:repeat(2,minmax(0,1fr))!important}
+ .sos663-viewbar-label{display:none}}
+
+</style>
+
+<style>
+/* SERVICING_OS_CATALOG_664 — product paging; do not alter the POS cart or payment form. */
+.sos664-retail-pager{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;
+ padding:9px 4px;margin:8px 0 12px;border-top:1px solid #e7d6c5;color:#866a52;font-size:11px}
+.sos664-retail-pager .sos664-actions{display:flex;gap:6px}
+.sos664-retail-pager button{min-height:32px!important;padding:6px 10px!important;border-radius:8px!important;
+ border:1px solid #ddc8b5!important;background:#fffcf7!important;color:#77543d!important;font-weight:650!important}
+.sos664-retail-pager button:disabled{opacity:.43;cursor:not-allowed}
+.sos664-retail-stock{font-size:10px;color:#805a3e;padding:2px 6px;border-radius:6px;background:#f4e3d3}
+.sos664-retail-stock.sos664-out{color:#9d4838;background:#f9e5dd}
+</style>
+
+<style>
+/* SERVICING_OS_FEATURED_665: stock catalog is visible without search focus */
+.sos665-retail-defaultbar,.sos665-retail-footer{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;color:#7a5c47;margin:10px 0;padding:8px 4px;font-size:11px}
+.sos665-retail-defaultbar strong{font-size:13px;color:#3c2c25;display:block}
+.sos665-retail-defaultbar small{display:block;color:#8b725e;margin-top:4px}
+.sos665-retail-defaultbar>button,.sos665-retail-footer button{border:1px solid #e2cdbb!important;border-radius:8px!important;min-height:33px!important;background:#f4e9dd!important;color:#79583f!important;padding:7px 11px!important;font-size:11px!important;font-weight:700!important}
+.sos665-retail-footer{border-top:1px solid #e8d8ca;margin-top:10px}
+.sos665-retail-footer>div{display:flex;gap:8px}
+.sos665-retail-defaultbar>button:disabled,.sos665-retail-footer button:disabled{opacity:.43;cursor:not-allowed}
+.sos663-retail-results[data-sos663-view="grid"]{align-content:start!important;grid-template-columns:repeat(4,minmax(0,1fr))!important}
+.sos663-retail-results{min-height:420px;max-height:590px;overflow-y:auto}
+@media(max-width:1250px){.sos663-retail-results[data-sos663-view="grid"]{grid-template-columns:repeat(3,minmax(0,1fr))!important}}
+@media(max-width:850px){.sos663-retail-results[data-sos663-view="grid"]{grid-template-columns:repeat(2,minmax(0,1fr))!important}}
+</style>
+
+<style>
+/* SERVICING_OS_CUSTOMER_LOOKUP_666: one reliable picker, original native handler retained. */
+.sos666-retail-picker{width:100%;min-width:0;margin:8px 0 11px;position:relative;z-index:20}
+.sos666-native-old-search{display:none!important}
+</style>
+
+
+<style>
+/* 6.67: restore the real native retail product grid without changing Add to Cart. */
+.sos663-retail-results{box-sizing:border-box;min-height:0!important;max-height:none!important;overflow:visible!important;min-width:0!important;width:100%!important}
+.sos663-retail-results[data-sos663-view="grid"]{display:grid!important;grid-template-columns:repeat(auto-fill,minmax(min(100%,175px),1fr))!important;gap:10px!important;align-items:stretch!important;align-content:start!important}
+.sos663-retail-results[data-sos663-view="list"]{display:flex!important;flex-direction:column!important;gap:8px!important;align-items:stretch!important}
+.sos663-retail-results[data-sos663-view="grid"]>*{min-width:0!important;max-width:100%!important;width:100%!important;min-height:90px;border-radius:11px!important;overflow-wrap:anywhere}
+.sos663-retail-results[data-sos663-view="list"]>*{min-width:0!important;width:100%!important}
+.sos665-retail-defaultbar{align-items:center!important;margin-bottom:10px!important}
+.sos665-retail-defaultbar,.sos665-retail-footer{max-width:100%!important;box-sizing:border-box}
+.sos666-retail-picker{margin:10px 0!important;position:relative!important;z-index:60!important}
+</style>
+
+<!-- SERVICING_SALES_VISUAL_669: shared visual rules only; existing product and cart events preserved. -->
+<style src="./SalesProductVisual669.css"></style>

@@ -1,0 +1,6 @@
+frontend/src/App.vue|exists
+frontend/src/components/SalesCenter.vue|new
+servicing_os/api/sales_center.py|new
+frontend/src/components/ServicingSidebar.vue|exists
+servicing_os/www/servicing-os.html|exists
+servicing_os/www/servicing-os.py|exists

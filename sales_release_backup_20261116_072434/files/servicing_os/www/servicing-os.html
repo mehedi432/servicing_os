@@ -1,0 +1,38 @@
+{% extends "templates/web.html" %}
+{% block page_content %}
+
+<style>
+html, body {
+  margin: 0 !important;
+  padding: 0 !important;
+  width: 100% !important;
+  min-height: 100% !important;
+  overflow-x: hidden;
+}
+
+.navbar, .web-footer, footer {
+  display: none !important;
+}
+
+.container, .page-container, .page-content,
+.page_content, .web-page, .main-section,
+main, #page-servicing-os {
+  width: 100% !important;
+  max-width: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+#app {
+  width: 100%;
+  min-height: 100vh;
+}
+</style>
+
+<link rel="stylesheet" href="/assets/servicing_os/frontend/assets/index-C1xaz695.css">
+
+<div id="app"></div>
+
+<script type="module" src="/assets/servicing_os/frontend/assets/index-DZimdtUs.js"></script>
+
+{% endblock %}

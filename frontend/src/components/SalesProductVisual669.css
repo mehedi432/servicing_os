@@ -1,0 +1,87 @@
+/* SERVICING_SALES_VISUAL_669 — identical product-card geometry in both New Sale views.
+   No change to product searching, selection, checkout, discounts or ERPNext data. */
+:root{--sos669-ivory:#f9f6f2;--sos669-card:#fffcf7;--sos669-edge:#e7d6c5;--sos669-walnut:#3c2c25;--sos669-caramel:#805a3e}
+/* The historical RetailSales grid inherited a fixed-width column and a high min-height.
+   Use the actual product container and direct product children to avoid narrow vertical text. */
+.sos663-retail-results[data-sos663-view="grid"],
+.sos655-new-sale .sos665-stock-grid[data-sos663-view="grid"],
+.sos655-new-sale .sos655-product-results[data-sos663-view="grid"]{
+ box-sizing:border-box!important;display:grid!important;grid-template-columns:repeat(auto-fill,minmax(min(100%,188px),1fr))!important;
+ gap:12px!important;align-items:stretch!important;align-content:start!important;min-width:0!important;max-width:100%!important;
+ max-height:none!important;overflow:visible!important;container-type:normal!important;
+}
+.sos663-retail-results[data-sos663-view="list"],
+.sos655-new-sale .sos665-stock-grid[data-sos663-view="list"],
+.sos655-new-sale .sos655-product-results[data-sos663-view="list"]{
+ box-sizing:border-box!important;display:flex!important;flex-direction:column!important;gap:8px!important;
+ max-height:none!important;overflow:visible!important;min-width:0!important;max-width:100%!important;
+}
+.sos663-retail-results[data-sos663-view="grid"] > *,
+.sos655-new-sale .sos665-stock-grid[data-sos663-view="grid"] > *,
+.sos655-new-sale .sos655-product-results[data-sos663-view="grid"] > *{
+ box-sizing:border-box!important;display:flex!important;flex-direction:column!important;align-items:flex-start!important;
+ justify-content:flex-start!important;gap:7px!important;min-width:0!important;max-width:100%!important;width:100%!important;
+ min-height:168px!important;height:auto!important;padding:13px!important;
+ border:1px solid var(--sos669-edge)!important;border-radius:13px!important;background:var(--sos669-card)!important;
+ color:var(--sos669-walnut)!important;text-align:left!important;box-shadow:0 1px 3px #4a35200b!important;
+ white-space:normal!important;word-break:normal!important;overflow-wrap:anywhere!important;writing-mode:horizontal-tb!important;
+}
+.sos663-retail-results[data-sos663-view="grid"] > *:hover,
+.sos655-new-sale .sos665-stock-grid[data-sos663-view="grid"] > *:hover,
+.sos655-new-sale .sos655-product-results[data-sos663-view="grid"] > *:hover{
+ border-color:#c69e7e!important;box-shadow:0 5px 15px #4b332019!important;background:#fff9f2!important;
+}
+.sos663-retail-results[data-sos663-view="list"] > *,
+.sos655-new-sale .sos665-stock-grid[data-sos663-view="list"] > *,
+.sos655-new-sale .sos655-product-results[data-sos663-view="list"] > *{
+ box-sizing:border-box!important;display:flex!important;flex-direction:row!important;flex-wrap:wrap!important;align-items:center!important;
+ gap:10px!important;min-width:0!important;max-width:100%!important;width:100%!important;min-height:65px!important;height:auto!important;
+ padding:11px 13px!important;background:var(--sos669-card)!important;border:1px solid var(--sos669-edge)!important;
+ border-radius:11px!important;color:var(--sos669-walnut)!important;text-align:left!important;white-space:normal!important;
+}
+/* Normalize product text without breaking its existing @click and price/stock binding. */
+.sos663-retail-results > * *,
+.sos655-new-sale .sos665-stock-grid > * *,
+.sos655-new-sale .sos655-product-results > * *{
+ box-sizing:border-box!important;min-width:0!important;max-width:100%!important;writing-mode:horizontal-tb!important;
+ white-space:normal!important;overflow-wrap:anywhere!important;word-break:normal!important;
+}
+.sos663-retail-results[data-sos663-view="grid"] > * strong,
+.sos655-new-sale .sos665-stock-grid[data-sos663-view="grid"] > * strong,
+.sos655-new-sale .sos655-product-results[data-sos663-view="grid"] > * strong{
+ color:var(--sos669-walnut)!important;font-size:12px!important;font-weight:800!important;
+ line-height:1.45!important;max-width:100%!important;
+}
+.sos663-retail-results[data-sos663-view="grid"] > * small,
+.sos655-new-sale .sos665-stock-grid[data-sos663-view="grid"] > * small,
+.sos655-new-sale .sos655-product-results[data-sos663-view="grid"] > * small{
+ font-size:10px!important;color:#917661!important;line-height:1.4!important;
+}
+.sos655-new-sale .sos665-stock-grid .sos665-product-mark{
+ display:grid!important;place-items:center!important;background:#f4e3d3!important;color:#8e6244!important;
+ min-width:32px!important;min-height:32px!important;width:32px!important;height:32px!important;border-radius:9px!important;
+}
+.sos655-new-sale .sos665-stock-grid .sos665-product-bottom{width:100%!important;margin-top:auto!important;align-items:center!important}
+.sos655-new-sale .sos665-stock-grid .sos665-price{margin-top:auto;color:#694730!important;font-weight:850!important;font-size:13px!important}
+.sos655-new-sale .sos665-stock-grid .sos665-qty{color:#687b57!important}
+.sos663-retail-results > *:disabled,.sos655-new-sale .sos665-stock-grid > *:disabled{opacity:.58!important;cursor:not-allowed!important}
+.sos663-retail-viewbar,.sos655-new-sale .sos663-counter-actions{display:flex!important;justify-content:flex-end!important;align-items:center!important;gap:8px!important;flex-wrap:wrap!important;margin:8px 0 12px!important}
+.sos663-viewbar{border:1px solid #e3ccb9!important;border-radius:10px!important;background:#f5e9de!important;padding:4px!important}
+.sos663-viewbar button{min-height:33px!important;padding:6px 10px!important;border-radius:8px!important;font-size:12px!important;color:#7e5a43!important;font-weight:750!important}
+.sos663-viewbar button.sos663-selected{background:#fffefa!important;color:#3c2c25!important;box-shadow:0 1px 3px #573d2320!important}
+.sos666-retail-picker,.sos655-new-sale .sos655-customer-field{min-width:0!important;max-width:100%!important;width:100%!important;overflow:visible!important}
+.sos666-retail-picker{margin:12px 0!important;z-index:25!important}
+/* Product count and search are not a requirement to show the default stock tiles. */
+.sos665-retail-defaultbar,.sos665-featured-heading{align-items:center!important;gap:12px!important;flex-wrap:wrap!important}
+@media(max-width:720px){
+ .sos663-retail-results[data-sos663-view="grid"],
+ .sos655-new-sale .sos665-stock-grid[data-sos663-view="grid"],
+ .sos655-new-sale .sos655-product-results[data-sos663-view="grid"]{
+  grid-template-columns:repeat(auto-fill,minmax(min(100%,150px),1fr))!important;gap:8px!important;
+ }
+}
+@media(max-width:400px){
+ .sos663-retail-results[data-sos663-view="grid"],
+ .sos655-new-sale .sos665-stock-grid[data-sos663-view="grid"],
+ .sos655-new-sale .sos655-product-results[data-sos663-view="grid"]{grid-template-columns:1fr!important}
+}

@@ -1,4 +1,7 @@
 <script setup>
+import CounterCheckout670 from './CounterCheckout670.vue'
+const active670 = ref('')
+
 import InvoicePrint657 from './InvoicePrint657.vue'
 const sos657PrintName = ref('')
 const sos657PrintKind = ref('Sales Invoice')
@@ -19,8 +22,18 @@ async function api(endpoint,params={}){
 }
 async function refresh(){busy.value=true;error.value='';try{const data=await api('get_counter_billing_overview');invoices.value=data.invoices||[]}catch(e){error.value=e.message||'Could not load billing history'}finally{busy.value=false}}
 async function view(name){detailBusy.value=true;error.value='';try{details.value=await api('get_counter_invoice_detail',{invoice_name:name})}catch(e){error.value=e.message||'Cannot read invoice'}finally{detailBusy.value=false}}
-onMounted(()=>{refresh();window.addEventListener('servicing-os-invoice-draft-created',refresh)})
-onUnmounted(()=>window.removeEventListener('servicing-os-invoice-draft-created',refresh))
+function sos671Completed(event) {
+  const result=event?.detail||{}
+  if (result.invoice && Number(result.docstatus)===1) {
+    invoices.value=invoices.value.map(i=>i.name===result.invoice ? {...i,docstatus:1,status:result.status||'Submitted'} : i)
+    if (details.value?.name===result.invoice) view(result.invoice)
+  }
+  refresh()
+}
+onMounted(()=>{refresh();window.addEventListener('servicing-os-invoice-draft-created',refresh)
+  window.addEventListener('servicing-os-invoice-completed',sos671Completed)})
+onUnmounted(()=>{window.removeEventListener('servicing-os-invoice-draft-created',refresh)
+  window.removeEventListener('servicing-os-invoice-completed',sos671Completed)})
 </script>
 <template>
   <div class="sos653-billing" aria-label="Live service invoice register">
@@ -34,7 +47,7 @@ onUnmounted(()=>window.removeEventListener('servicing-os-invoice-draft-created',
     <div v-else-if="!filtered.length" class="sos653-billing-empty">No matching invoices. Create a draft to begin.</div>
     <div v-else class="sos653-billing-scroll">
       <table><thead><tr><th>Invoice</th><th>Type</th><th>Service Job</th><th>Customer</th><th>Status</th><th>Total</th><th>Due</th><th></th></tr></thead>
-      <tbody><tr v-for="i in filtered" :key="i.name"><td><strong>{{ i.name }}</strong><small>{{ i.posting_date }}</small></td><td>{{ i.invoice_kind==='used'?'Used Laptop':i.invoice_kind==='service'?'Service':'Retail' }}</td><td>{{ i.custom_service_job || '—' }}</td><td>{{ i.customer }}</td><td><span class="sos653-billing-tag">{{ i.docstatus===0?'Draft':i.status||'Submitted' }}</span></td><td>{{ money(i.grand_total,i.currency) }}</td><td>{{ money(i.outstanding_amount,i.currency) }}</td><td><button type="button" @click="view(i.name)">Details</button><button type="button" @click="sos657PrintKind='Sales Invoice';sos657PrintName=i.name">Print Invoice</button></td></tr></tbody></table>
+      <tbody><tr v-for="i in filtered" :key="i.name"><td><strong>{{ i.name }}</strong><small>{{ i.posting_date }}</small></td><td>{{ i.invoice_kind==='used'?'Used Laptop':i.invoice_kind==='service'?'Service':'Retail' }}</td><td>{{ i.custom_service_job || '—' }}</td><td>{{ i.customer }}</td><td><span class="sos653-billing-tag">{{ i.docstatus===0?'Draft':i.status||'Submitted' }}</span></td><td>{{ money(i.grand_total,i.currency) }}</td><td>{{ money(i.outstanding_amount,i.currency) }}</td><td><button type="button" @click="view(i.name)">Details</button><button v-if="i.docstatus===0" type="button" @click="active670=i.name">Edit & Complete</button><button type="button" @click="sos657PrintKind='Sales Invoice';sos657PrintName=i.name">Print Invoice</button></td></tr></tbody></table>
     </div>
     <div v-if="detailBusy" class="sos653-billing-empty">Loading invoice details…</div>
     <section v-else-if="details" class="sos653-billing-detail" aria-label="Invoice details">
@@ -51,6 +64,9 @@ onUnmounted(()=>window.removeEventListener('servicing-os-invoice-draft-created',
       <button type="button" :disabled="!sos657ManualName.trim()" @click="sos657PrintKind=sos657ManualKind;sos657PrintName=sos657ManualName.trim()">Find &amp; Print</button>
     </div>
     <InvoicePrint657 v-if="sos657PrintName" :invoice-name="sos657PrintName" :doctype="sos657PrintKind" @close="sos657PrintName=''" />
+
+  <!-- SERVICING_OS_670: edit and complete invoice from invoice list -->
+  <CounterCheckout670 v-if="active670" :invoice-name="active670" @completed="refresh();active670=''" />
   </div>
 </template>
 <style>
@@ -74,3 +90,4 @@ onUnmounted(()=>window.removeEventListener('servicing-os-invoice-draft-created',
 .sos657-pos-print-lookup select{min-height:39px;border-radius:8px;background:#fffdfa;border:1px solid #ddc8b5;padding:8px;color:#3c2c25}
 .sos657-pos-print-lookup button{background:#805a3e!important;color:#fff!important;border-color:#805a3e!important}.sos657-pos-print-lookup button:disabled{opacity:.45}
 </style>
+<!-- SERVICING_OS_671 -->

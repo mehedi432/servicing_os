@@ -90,32 +90,40 @@ def search_invoice_customers(q=''):
 
 
 @frappe.whitelist(methods=['GET'])
-def search_invoice_items(q='', invoice_kind='retail'):
+def search_invoice_items(q='', invoice_kind='retail', page=1):
+    """Permission-checked item catalog; 20 per page regardless of stock balance."""
     kind=kind_of(invoice_kind)
     shop=shop_config()
     read_permission('Item')
     q=str(q or '').strip()[:80]
-    if len(q)<1:return {'results':[]}
+    try: page=max(1,min(10000,int(page)))
+    except (TypeError,ValueError): page=1
     filters={'disabled':0,'is_sales_item':1}
-    if kind == 'service':filters['is_stock_item']=0
-    elif kind == 'used':filters['is_stock_item']=1
-    rows=frappe.get_list('Item', filters=filters,
-       or_filters={'name':['like','%'+q+'%'],'item_name':['like','%'+q+'%']},
-       fields=['name','item_name','stock_uom','is_stock_item','has_serial_no'],
-       order_by='modified desc',limit_page_length=35)
-    warehouse = shop.used_laptop_warehouse if kind=='used' else shop.retail_warehouse
-    result=[]
-    for item in rows:
-        d=dict(item)
-        d['stock_qty']=None
-        if d.get('is_stock_item'):
-            qty=frappe.db.get_value('Bin',{'warehouse':warehouse,'item_code':d['name']},'actual_qty') or 0
-            d['stock_qty']=float(qty)
-            if kind=='used' and float(qty)<=0:
-                continue
-        result.append(d)
-        if len(result)>=12:break
-    return {'results':result,'warehouse':warehouse}
+    if kind=='service': filters['is_stock_item']=0
+    elif kind=='used': filters['is_stock_item']=1
+    opts={
+        'filters':filters,
+        'fields':['name','item_name','stock_uom','is_stock_item','has_serial_no'],
+        'order_by':'modified desc',
+        'start':(page-1)*20,
+        'limit_page_length':21,
+    }
+    if q:
+        pattern='%'+q.replace('%',r'\%').replace('_',r'\_')+'%'
+        opts['or_filters']={'name':['like',pattern],'item_name':['like',pattern]}
+    rows=frappe.get_list('Item',**opts)
+    has_next=len(rows)>20
+    warehouse=shop.used_laptop_warehouse if kind=='used' else shop.retail_warehouse
+    results=[]
+    for item in rows[:20]:
+        record=dict(item)
+        record['stock_qty']=None
+        if record.get('is_stock_item'):
+            qty=frappe.db.get_value('Bin',{'warehouse':warehouse,'item_code':record['name']},'actual_qty') or 0
+            record['stock_qty']=float(qty)
+        # Include zero-stock items for browsing and searching. ERPNext still validates sales.
+        results.append(record)
+    return {'results':results,'warehouse':warehouse,'page':page,'page_size':20,'has_next':has_next}
 
 
 def checked_job(job_name, shop):
@@ -131,6 +139,68 @@ def checked_job(job_name, shop):
         frappe.throw('Missing Sales Invoice custom_service_job field.')
     return job
 
+
+
+# SERVICING_OS_WARRANTY_672: valid whole-day warranty, never infer coverage.
+def _sos672_warranty_days(raw):
+    value=str(raw if raw is not None else '').strip()
+    if not value.isdigit():return 0
+    count=int(value)
+    return count if 0 < count <= 36500 else 0
+
+
+# SERVICING_OS_WARRANTY_674 — save manual warranty to an empty Item Master.
+# The invoice must have been inserted successfully before this helper runs.
+# No ignore_permissions, direct SQL UPDATE, or independent commit is used.
+def _sos674_promote_manual_warranties(submitted_lines, saved_invoice):
+    stored = list(saved_invoice.get('items') or [])
+    if len(submitted_lines) != len(stored):
+        frappe.throw('Invoice item count changed; manual warranty could not be synchronized.')
+
+    requested = {}
+    for entered, saved in zip(submitted_lines, stored):
+        if not isinstance(entered, dict):
+            frappe.throw('Unexpected warranty line input.')
+        if str(entered.get('warranty_choice') or '').strip().lower() != 'manual':
+            continue
+        code = str(entered.get('item_code') or '').strip()
+        if not code or code != saved.item_code:
+            frappe.throw('Invoice item order changed; cannot safely update Item warranty.')
+        days = _sos672_warranty_days(entered.get('warranty_period_days'))
+        if not days:
+            frappe.throw('Enter valid manual warranty days (1–36500) for ' + code)
+        # Confirm that the invoice line really saved these warranty days.
+        if int(saved.get('custom_sos_warranty_period_days') or 0) != days:
+            # The Item Master may have supplied a different (higher-priority)
+            # warranty between request preparation and invoice save.
+            continue
+        if code in requested and requested[code] != days:
+            frappe.throw('Conflicting manual warranty days for the same Item: ' + code)
+        requested[code] = days
+
+    updated = []
+    for code in sorted(requested):
+        days = requested[code]
+        # Lock each Item record inside the invoice transaction. Concurrent
+        # checkouts must never overwrite a warranty another user has set.
+        locked = frappe.db.sql(
+            'SELECT warranty_period FROM `tabItem` WHERE name = %s FOR UPDATE',
+            (code,), as_dict=True
+        )
+        if len(locked) != 1:
+            frappe.throw('Item does not exist: ' + code)
+        current = str(locked[0].get('warranty_period') or '').strip()
+        if current and current != '0':
+            continue  # Item Master warranty takes priority: never overwrite.
+        item_doc = frappe.get_doc('Item', code)
+        item_doc.check_permission('write')
+        recheck = str(item_doc.get('warranty_period') or '').strip()
+        if recheck and recheck != '0':
+            continue
+        item_doc.set('warranty_period', str(days))
+        item_doc.save()  # normal Item validation/audit; same transaction
+        updated.append({'item_code': code, 'warranty_period_days': days})
+    return updated
 
 @frappe.whitelist(methods=['POST'])
 def create_unified_invoice_draft(invoice_kind=None, customer=None, job_name=None, items=None,
@@ -194,6 +264,31 @@ def create_unified_invoice_draft(invoice_kind=None, customer=None, job_name=None
                 row['serial_no']='\n'.join(parts)
             elif serial:
                 frappe.throw('Item '+item.name+' is not serial tracked; clear its Serial Number field.')
+
+        # SERVICING_OS_WARRANTY_672: require real per-item warranty choices from new UI.
+        # Older clients with no warranty_choice remain backward-compatible.
+        choice=str(line.get('warranty_choice') or '').strip().lower()
+        if choice and choice not in ('item_master','manual','none'):
+            frappe.throw('Invalid warranty choice for '+code)
+        item_period=frappe.db.get_value('Item',code,'warranty_period') if frappe.get_meta('Item').has_field('warranty_period') else None
+        master_days=_sos672_warranty_days(item_period)
+        if master_days > 0:
+            days=master_days
+            row['custom_sos_warranty_period_days']=days
+        elif choice=='manual':
+            days=_sos672_warranty_days(line.get('warranty_period_days'))
+            if not days:frappe.throw('Enter valid manual warranty days (1–36500) for '+code)
+            row['custom_sos_warranty_period_days']=days
+        elif choice=='none':
+            row['custom_sos_warranty_type']='No Warranty'
+            row['custom_sos_warranty_period_days']=0
+        elif choice=='item_master':
+            frappe.throw('Item Master warranty is not recorded for '+code+'; enter days manually or select No warranty.')
+        if choice or master_days:
+            invoice_item_meta=frappe.get_meta('Sales Invoice Item')
+            required=('custom_sos_warranty_period_days','custom_sos_warranty_type')
+            if any(not invoice_item_meta.has_field(field) for field in required):
+                frappe.throw('Invoice warranty fields are missing; run setup_warranty_fields() from the 6.59 warranty setup.')
         bill_lines.append(row)
     if subtotal<=0:frappe.throw('Invoice amount must be greater than zero.')
     mode=str(discount_mode or 'none').lower()
@@ -222,6 +317,9 @@ def create_unified_invoice_draft(invoice_kind=None, customer=None, job_name=None
     if invoice.docstatus!=0:frappe.throw('Unexpected invoice submission; reverting transaction.')
     if kind=='service' and invoice.get(LINK_FIELD)!=job.name:
         frappe.throw('Service Job reference was not saved.')
+    # SERVICING_OS_WARRANTY_674: promote only explicitly entered manual
+    # durations, after a successful invoice insert, in the same transaction.
+    sos674_updated_item_warranties = _sos674_promote_manual_warranties(items, invoice)
     return {'success':True,'invoice':invoice.name,'invoice_kind':kind,
             'service_job':job.name if job else None, 'company':invoice.company,
             'customer':invoice.customer,'currency':invoice.currency,'net_total':invoice.net_total,

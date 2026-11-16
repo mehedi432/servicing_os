@@ -1,0 +1,18 @@
+[
+  {
+    "rel": "frontend/src/App.vue",
+    "exists": true
+  },
+  {
+    "rel": "frontend/src/components/ServicingSidebar.vue",
+    "exists": true
+  },
+  {
+    "rel": "frontend/src/components/InventoryWorkspace.vue",
+    "exists": true
+  },
+  {
+    "rel": "servicing_os/api/inventory_workspace.py",
+    "exists": true
+  }
+]

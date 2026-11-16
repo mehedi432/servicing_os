@@ -1,9 +1,12 @@
 <script setup>
+import CounterCheckout670 from './CounterCheckout670.vue'
+const completed670 = ref(null)
+
 import InvoicePrint657 from './InvoicePrint657.vue'
 const sos657Preview = ref('')
 import { computed, onMounted, ref, unref, watch, onUnmounted } from 'vue'
 import { currentLanguage } from '../i18n/servicingLanguage.js'
-const props = defineProps({ initialKind: {type:String, default:'retail'} })
+const props = defineProps({ initialKind: {type:String, default:'retail'}, initialJob: {type:String, default:''} })
 const emit = defineEmits(['saved'])
 const bn = computed(()=>String(unref(currentLanguage)||'en').toLowerCase().startsWith('bn'))
 const kind = ref(['retail','used','service'].includes(props.initialKind) ? props.initialKind:'retail')
@@ -11,6 +14,60 @@ const setup = ref(null), loading = ref(true), saving=ref(false), error=ref(''), 
 const customerText=ref(''), customerId=ref(''), customerSuggestions=ref([]), customerFocus=ref(false)
 const selectedJob=ref(''), jobList=ref([]), remarks=ref(''), discountMode=ref('none'), discountValue=ref(0)
 const rows=ref([{item_code:'',qty:1,rate:'',discount_percentage:0,serial_no:''}])
+
+// SERVICING_OS_WARRANTY_672: fetch and require an explicit warranty for each line.
+const sos672WarrantyCache = new Map()
+let sos672WarrantyTicket = 0
+async function sos672ResolveModalWarranty(row) {
+  if (!row?.item_code) return
+  const code=String(row.item_code).trim()
+  const ticket=++sos672WarrantyTicket
+  row.sos672WarrantyCode=code
+  row.sos672WarrantyPending=true
+  row.sos672WarrantyError=''
+  try {
+    let days = sos672WarrantyCache.get(code)
+    if (days === undefined) {
+      const url = new URL('/api/method/servicing_os.api.item_warranty_671.get_item_warranties', location.origin)
+      url.searchParams.set('items',JSON.stringify([code]))
+      const response=await fetch(url,{credentials:'same-origin',cache:'no-store',headers:{Accept:'application/json'}})
+      const data=await response.json()
+      if(!response.ok||data.exc||data.exception) throw new Error('Warranty lookup unavailable')
+      days=Number(data.message?.items?.[0]?.warranty_period_days||0)
+      sos672WarrantyCache.set(code,days)
+    }
+    if (!rows.value.includes(row)||row.item_code!==code) return
+    if (days>0) {row.sos672WarrantyDays=days;row.sos672WarrantySource='item_master'}
+    else if (!row.sos672WarrantySelected) {row.sos672WarrantyDays='';row.sos672WarrantySource='manual'}
+  } catch(e) {
+    if(rows.value.includes(row)&&row.item_code===code) row.sos672WarrantyError=e?.message||'Warranty lookup failed'
+  } finally {
+    if(rows.value.includes(row)&&row.item_code===code) row.sos672WarrantyPending=false
+  }
+}
+function sos672WarrantyEdited(row) {
+  if(row.sos672WarrantySource==='item_master')return
+  row.sos672WarrantySource='manual';row.sos672WarrantySelected=true;row.sos672WarrantyError=''
+}
+function sos672NoWarranty(row) {
+  if(row.sos672WarrantySource==='item_master')return
+  row.sos672WarrantyDays=0;row.sos672WarrantySource='none';row.sos672WarrantySelected=true;row.sos672WarrantyError=''
+}
+function sos672ModalWarrantyValid(row) {
+  if(row.sos672WarrantyPending||row.sos672WarrantyError)return false
+  const n=Number(row.sos672WarrantyDays)
+  return row.sos672WarrantySource==='none'||((row.sos672WarrantySource==='item_master'||row.sos672WarrantySource==='manual')&&Number.isInteger(n)&&n>0&&n<=36500)
+}
+// Also resolves manually entered Item Codes when staff do not pick a suggestion.
+let sos672ModalTimer
+watch(()=>rows.value.map(r=>r.item_code).join('|'),()=>{
+  clearTimeout(sos672ModalTimer)
+  sos672ModalTimer=setTimeout(()=>rows.value.forEach(r=>{
+    if(r.item_code!==r.sos672WarrantyCode){r.sos672WarrantySelected=false;r.sos672WarrantyDays='';r.sos672WarrantySource='';r.sos672WarrantyCode=r.item_code}
+    if(r.item_code && !r.sos672WarrantySelected)sos672ResolveModalWarranty(r)
+  }),420)
+})
+
 const matches=ref([]), activeItem=ref(-1), itemBusy=ref(false), suggestFocused=ref(false)
 let customerTimer, itemTimer, customerSeq=0, itemSeq=0
 const currentJob=computed(()=>jobList.value.find(j=>j.name===selectedJob.value))
@@ -34,7 +91,27 @@ async function api(name,{method='GET',params={},body=null}={}){
   if(!res.ok||data.exc||data.exception)throw new Error(errorText(data,'Invoice request failed'))
   return data.message||{}
 }
-async function load(){loading.value=true;error.value='';try{setup.value=await api('get_invoice_setup');jobList.value=setup.value.jobs||[]}catch(e){error.value=e.message||'Cannot load invoice configuration'}finally{loading.value=false}}
+
+// SERVICING_OS_SERVICE_INVOICE_662 — preselect exact Service Job and its linked Customer.
+async function sos661SelectInitialJob() {
+  const id = String(props.initialJob || '').trim()
+  if (!id) return
+  if (kind.value !== 'service') throw new Error('Requested job requires a Service Invoice.')
+  if (!jobList.value.some(j => j.name === id)) {
+    const url = new URL('/api/method/servicing_os.api.service_invoice_661.get_job_context', window.location.origin)
+    url.searchParams.set('job_name', id)
+    const response = await fetch(url, {method:'GET', credentials:'same-origin', cache:'no-store', headers:{Accept:'application/json'}})
+    const payload = await response.json()
+    if (!response.ok || payload.exc || payload.exception || !payload.message?.name) {
+      throw new Error(typeof payload.message === 'string' ? payload.message : 'Could not load selected Service Job.')
+    }
+    jobList.value.unshift(payload.message)
+  }
+  selectedJob.value = id
+  selectJob()
+}
+
+async function load(){loading.value=true;error.value='';try{setup.value=await api('get_invoice_setup');jobList.value=setup.value.jobs||[];await sos661SelectInitialJob()}catch(e){error.value=e.message||'Cannot load invoice configuration'}finally{loading.value=false}}
 onMounted(load)
 function selectJob(){let j=currentJob.value;if(j){customerId.value=j.customer;customerText.value=j.customer_name||j.customer}}
 function customerSearch(){clearTimeout(customerTimer);customerSuggestions.value=[];customerId.value='';if(!customerFocus.value||customerText.value.trim().length<1)return;const seq=++customerSeq;customerTimer=setTimeout(async()=>{try{const x=await api('search_invoice_customers',{params:{q:customerText.value}});if(seq===customerSeq)customerSuggestions.value=x.results||[]}catch(e){if(seq===customerSeq)error.value=e.message}},240)}
@@ -57,7 +134,7 @@ async function sos660ModalPrice(code) {
 
 async function chooseItem(i,it){
   const row=rows.value[i]
-  row.item_code=it.name;row.has_serial_no=!!it.has_serial_no;row.stock_qty=it.stock_qty
+  row.item_code=it.name;row.has_serial_no=!!it.has_serial_no;row.stock_qty=it.stock_qty;row.sos672WarrantySelected=false;row.sos672WarrantyDays='';row.sos672WarrantySource='';sos672ResolveModalWarranty(row)
   row.rate='';row.priceLoading=true;row.priceError='';row.priceList=''
   matches.value=[];activeItem.value=-1;suggestFocused.value=false
   try{
@@ -85,9 +162,10 @@ async function save(){
     error.value='Invalid overall discount.';return
   }
   if(estimate.value<=0){error.value='Invoice must have a positive total.';return}
+  if(rows.value.some(r=>r.item_code&&!sos672ModalWarrantyValid(r))){error.value='Enter warranty days for every item without an Item Master warranty, or select No warranty.';return}
   saving.value=true
   try{
-    const d=await api('create_unified_invoice_draft',{method:'POST',body:{invoice_kind:kind.value,customer:customerId.value,job_name:selectedJob.value,items:rows.value.map(r=>({item_code:r.item_code,qty:r.qty,rate:r.rate,discount_percentage:r.discount_percentage,serial_no:r.serial_no})),discount_mode:discountMode.value,discount_value:discountMode.value==='none'?0:Number(discountValue.value),remarks:remarks.value}})
+    const d=await api('create_unified_invoice_draft',{method:'POST',body:{invoice_kind:kind.value,customer:customerId.value,job_name:selectedJob.value,items:rows.value.map(r=>({item_code:r.item_code,qty:r.qty,rate:r.rate,discount_percentage:r.discount_percentage,serial_no:r.serial_no,warranty_choice:r.sos672WarrantySource||'',warranty_period_days:r.sos672WarrantySource==='none'?0:Number(r.sos672WarrantyDays||0)})),discount_mode:discountMode.value,discount_value:discountMode.value==='none'?0:Number(discountValue.value),remarks:remarks.value}})
     if(!d.invoice)throw new Error('Invoice was not returned by backend')
     saved.value=d;emit('saved',d);window.dispatchEvent(new CustomEvent('servicing-os-invoice-draft-created',{detail:d}))
   }catch(e){error.value=e.message||'Unable to save invoice'}finally{saving.value=false}
@@ -97,9 +175,9 @@ async function save(){
   <div class="sos654-invoice">
     <p v-if="loading" class="sos654-info">Loading shop, customers and invoice settings…</p>
     <div v-else-if="saved" class="sos654-success" role="status">
-      <strong>Draft Invoice Saved</strong><h2>{{ saved.invoice }}</h2>
+      <strong>{{ completed670?.invoice===saved?.invoice ? "Invoice Submitted" : "Draft Invoice Saved" }}</strong><h2>{{ saved.invoice }}</h2>
       <p>{{ kindName[saved.invoice_kind] }} · {{ saved.customer }} · {{ saved.currency }} {{ money(saved.grand_total) }}</p>
-      <p>This is a draft. Stock, payments, tax submission and General Ledger posting have not occurred.</p>
+      <p v-if="completed670?.invoice!==saved?.invoice">This is a draft; stock and payments are not posted yet.</p><p v-else>ERPNext submitted the invoice. You can print it below.</p>
       <button type="button" @click="sos657Preview=saved.invoice">Preview / Print Invoice</button><button type="button" @click="reset">Create another invoice</button>
     </div>
     <form v-else @submit.prevent="save">
@@ -138,6 +216,17 @@ async function save(){
            <small v-if="row.priceLoading">Fetching selling price…</small><small v-else-if="row.priceError" class="sos660-modal-error">{{ row.priceError }}</small><small v-else-if="row.priceList">{{ row.priceList }}</small>
          </label>
           <label><span>Disc. %</span><input v-model.number="row.discount_percentage" type="number" min="0" max="100" step="0.01" /></label>
+          <label class="sos672-modal-warranty"><span>Warranty (Days)</span>
+            <input v-model.number="row.sos672WarrantyDays" type="number" min="1" max="36500" step="1"
+              :readonly="row.sos672WarrantySource==='item_master'"
+              :disabled="row.sos672WarrantyPending" placeholder="Enter days" @input="sos672WarrantyEdited(row)" />
+            <small v-if="row.sos672WarrantySource==='item_master'">ERPNext Item Master</small>
+            <small v-else-if="row.sos672WarrantyPending">Checking warranty…</small>
+            <small v-else-if="row.sos672WarrantyError">{{ row.sos672WarrantyError }}</small>
+            <small v-else>Manual warranty days</small>
+            <button v-if="row.sos672WarrantySource!=='item_master'&&!row.sos672WarrantyPending"
+              type="button" class="sos672-none-button" @click="sos672NoWarranty(row)">No warranty</button>
+          </label>
           <label v-if="kind==='used'||row.has_serial_no" class="sos654-serial"><span>Serial Number(s)</span><input v-model.trim="row.serial_no" placeholder="For serialized items, one per unit" /></label>
           <div class="sos654-lineamount"><small>Line</small><strong>৳ {{ money(lineTotal(row)) }}</strong></div>
           <button type="button" class="sos654-remove" aria-label="Remove invoice item" :disabled="rows.length<2" @click="removeItem(i)">×</button>
@@ -156,10 +245,13 @@ async function save(){
       </div>
       <p class="sos654-info">Creates a draft ERPNext Sales Invoice. Retail and used laptop items retain warehouse / serial information for native validation on submission. No stock or payment posting occurs on draft save.</p>
       <p v-if="error" class="sos654-error" role="alert">{{ error }}</p>
-      <div class="sos654-footer"><button type="button" @click="load">Refresh</button><button type="submit" class="primary" :disabled="saving||loading">{{ saving?'Saving draft…':'Save Draft Invoice' }}</button></div>
+      <div class="sos654-footer"><button type="button" @click="load">Refresh</button><button type="submit" class="primary" :disabled="saving||loading">{{ saving?'Saving draft…':'Review & Continue to Checkout' }}</button></div>
     </form>
     <p v-if="error&&loading" class="sos654-error">{{ error }}</p>
     <InvoicePrint657 v-if="sos657Preview" :invoice-name="sos657Preview" @close="sos657Preview=''" />
+
+    <!-- SERVICING_OS_670: draft edit / payment / delivery / receipt -->
+    <CounterCheckout670 v-if="saved?.invoice" :invoice-name="saved.invoice" @completed="completed670=$event" />
   </div>
 </template>
 <style>
@@ -190,4 +282,15 @@ async function save(){
 /* SERVICING_OS_AUTO_SELLING_PRICE_660 */
 .sos654-invoice input[readonly]{background:#f5ebe2!important;color:#634633!important}
 .sos654-invoice .sos660-modal-error{color:#9d412c!important;font-size:10px!important}
+</style>
+
+<style>
+/* SERVICING_OS_WARRANTY_672 — explicit warranty controls on every modal row. */
+.sos654-invoice .sos654-line{grid-template-columns:minmax(160px,2.6fr) minmax(65px,.7fr) minmax(92px,1fr) minmax(72px,.8fr) minmax(110px,1fr) minmax(90px,1fr) 34px!important;gap:8px!important}
+.sos654-invoice .sos672-modal-warranty{min-width:0}
+.sos654-invoice .sos672-modal-warranty input[readonly]{background:#f3e8dd!important}
+.sos654-invoice .sos672-modal-warranty small{font-size:10px;line-height:1.3;color:#88674e}
+.sos654-invoice .sos672-none-button{background:transparent!important;border:0!important;color:#805a3e!important;text-decoration:underline!important;font-size:10px!important;padding:2px!important;text-align:left}
+@media(max-width:1200px){.sos654-invoice .sos654-line{grid-template-columns:repeat(4,minmax(0,1fr))!important}.sos654-invoice .sos654-line>.sos654-search-field{grid-column:1/-1}.sos654-invoice .sos654-line>.sos672-modal-warranty{grid-column:1/3}.sos654-invoice .sos654-line>.sos654-lineamount{grid-column:3/4}.sos654-invoice .sos654-line>.sos654-remove{grid-column:4}}
+@media(max-width:550px){.sos654-invoice .sos654-line{grid-template-columns:repeat(2,minmax(0,1fr))!important}.sos654-invoice .sos654-line>.sos672-modal-warranty{grid-column:1/3}.sos654-invoice .sos654-line>.sos654-lineamount{grid-column:1}.sos654-invoice .sos654-line>.sos654-remove{grid-column:2}}
 </style>
