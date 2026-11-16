@@ -1,0 +1,18 @@
+{
+  "files": [
+    {
+      "path": "frontend/src/components/ServicingSidebar.vue",
+      "existed": true
+    },
+    {
+      "path": "servicing_os/www/servicing-os.html",
+      "existed": true
+    },
+    {
+      "path": "servicing_os/www/servicing-os.py",
+      "existed": true
+    }
+  ],
+  "had_public": true,
+  "site": "servicing.local"
+}

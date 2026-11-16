@@ -5,6 +5,41 @@ import { currentLanguage } from '../i18n/servicingLanguage.js'
 // SERVICING_OS_INVENTORY_V4: actual ERPNext Items, Item Prices, Bins and Stock Entries.
 const bn = computed(() => currentLanguage.value === 'bn')
 const copy = {
+  heroKicker:['INVENTORY COMMAND CENTER','ইনভেন্টরি কন্ট্রোল সেন্টার'],
+  heroTitle:['Stock intelligence','স্টক বিশ্লেষণ'],
+  heroDescription:['A live operational view of products, availability and demand signals.','পণ্য, মজুত ও বিক্রয়ের তথ্যভিত্তিক সার্বিক চিত্র।'],
+  heroHealth:['Stock health','স্টকের অবস্থা'],
+  heroHealthySkus:['Healthy SKUs','পর্যাপ্ত স্টকের পণ্য'],
+  heroHealthNote:['Available balance vs reorder rules · not a demand forecast','উপলব্ধ মজুত ও রি-অর্ডার নিয়ম অনুযায়ী · চাহিদার পূর্বাভাস নয়'],
+  heroReview:['Review priorities','জরুরি পণ্য দেখুন'],
+  heroReviewStockouts:['Review stockouts','শেষ হওয়া স্টক দেখুন'],
+  heroNext:['NEXT STOCK ACTION','পরবর্তী স্টক পদক্ষেপ'],
+  heroSuggested:['Suggested · verify demand','পরামর্শ · চাহিদা যাচাই করুন'],
+  heroEvidence:['Based on ERPNext data','ইআরপিনেক্সট তথ্যভিত্তিক'],
+  heroAvailable:['Available','উপলব্ধ'],
+  heroReorder:['Reorder level','রি-অর্ডার সীমা'],
+  heroNoPriority:['No evidence-based restock candidate','তথ্যভিত্তিক রিস্টক অগ্রাধিকার নেই'],
+  heroNoItems:['Add your first product to start tracking inventory.','ইনভেন্টরি শুরু করতে প্রথম পণ্য যুক্ত করুন।'],
+  heroReviewMessage:['Review warehouse stock before ordering.','অর্ডারের আগে গুদামের মজুত যাচাই করুন।'],
+  heroBest:['Top seller · 90 days','সর্বাধিক বিক্রি · ৯০ দিন'],
+  heroSales:['Sales signal · 90 days','বিক্রয়ের তথ্য · ৯০ দিন'],
+  heroSoldUnits:['units sold across products','বিভিন্ন পণ্যের মোট বিক্রীত ইউনিট'],
+  heroPricing:['Price gaps','মূল্য অনুপস্থিত'],
+  heroPricingHelp:['Products missing buying or selling rates in configured price lists','কনফিগার করা মূল্য তালিকায় ক্রয় বা বিক্রয়মূল্য নেই এমন পণ্য'],
+  heroStocked:['Stocked SKUs','মজুত আছে এমন পণ্য'],
+  heroTopGroup:['Largest item group','বৃহত্তম আইটেম গ্রুপ'],
+  heroAllWarehouses:['All shop warehouses','দোকানের সব গুদাম'],
+  heroDataLoading:['Checking sales history…','বিক্রয় তথ্য পরীক্ষা চলছে…'],
+  heroDataError:['Sales insight unavailable','বিক্রয় তথ্য পাওয়া যায়নি'],
+  heroDataRestricted:['Sales access restricted','বিক্রয় তথ্যের অনুমতি নেই'],
+  heroDataUnavailable:['Sales data not yet verified','বিক্রয় তথ্য এখনো যাচাই হয়নি'],
+  heroSalesNone:['No submitted sales in 90 days','গত ৯০ দিনে জমাকৃত বিক্রয় নেই'],
+  heroSalesPartial:['Partial sales data · limits reached','বিক্রয়ের তথ্য আংশিক · সীমা পূর্ণ'],
+  heroStockWarning:['Stockout · verify demand','মজুত শেষ · চাহিদা যাচাই করুন'],
+  heroLowWarning:['Below reorder threshold','রি-অর্ডার সীমার নিচে'],
+  heroAllSet:['No priority under current rules','বর্তমান নিয়মে জরুরি অগ্রাধিকার নেই'],
+  heroLegacy:['Sales insight not installed on this Inventory version','এই ইনভেন্টরি সংস্করণে বিক্রয় বিশ্লেষণ ইনস্টল নেই'],
+  heroOutCount:['Out of stock','স্টক শেষ'],
   inventory:['Inventory','ইনভেন্টরি'], subtitle:['Manage products, prices, warranty and live stock in one place','পণ্য, মূল্য, ওয়ারেন্টি ও বর্তমান স্টক একই স্থানে'],
   live:['Connected to ERPNext','ইআরপিনেক্সটের সাথে সংযুক্ত'], add:['Add product','নতুন পণ্য'], edit:['Edit product','পণ্য সম্পাদনা'], save:['Save product','পণ্য সংরক্ষণ'],
   refresh:['Refresh','রিফ্রেশ'], export:['Export CSV','সিএসভি ডাউনলোড'], grid:['Grid','গ্রিড'], list:['List','লিস্ট'],
@@ -107,7 +142,9 @@ const filtered = computed(() => {
   const arr=items.value.filter(i => {
     if (q && ![i.item_code,i.item_name,i.item_group,i.brand].some(v=>String(v||'').toLocaleLowerCase().includes(q))) return false
     if (group.value && i.item_group!==group.value) return false
-    if (stockFilter.value!=='all' && statusOf(i)!==stockFilter.value) return false
+    if (stockFilter.value==='stocked' && heroAvailableQty(i)<=0) return false
+    if (stockFilter.value==='pricing' && (!heroPriceReady.value || (i.buying_price!=null && i.selling_price!=null))) return false
+    if (!['all','stocked','pricing'].includes(stockFilter.value) && statusOf(i)!==stockFilter.value) return false
     return true
   })
   if (sort.value==='name') arr.sort((a,b)=>String(a.item_name).localeCompare(String(b.item_name)))
@@ -122,6 +159,31 @@ const totals = computed(() => ({
   low:items.value.filter(i=>statusOf(i)==='low').length,
   value:items.value.reduce((s,i)=>s+Number(i.stock_value||0),0),
 }))
+// SOS_INV_HERO_V45: legacy v4.1 compatibility. NO 90-day sales claims without analytics.
+const heroAvailableQty = i => Number(i.actual_qty||0)-Number(i.reserved_qty||0)
+const heroHealthy = computed(() => items.value.filter(i=>statusOf(i)==='in').length)
+const heroStocked = computed(() => items.value.filter(i=>heroAvailableQty(i)>0).length)
+const heroOut = computed(() => items.value.filter(i=>statusOf(i)==='out').length)
+const heroLow = computed(() => items.value.filter(i=>statusOf(i)==='low').length)
+const heroHealthPct = computed(() => items.value.length?Math.round(100*heroHealthy.value/items.value.length):0)
+const heroPriceReady = computed(() => !!permissions.value.price_read && !!inventory.value.price_lists?.buying && !!inventory.value.price_lists?.selling)
+const heroPriceGaps = computed(() => heroPriceReady.value ? items.value.filter(i=>i.buying_price==null || i.selling_price==null).length : null)
+const heroGroupStats = computed(() => {
+  const m=new Map()
+  for(const i of items.value){const name=i.item_group||'Uncategorised';const r=m.get(name)||{name,count:0};r.count++;m.set(name,r)}
+  return [...m.values()].sort((a,b)=>b.count-a.count || a.name.localeCompare(b.name))
+})
+const heroLeadGroup = computed(() => heroGroupStats.value[0] || null)
+const heroAction = computed(() => {
+  const i=items.value.find(i=>statusOf(i)==='out') || items.value.find(i=>statusOf(i)==='low')
+  return i?{item:i,evidence:false}:null
+})
+const heroCatalogRef = ref(null)
+function heroShow(filter){
+  stockFilter.value=filter;group.value='';search.value='';pageSize.value=48
+  Promise.resolve().then(()=>heroCatalogRef.value?.scrollIntoView?.({behavior:'smooth',block:'start'}))
+}
+
 function number(v) { return Number(v||0).toLocaleString(bn.value?'bn-BD':'en-BD',{maximumFractionDigits:2}) }
 function money(v) { return v===null || v===undefined ? '—' : `${inventory.value.currency} ${number(v)}` }
 function warrantyText(i) { return Number(i.warranty_days)>0?`${number(i.warranty_days)} ${t('days')}`:t('none') }
@@ -306,17 +368,49 @@ function close() {if (!busy.value) {dismissLookup(); modal.value=''}}
 
 <template>
   <section class="inv-root sos-inventory-view-root" :lang="bn ? 'bn' : 'en'">
-    <header class="inv-head">
-      <div>
-        <div class="inv-eyebrow"><span class="inv-live-dot"></span>{{ t('live') }}</div>
-        <h1>{{ t('inventory') }}</h1>
-        <p>{{ t('subtitle') }}</p>
+    <!-- SOS_INV_HERO_V45 — operational overview; only this Inventory component -->
+    <section class="inv44-hero" :aria-label="t('heroTitle')">
+      <div class="inv44-hero-main">
+        <div class="inv44-eyebrow"><span class="inv44-live-dot" aria-hidden="true"></span>{{ t('heroKicker') }}<span class="inv44-dot" aria-hidden="true">·</span>{{ t('live') }}</div>
+        <div class="inv44-heading">
+          <div class="inv44-heading-copy"><h1>{{ t('heroTitle') }}</h1><p>{{ t('heroDescription') }}</p></div>
+          <span class="inv44-scope" :title="inventory.company">{{ warehouse || t('heroAllWarehouses') }}</span>
+        </div>
+        <div class="inv44-health" role="group" :aria-label="t('heroHealth')">
+          <div class="inv44-health-title"><span>{{ t('heroHealth') }} <small>{{ t('heroHealthySkus') }} · {{ number(heroHealthy) }}/{{ number(totals.products) }}</small></span><strong>{{ number(heroHealthPct) }}%</strong></div>
+          <div class="inv44-track" role="progressbar" :aria-label="t('heroHealth')" :aria-valuenow="heroHealthPct" aria-valuemin="0" aria-valuemax="100"><span :style="{width:heroHealthPct+'%'}"></span></div>
+          <div class="inv44-health-legend">
+            <span><i class="inv44-key inv44-key-in"></i>{{ t('in') }} <b>{{ number(heroHealthy) }}</b></span>
+            <span><i class="inv44-key inv44-key-low"></i>{{ t('low') }} <b>{{ number(heroLow) }}</b></span>
+            <span><i class="inv44-key inv44-key-out"></i>{{ t('out') }} <b>{{ number(heroOut) }}</b></span>
+          </div>
+          <p class="inv44-health-hint">{{ t('heroHealthNote') }}</p>
+        </div>
+        <div class="inv44-hero-buttons">
+          <button type="button" class="inv44-primary" @click="heroShow(heroOut>0?'out':heroLow>0?'low':'all')">{{ heroOut>0?t('heroReviewStockouts'):t('heroReview') }} <span aria-hidden="true">↗</span></button>
+          <button type="button" class="inv44-secondary" :disabled="loading" @click="reload">↻ {{ t('refresh') }}</button>
+          <button type="button" class="inv44-secondary" :disabled="!items.length" @click="exportCsv">⇩ {{ t('export') }}</button>
+        </div>
+        <button v-if="heroLeadGroup" type="button" class="inv44-top-group" @click="heroShow('all');group=heroLeadGroup.name"><span>{{ t('heroTopGroup') }}</span><b>{{ heroLeadGroup.name }}</b><span>{{ number(heroLeadGroup.count) }} ↗</span></button>
       </div>
-      <div class="inv-actions">
-        <button type="button" class="inv-btn inv-outline" :disabled="loading" @click="reload">↻ {{ t('refresh') }}</button>
-        <button type="button" class="inv-btn inv-outline" :disabled="!items.length" @click="exportCsv">⇩ {{ t('export') }}</button>
-      </div>
-    </header>
+      <aside class="inv44-hero-side">
+        <div class="inv44-side-top"><span>{{ t('heroNext') }}</span><span class="inv44-side-icon" aria-hidden="true">↗</span></div>
+        <template v-if="heroAction">
+          <span class="inv44-priority-badge">{{ heroAction.evidence?t('heroEvidence'):(statusOf(heroAction.item)==='out'?t('heroStockWarning'):t('heroLowWarning')) }}</span>
+          <strong class="inv44-priority-name" :title="heroAction.item.item_name">{{ heroAction.item.item_name }}</strong>
+          <span class="inv44-priority-code">{{ heroAction.item.item_code }}</span>
+          <div class="inv44-priority-data"><span>{{ t('heroAvailable') }} <b>{{ number(Math.max(0,heroAvailableQty(heroAction.item))) }} {{ heroAction.item.stock_uom }}</b></span></div>
+          <p class="inv44-priority-explain">{{ t('heroReviewMessage') }}</p>
+          <button v-if="heroAction.evidence && permissions.stock_post && !heroAction.item.has_serial_no && !heroAction.item.has_batch_no" type="button" class="inv44-side-action" @click="openMovement('receive',heroAction.item.item_code)">{{ t('restockNow') }} <span aria-hidden="true">＋</span></button>
+          <button v-else type="button" class="inv44-side-action" @click="heroShow(statusOf(heroAction.item)==='out'?'out':'low')">{{ t('heroReview') }} <span aria-hidden="true">↗</span></button>
+        </template>
+        <template v-else><strong class="inv44-priority-name">{{ items.length?t('heroAllSet'):t('heroNoItems') }}</strong><p class="inv44-priority-explain">{{ t('heroReviewMessage') }}</p><button v-if="!items.length && permissions.create_item" type="button" class="inv44-side-action" @click="openAdd">{{ t('add') }} ＋</button></template>
+        <div class="inv44-sales-signal">
+          <div class="inv44-sales-head"><span>{{ t('heroSales') }}</span><strong>—</strong></div>
+          <p>{{ t('heroLegacy') }}</p>
+        </div>
+      </aside>
+    </section>
 
     <div v-if="error" class="inv-alert inv-error" role="alert">{{ error }} <button type="button" @click="reload">{{ t('refresh') }}</button></div>
     <div v-if="success" class="inv-alert inv-success" role="status">{{ success }} <button v-if="newSku && permissions.stock_post" type="button" @click="openMovement('receive',newSku)">{{ t('receive') }} ↗</button><button type="button" @click="success='';newSku=''">×</button></div>
@@ -324,14 +418,16 @@ function close() {if (!busy.value) {dismissLookup(); modal.value=''}}
     <div v-if="inventory.items.length && (!inventory.price_lists.buying || !inventory.price_lists.selling)" class="inv-alert">{{ t('noPrices') }}</div>
     <div v-if="!permissions.price_read && !loading && items.length" class="inv-alert">{{ t('noPriceAccess') }}</div>
 
-    <div class="inv-metrics">
-      <div class="inv-stat"><div class="inv-stat-top"><span class="inv-stat-symbol">▦</span><span class="inv-stat-tag">PRODUCTS</span></div><div class="inv-stat-number">{{ number(totals.products) }}</div><span>{{ t('products') }}</span></div>
-      <div class="inv-stat"><div class="inv-stat-top"><span class="inv-stat-symbol">▤</span><span class="inv-stat-tag">QUANTITY</span></div><div class="inv-stat-number">{{ number(totals.units) }}</div><span>{{ t('units') }}</span></div>
-      <div class="inv-stat"><div class="inv-stat-top"><span class="inv-stat-symbol">!</span><span class="inv-stat-tag">ALERTS</span></div><div class="inv-stat-number">{{ number(totals.low) }}</div><span>{{ t('alerts') }}</span></div>
-      <div class="inv-stat"><div class="inv-stat-top"><span class="inv-stat-symbol">৳</span><span class="inv-stat-tag">VALUATION</span></div><div class="inv-stat-number inv-amount">{{ money(totals.value) }}</div><span>{{ t('value') }}</span></div>
-    </div>
+    <section class="inv44-kpis" :aria-label="t('heroTitle')">
+      <button type="button" class="inv44-kpi" @click="heroShow('all')"><span class="inv44-kpi-top"><span class="inv44-kpi-icon">▦</span><span>01</span></span><strong>{{ number(totals.products) }}</strong><small>{{ t('products') }}</small></button>
+      <button type="button" class="inv44-kpi" @click="heroShow('stocked')"><span class="inv44-kpi-top"><span class="inv44-kpi-icon">◫</span><span>02</span></span><strong>{{ number(heroStocked) }}</strong><small>{{ t('heroStocked') }}</small></button>
+      <button type="button" class="inv44-kpi inv44-kpi-warn" @click="heroShow('low')"><span class="inv44-kpi-top"><span class="inv44-kpi-icon">!</span><span>03</span></span><strong>{{ number(heroLow) }}</strong><small>{{ t('alerts') }}</small></button>
+      <button type="button" class="inv44-kpi inv44-kpi-danger" @click="heroShow('out')"><span class="inv44-kpi-top"><span class="inv44-kpi-icon">×</span><span>04</span></span><strong>{{ number(heroOut) }}</strong><small>{{ t('heroOutCount') }}</small></button>
+      <div class="inv44-kpi"><span class="inv44-kpi-top"><span class="inv44-kpi-icon">৳</span><span>05</span></span><strong class="inv44-kpi-money">{{ money(totals.value) }}</strong><small>{{ t('value') }}</small></div>
+      <button type="button" class="inv44-kpi" :disabled="!heroPriceReady" :title="t('heroPricingHelp')" @click="heroShow('pricing')"><span class="inv44-kpi-top"><span class="inv44-kpi-icon">◇</span><span>06</span></span><strong>{{ heroPriceGaps===null?'—':number(heroPriceGaps) }}</strong><small>{{ t('heroPricing') }}</small></button>
+    </section>
 
-    <div class="inv-panel">
+    <div class="inv-panel" ref="heroCatalogRef">
       <div class="inv-panel-head">
         <div><h2>{{ t('catalog') }}</h2><p>{{ t('countNote') }}<span v-if="lastRefreshed"> · {{ t('updated') }} {{ lastRefreshed.toLocaleTimeString(bn?'bn-BD':'en-BD',{hour:'2-digit',minute:'2-digit'}) }}</span></p></div>
         <div class="inv-panel-actions">
@@ -346,7 +442,7 @@ function close() {if (!busy.value) {dismissLookup(); modal.value=''}}
         <label class="inv-search"><span aria-hidden="true">⌕</span><input v-model="search" type="search" :placeholder="t('search')" :aria-label="t('search')" /></label>
         <select v-model="warehouse" :aria-label="t('warehouses')"><option value="">{{ t('warehouses') }}</option><option v-for="w in inventory.warehouses" :key="w.name" :value="w.name">{{ w.warehouse_name||w.name }}</option></select>
         <select v-model="group" :aria-label="t('groups')"><option value="">{{ t('groups') }}</option><option v-for="g in groups" :key="g" :value="g">{{ g }}</option></select>
-        <select v-model="stockFilter" :aria-label="t('all')"><option value="all">{{ t('all') }}</option><option value="in">{{ t('in') }}</option><option value="low">{{ t('low') }}</option><option value="out">{{ t('out') }}</option></select>
+        <select v-model="stockFilter" :aria-label="t('all')"><option value="all">{{ t('all') }}</option><option value="in">{{ t('in') }}</option><option value="low">{{ t('low') }}</option><option value="out">{{ t('out') }}</option><option value="stocked">{{ t('heroStocked') }}</option><option v-if="heroPriceReady" value="pricing">{{ t('heroPricing') }}</option></select>
       </div>
       <div class="inv-summary">
         <span>{{ t('showing') }} {{ number(visible.length) }} {{ t('of') }} {{ number(filtered.length) }} {{ t('products').toLowerCase() }}</span>
@@ -556,4 +652,56 @@ function close() {if (!busy.value) {dismissLookup(); modal.value=''}}
 .inv-fab{min-width:138px;min-height:47px;padding:7px 12px 7px 8px;font-size:12px;border-radius:13px}
 .inv-fab-icon{width:33px;height:33px;flex-basis:33px}.inv-lookup-options{max-height:210px}.inv-match-action{display:none}}
 @media(prefers-reduced-motion:reduce){.inv-fab{transition:none}}
+
+/* SOS_INV_HERO_V45 — ivory / taupe command-center hero; only InventoryWorkspace.vue */
+.inv44-hero{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(270px,.82fr);border:1px solid #e2d2be;border-radius:19px;background:#fffaf3;overflow:hidden;box-shadow:0 12px 38px #6c4a2d10;margin:0 0 12px;min-width:0}
+.inv44-hero-main{padding:clamp(19px,2.2vw,30px);background:radial-gradient(ellipse at 100% 0%,#ebdcc691,transparent 57%),linear-gradient(123deg,#fffaf3,#f8eee0)}
+.inv44-eyebrow{display:flex;align-items:center;flex-wrap:wrap;gap:8px;font-size:10px;line-height:1.4;letter-spacing:.105em;text-transform:uppercase;color:#9b7750;font-weight:850}
+.inv44-live-dot{display:inline-block;width:7px;height:7px;flex:0 0 7px;border-radius:50%;background:#a98963;box-shadow:0 0 0 3px #ecdbc4}
+.inv44-dot{color:#c4ae90}
+.inv44-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-top:15px}
+.inv44-heading-copy{min-width:0}.inv44-heading h1{font-size:clamp(24px,2.5vw,34px);letter-spacing:-.04em;font-weight:850;line-height:1.13;color:#463124;margin:0 0 9px}
+.inv44-heading p{font-size:12px;line-height:1.5;color:#927963;margin:0;max-width:520px}
+.inv44-scope{background:#fffaf2cf;border:1px solid #e4d2bd;padding:7px 9px;border-radius:10px;color:#7e603f;font-size:10px;font-weight:750;white-space:normal;text-align:right;max-width:190px;overflow-wrap:anywhere}
+.inv44-health{padding:16px 16px 13px;border:1px solid #e7d6c2;border-radius:13px;background:#fffcf7d9;margin-top:20px}
+.inv44-health-title{display:flex;align-items:center;justify-content:space-between;gap:10px;color:#593f2c;font-size:12px;font-weight:850}
+.inv44-health-title span{display:flex;align-items:baseline;gap:9px;flex-wrap:wrap}.inv44-health-title small{font-size:10px;font-weight:650;color:#a1886e}
+.inv44-health-title strong{font-size:23px;font-weight:850;line-height:1;letter-spacing:-.04em;font-variant-numeric:tabular-nums}
+.inv44-track{height:9px;border-radius:999px;background:#ebddd0;overflow:hidden;margin:13px 0 11px}
+.inv44-track>span{display:block;height:100%;border-radius:999px;background:linear-gradient(90deg,#b69b78,#7d5d3f);transition:width .3s ease}
+.inv44-health-legend{display:flex;flex-wrap:wrap;gap:8px 16px}.inv44-health-legend>span{display:flex;align-items:center;gap:6px;font-size:10px;color:#8f7d6b}.inv44-health-legend b{font-size:11px;color:#564230;font-variant-numeric:tabular-nums}
+.inv44-key{display:inline-block;width:8px;height:8px;border-radius:50%;background:#ad9478}.inv44-key-in{background:#917558}.inv44-key-low{background:#d2a066}.inv44-key-out{background:#b87367}
+.inv44-health-hint{margin:9px 0 0;color:#a3907e;font-size:9px;line-height:1.45}
+.inv44-hero-buttons{display:flex;flex-wrap:wrap;gap:8px;margin-top:17px}
+.inv44-top-group{background:transparent;border:0;padding:0;margin-top:13px;font-family:inherit;color:#9c8165;font-size:10px;display:flex;align-items:center;flex-wrap:wrap;gap:6px;cursor:pointer;text-align:left}.inv44-top-group b{font-weight:800;color:#6c4b32}.inv44-top-group:hover b{text-decoration:underline}
+.inv44-primary,.inv44-secondary,.inv44-side-action{display:inline-flex;align-items:center;justify-content:center;gap:9px;min-height:38px;border-radius:10px;padding:9px 12px;font-family:inherit;font-size:11px;font-weight:800;white-space:nowrap;cursor:pointer;transition:background-color .15s ease,transform .15s ease}
+.inv44-primary{border:1px solid #684b35;background:#684b35;color:#fff9f2}.inv44-primary:hover{background:#513823}
+.inv44-secondary{border:1px solid #dfc9af;background:#fffaf5;color:#78583b}.inv44-secondary:hover{background:#f3e6d5}
+.inv44-primary:disabled,.inv44-secondary:disabled,.inv44-side-action:disabled{opacity:.5;cursor:not-allowed}
+.inv44-hero button:focus-visible,.inv44-kpi:focus-visible{outline:3px solid #b99366;outline-offset:2px}
+.inv44-hero-side{padding:21px 21px 18px;border-left:1px solid #e8daca;background:linear-gradient(160deg,#fffdfa,#f5eadc);display:flex;flex-direction:column;min-width:0}
+.inv44-side-top{display:flex;align-items:center;justify-content:space-between;gap:8px;color:#9c8063;font-weight:850;letter-spacing:.1em;font-size:10px}
+.inv44-side-icon{border:1px solid #e3d1bb;background:#f4e7d8;color:#805e42;border-radius:9px;display:grid;place-items:center;width:30px;height:30px;font-size:17px}
+.inv44-priority-badge{align-self:flex-start;color:#99734b;font-size:9px;font-weight:850;background:#f4e8d7;padding:5px 8px;border-radius:999px;margin-top:16px}
+.inv44-priority-name{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;color:#4f3526;font-size:clamp(14px,1.45vw,17px);font-weight:850;line-height:1.35;margin-top:10px;overflow-wrap:anywhere}
+.inv44-priority-code{color:#aa947e;font-size:10px;margin-top:5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block}
+.inv44-priority-data{display:flex;flex-wrap:wrap;gap:9px;margin-top:13px}.inv44-priority-data span{padding:7px 9px;background:#fffaf4;border:1px solid #eadbc9;border-radius:9px;color:#88715b;font-size:10px}.inv44-priority-data b{color:#684c36}
+.inv44-priority-explain{color:#987e66;font-size:10px;line-height:1.5;margin:12px 0 0}
+.inv44-side-action{background:#f2e4d1;color:#6c4a31;border:1px solid #dcc5a5;margin-top:14px;width:100%}.inv44-side-action:hover{background:#e9d4b8}
+.inv44-sales-signal{margin-top:auto;padding:20px 0 0;border-top:1px solid #e8d9c9}
+.inv44-sales-head{display:flex;align-items:center;justify-content:space-between;gap:10px}.inv44-sales-head span{font-size:11px;color:#7c6048;font-weight:800}.inv44-sales-head strong{font-size:20px;color:#543b29;font-variant-numeric:tabular-nums}
+.inv44-sales-signal>p{font-size:10px;color:#9e8974;line-height:1.4;margin:3px 0 0}
+.inv44-best{display:flex;align-items:baseline;gap:6px;font-size:10px;margin-top:11px;min-width:0}.inv44-best>span{flex-shrink:0;color:#ae947b}.inv44-best b{white-space:nowrap;text-overflow:ellipsis;overflow:hidden;color:#725037}
+.inv44-kpis{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:9px;margin-bottom:17px}
+.inv44-kpi{display:flex;flex-direction:column;align-items:flex-start;text-align:left;min-width:0;min-height:103px;padding:12px 13px;background:#fffdf9;color:#503d2f;border:1px solid #e9ddcf;border-radius:13px;font-family:inherit;box-shadow:0 3px 10px #4e362008}
+button.inv44-kpi{cursor:pointer}button.inv44-kpi:hover:not(:disabled){border-color:#c7ab8a;background:#fff9f1}button.inv44-kpi:disabled{cursor:default;opacity:.65}
+.inv44-kpi-top{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;font-size:9px;color:#b39c84;font-weight:800}.inv44-kpi-icon{display:grid;place-items:center;width:25px;height:25px;border-radius:8px;background:#f4e9da;color:#8c6847;font-weight:800;font-size:15px}
+.inv44-kpi>strong{display:block;color:#503a2b;font-size:clamp(18px,1.7vw,24px);font-weight:850;line-height:1.25;margin:7px 0 3px;min-width:0;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-variant-numeric:tabular-nums}
+.inv44-kpi>strong.inv44-kpi-money{font-size:clamp(14px,1.2vw,17px)}.inv44-kpi>small{display:block;font-size:10px;color:#9b836e;line-height:1.25}
+.inv44-kpi-warn .inv44-kpi-icon{background:#fff0dc;color:#b88243}.inv44-kpi-danger .inv44-kpi-icon{background:#f7e9e6;color:#b06d61}
+@media(max-width:1450px){.inv44-kpis{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:950px){.inv44-hero{grid-template-columns:minmax(0,1fr)}.inv44-hero-side{border-left:0;border-top:1px solid #e8daca}.inv44-sales-signal{margin-top:16px}}
+@media(max-width:630px){.inv44-hero-main{padding:18px}.inv44-heading{flex-direction:column}.inv44-scope{text-align:left}.inv44-health{padding:12px}.inv44-hero-side{padding:16px}.inv44-kpis{grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}.inv44-kpi{min-height:95px;padding:10px}.inv44-primary,.inv44-secondary{font-size:10px;min-height:36px}.inv44-best>span{display:none}}
+@media(prefers-reduced-motion:reduce){.inv44-track>span,.inv44-primary,.inv44-secondary,.inv44-side-action{transition:none}}
+
 </style>

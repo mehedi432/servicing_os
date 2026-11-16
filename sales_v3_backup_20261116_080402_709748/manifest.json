@@ -1,0 +1,26 @@
+[
+  {
+    "file": "frontend/src/App.vue",
+    "existed": true
+  },
+  {
+    "file": "frontend/src/components/ServicingSidebar.vue",
+    "existed": true
+  },
+  {
+    "file": "frontend/src/components/SalesCenter.vue",
+    "existed": false
+  },
+  {
+    "file": "servicing_os/api/sales_center.py",
+    "existed": false
+  },
+  {
+    "file": "servicing_os/www/servicing-os.html",
+    "existed": true
+  },
+  {
+    "file": "servicing_os/www/servicing-os.py",
+    "existed": true
+  }
+]

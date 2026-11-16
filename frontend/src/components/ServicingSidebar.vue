@@ -7,7 +7,8 @@ const props = defineProps({
   items: { type: Array, default: () => [] },
   active: { type: String, default: 'Counter' },
   repairOpen: { type: Boolean, default: false },
-  mobileOpen: { type: Boolean, default: false }
+  mobileOpen: { type: Boolean, default: false },
+  salesSection: { type: String, default: 'New Sale' }
 });
 const emit = defineEmits(['navigate', 'repair', 'close-mobile']);
 const compact = ref(false);
@@ -83,6 +84,44 @@ const filteredGroups = computed(() => {
   return groups.filter(group => group.entries.length);
 });
 
+
+
+// SOS_SALES_V3_PRESERVE_POS: additive submenu, never changes original choose(item)
+const sosSalesExpanded = ref(false)
+const sosSalesChildren = [
+  { en: "New Sale", bn: "নতুন বিক্রয়" },
+  { en: "Sales History", bn: "বিক্রয় ইতিহাস" },
+  { en: "Quotations", bn: "মূল্য প্রস্তাব" },
+  { en: "Returns & Exchanges", bn: "ফেরত ও পরিবর্তন" },
+  { en: "Payments & Dues", bn: "পেমেন্ট ও বকেয়া" },
+  { en: "Sales Warranty", bn: "বিক্রয় ওয়ারেন্টি" },
+  { en: "Sales Reports", bn: "বিক্রয় প্রতিবেদন" },
+]
+function sosSalesExpand() {
+  if (compact.value) {
+    compact.value = false
+    try { localStorage.setItem('servicing-os-sidebar-compact-v4', '0') } catch (_) {}
+  }
+  sosSalesExpanded.value = !sosSalesExpanded.value
+}
+function sosSalesNavigate(section) {
+  emit('navigate', 'Sales: ' + section)
+  emit('close-mobile')
+}
+
+
+
+// SOS_SALES_UI_V3_2_DESCRIPTIONS — Navigation presentation only, no transaction code.
+const sosSalesNavDetails = {
+  'New Sale': { en: 'POS & checkout', bn: 'পস ও চেকআউট', paths: ['M3 4h2l2.2 10h11.8l2-7H6', 'M9 20h.01', 'M18 20h.01'] },
+  'Sales History': { en: 'Invoices & receipts', bn: 'ইনভয়েস ও রসিদ', paths: ['M4 5h16v15l-4-2-4 2-4-2-4 2z','M8 9h8','M8 13h8'] },
+  'Quotations': { en: 'Customer proposals', bn: 'ক্রেতার মূল্য প্রস্তাব', paths: ['M7 3h8l4 4v14H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z','M15 3v5h5','M9 13h6','M9 17h6'] },
+  'Returns & Exchanges': { en: 'After-sales adjustments', bn: 'ফেরত ও পরিবর্তন', paths: ['M3 10h11a4 4 0 0 1 0 8h-2','m7 6-4 4 4 4','M21 14H10a4 4 0 0 1 0-8h2','m17 10 4 4-4 4'] },
+  'Payments & Dues': { en: 'Collections & balances', bn: 'আদায় ও বকেয়া', paths: ['M3 6h18v12H3z','M3 10h18','M7 15h4'] },
+  'Sales Warranty': { en: 'Coverage & expiry', bn: 'ওয়ারেন্টি ও মেয়াদ', paths: ['M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z','m9 12 2 2 4-4'] },
+  'Sales Reports': { en: 'Performance & insights', bn: 'বিক্রয় বিশ্লেষণ', paths: ['M4 20V11h4v9','M10 20V5h4v15','M16 20v-7h4v7','M3 20h18'] }
+}
+
 </script>
 
 <template>
@@ -122,7 +161,17 @@ const filteredGroups = computed(() => {
       <template v-for="group in filteredGroups" :key="group.id">
         <div class="sos4-group-label">{{ group.label }}</div>
         <nav class="sos4-nav" :aria-label="group.label">
-          <button v-for="item in group.entries" :key="item" type="button" class="sos4-item"
+          
+<!-- SOS_SALES_UI_V3_2_UNIFIED -->
+<template v-for="item in group.entries" :key="item">
+  <div class="sosSalesUnified"
+       :class="{
+         sosSalesUnifiedPlain: item !== 'New Sales',
+         sosSalesUnifiedOpen: item === 'New Sales' && sosSalesExpanded,
+         sosSalesUnifiedSelected: item === 'New Sales' && props.active === 'New Sales'
+       }">
+    <div class="sosSalesNavRow" :class="{ sosSalesNavParent: item === 'New Sales' }">
+<button   type="button" class="sos4-item"
                   :class="{ 'sos4-active': isActive(item) }"
                   :title="compact ? item : undefined" :aria-label="item"
                   :aria-current="isActive(item) ? 'page' : undefined"
@@ -132,6 +181,53 @@ const filteredGroups = computed(() => {
             </svg>
             <span class="sos4-label">{{ item === 'Inventory' && currentLanguage === 'bn' ? 'ইনভেন্টরি' : item }}</span>
           </button>
+      <button v-if="item === 'New Sales'" type="button" class="sosSalesExpand"
+              :title="sosSalesExpanded ? 'Collapse Sales menu' : 'Expand Sales menu'"
+              :aria-label="sosSalesExpanded ? 'Collapse Sales menu' : 'Expand Sales menu'"
+              :aria-expanded="sosSalesExpanded" aria-controls="sos-sales-nav-panel"
+              @click.stop="sosSalesExpand">
+        <svg class="sosSalesChevron" viewBox="0 0 24 24" width="17" height="17"
+             aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round">
+          <path d="m6 9 6 6 6-6" />
+        </svg>
+      </button>
+    </div>
+    <Transition name="sosSalesDrop">
+      <div v-if="item === 'New Sales' && sosSalesExpanded" id="sos-sales-nav-panel"
+           class="sosSalesNavPanel" role="group" aria-label="Sales submenus">
+        <div class="sosSalesPanelHeading" aria-hidden="true">
+          <span>{{ currentLanguage === 'bn' ? 'বিক্রয় ব্যবস্থাপনা' : 'SALES WORKSPACE' }}</span>
+          <span class="sosSalesCount">07</span>
+        </div>
+        <button v-for="child in sosSalesChildren" :key="child.en" type="button"
+                class="sosSalesChild"
+                :class="{ sosSalesChildCurrent: props.active === 'New Sales' && props.salesSection === child.en }"
+                :aria-current="props.active === 'New Sales' && props.salesSection === child.en ? 'page' : undefined"
+                @click.stop="sosSalesNavigate(child.en)">
+          <span class="sosSalesChildIcon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="17" height="17" fill="none"
+                 stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round">
+              <path v-for="(path, index) in sosSalesNavDetails[child.en].paths" :key="index" :d="path" />
+            </svg>
+          </span>
+          <span class="sosSalesChildText">
+            <span class="sosSalesChildTitle">{{ currentLanguage === 'bn' ? child.bn : child.en }}</span>
+            <span class="sosSalesChildDescription">{{ currentLanguage === 'bn' ? sosSalesNavDetails[child.en].bn : sosSalesNavDetails[child.en].en }}</span>
+          </span>
+          <svg v-if="props.active === 'New Sales' && props.salesSection === child.en"
+               class="sosSalesCurrentMark" viewBox="0 0 24 24" width="15" height="15"
+               aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2"
+               stroke-linecap="round" stroke-linejoin="round">
+            <path d="m9 18 6-6-6-6" />
+          </svg>
+        </button>
+      </div>
+    </Transition>
+  </div>
+</template>
+
+
         </nav>
       </template>
       <p v-if="!filteredGroups.length && !compact" class="sos646-empty">No matching sections</p>
@@ -348,3 +444,78 @@ const filteredGroups = computed(() => {
 .sos37-choice-full{display:inline!important;}.sos37-choice-short{display:none!important;}
 @media(min-width:1024px){.sos4-sidebar.sos4-compact .sos37-language{display:block!important;padding:9px 6px!important;min-height:0!important;}.sos4-sidebar.sos4-compact .sos37-caption{display:none!important;}.sos4-sidebar.sos4-compact .sos37-choices{display:flex!important;flex-direction:column!important;width:100%!important;min-width:0!important;}.sos4-sidebar.sos4-compact .sos37-choice-full{display:none!important;}.sos4-sidebar.sos4-compact .sos37-choice-short{display:inline!important;}}
 </style>
+
+
+<!-- SOS_SALES_UI_V3_2_UNIFIED -->
+<!-- Visual scope: Sales navigation only -->
+<style scoped>
+/* A single surface groups the original Sales navigation row and its children. */
+.sosSalesUnified { width:100%; min-width:0; margin:3px 0 5px; padding:4px;
+  border:1px solid #e8dbcb; border-radius:15px;
+  background:linear-gradient(155deg,#fffcf8 0%,#faf5ed 100%);
+  box-shadow:0 4px 16px rgba(65,45,25,.045),0 1px 2px rgba(65,45,25,.025);
+  overflow:hidden; transition:border-color .18s ease,box-shadow .18s ease; }
+.sosSalesUnifiedOpen { border-color:#cfb493; box-shadow:0 5px 20px rgba(83,54,25,.09); }
+.sosSalesUnifiedSelected { border-color:#d1baa1; }
+/* No changes to other existing sidebar rows. */
+.sosSalesUnified.sosSalesUnifiedPlain { background:transparent; border:0;
+  border-radius:0; padding:0; margin:0; box-shadow:none; overflow:visible; }
+.sosSalesNavRow { display:flex; width:100%; min-width:0; align-items:center; gap:2px; }
+.sosSalesNavRow > .sos4-item { flex:1 1 auto; min-width:0; }
+.sosSalesNavParent { min-height:44px; padding:0 2px 0 0; border-radius:11px; }
+.sosSalesNavParent > .sos4-item { background:transparent !important; color:#574332 !important;
+  font-weight:750; border-radius:10px; min-height:44px; padding:9px 9px; }
+.sosSalesNavParent > .sos4-item:hover { background:#f1e7d9 !important; }
+.sosSalesNavParent > .sos4-item .sos4-icon { color:#97704a; }
+.sosSalesUnifiedSelected .sosSalesNavParent > .sos4-item { color:#443023 !important; }
+.sosSalesExpand { display:grid; place-items:center; flex:0 0 32px; width:32px; height:34px;
+  border:1px solid #e9d9c7; border-radius:9px; background:#f4ebe0;
+  color:#806247; cursor:pointer; padding:0; transition:background .18s ease,color .18s ease; }
+.sosSalesExpand:hover { background:#e8d7c1; color:#4f3826; }
+.sosSalesChevron { transition:transform .22s ease; }
+.sosSalesUnifiedOpen .sosSalesChevron { transform:rotate(180deg); }
+.sosSalesExpand:focus-visible, .sosSalesChild:focus-visible,
+.sosSalesNavParent > .sos4-item:focus-visible { outline:2px solid #a47b50; outline-offset:1px; }
+.sosSalesNavPanel { display:flex; flex-direction:column; gap:2px;
+  margin-top:1px; padding:8px 2px 4px; border-top:1px solid #e8dccc; }
+.sosSalesPanelHeading { display:flex; align-items:center; justify-content:space-between;
+  color:#9a8570; font-size:9px; line-height:17px; font-weight:800;
+  letter-spacing:.095em; padding:0 9px 5px; }
+.sosSalesCount { font-size:10px; letter-spacing:0; font-weight:750;
+  font-variant-numeric:tabular-nums; color:#8a6e54; }
+.sosSalesChild { appearance:none; width:100%; min-height:52px; display:flex; align-items:center;
+  text-align:left; gap:9px; padding:7px 9px; margin:0; border:0;
+  border-radius:10px; background:transparent; color:#6f5b4a;
+  font-family:inherit; cursor:pointer; transition:background .16s ease,color .16s ease; }
+.sosSalesChild:hover { background:#f0e6d9; color:#463629; }
+.sosSalesChildCurrent { background:#eee0cd; box-shadow:inset 3px 0 0 #997247;
+  color:#4c3825; }
+.sosSalesChildCurrent:hover { background:#eaddca; }
+.sosSalesChildIcon { width:29px; height:29px; min-width:29px; flex:0 0 29px;
+  display:grid; place-items:center; border:1px solid #e7d9c8;
+  border-radius:9px; color:#8b6a4d; background:#f8f0e5; }
+.sosSalesChildCurrent .sosSalesChildIcon { color:#67472c; background:#f8eee0; border-color:#d9bea0; }
+.sosSalesChildText { display:flex; flex-direction:column; align-items:flex-start;
+  flex:1 1 auto; min-width:0; gap:2px; }
+.sosSalesChildTitle { color:inherit; font-size:12px; font-weight:740; line-height:1.3; overflow:hidden;
+  text-overflow:ellipsis; white-space:nowrap; max-width:100%; }
+.sosSalesChildDescription { color:#a18d78; font-size:10px; line-height:1.25;
+  font-weight:500; max-width:100%; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+.sosSalesChildCurrent .sosSalesChildDescription { color:#826950; }
+.sosSalesCurrentMark { color:#906942; flex:0 0 14px; }
+.sosSalesDrop-enter-active,.sosSalesDrop-leave-active { transition:opacity .19s ease,transform .19s ease; }
+.sosSalesDrop-enter-from,.sosSalesDrop-leave-to { opacity:0; transform:translateY(-5px); }
+/* Existing sidebar compact mode remains a single icon, with no floating submenu. */
+@media(min-width:1024px) {
+  .sos4-compact .sosSalesUnified:not(.sosSalesUnifiedPlain) { margin:0; padding:0;
+    background:transparent; border-color:transparent; box-shadow:none; overflow:visible; }
+  .sos4-compact .sosSalesNavParent { padding:0; }
+  .sos4-compact .sosSalesNavParent > .sos4-item { padding:10px 0; }
+  .sos4-compact .sosSalesExpand,.sos4-compact .sosSalesNavPanel { display:none; }
+}
+@media(prefers-reduced-motion:reduce) {
+  .sosSalesUnified,.sosSalesExpand,.sosSalesChild,.sosSalesChevron,
+  .sosSalesDrop-enter-active,.sosSalesDrop-leave-active { transition:none !important; }
+}
+</style>
+

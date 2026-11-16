@@ -1,4 +1,5 @@
 <script setup>
+import SalesCenter from './components/SalesCenter.vue'
 import InventoryWorkspace from './components/InventoryWorkspace.vue' // SOS_INVENTORY_V1
 
 import ServiceInvoiceHub661 from './components/ServiceInvoiceHub661.vue'
@@ -454,10 +455,23 @@ const title = computed(() =>
 	activeNav.value === "Counter" ? "Counter Operations" : activeNav.value,
 );
 
+
 function selectNavigation(item) {
-	activeNav.value = item;
-	message.value = "";
+  if (item === 'New Sales') {
+    sosSalesSection.value = 'New Sale'
+    activeNav.value = 'New Sales'
+  } else if (typeof item === 'string' && item.startsWith('Sales: ')) {
+    const next = item.slice(7)
+    if (!sosSalesAllowed.includes(next)) return
+    sosSalesSection.value = next
+    activeNav.value = 'New Sales'
+  } else {
+    sosSalesSection.value = 'New Sale'
+    activeNav.value = item
+  }
+  message.value = ''
 }
+
 
 
 function resetServiceForm() {
@@ -779,6 +793,15 @@ function counterChooseOperation620G(operation) {
   // Unfinished modules are not presented as a working checkout.
   activeOperation.value = operation
 }
+
+
+// SOS_SALES_V3_PRESERVE_POS: existing New Sales remains the only retail POS route
+const sosSalesSection = ref('New Sale')
+const sosSalesAllowed = [
+  'New Sale', 'Sales History', 'Quotations', 'Returns & Exchanges',
+  'Payments & Dues', 'Sales Warranty', 'Sales Reports'
+]
+
 </script>
 
 <template>
@@ -797,6 +820,7 @@ function counterChooseOperation620G(operation) {
     <ServicingSidebar
       :items="servicingExtendedMenu"
       :active="activeNav"
+       :sales-section="sosSalesSection"
       :repair-open="repairManagementOpen"
       :mobile-open="mobileMenuOpen"
       @navigate="(item) => { repairManagementOpen = false; selectNavigation(item); mobileMenuOpen = false }"
@@ -828,7 +852,10 @@ function counterChooseOperation620G(operation) {
 <ServiceShopWorkspace v-if="activeNav === 'Service Shop' || activeNav === 'Servicing Shop'" @navigate="sosNavigateFromShop" />
 
 
-<RetailSales v-if="activeNav === 'New Sales' && !repairManagementOpen" />
+<!-- SOS_SALES_V3_PRESERVE_POS: original POS component remains unchanged -->
+<RetailSales v-if="activeNav === 'New Sales' && !repairManagementOpen && sosSalesSection === 'New Sale'" />
+<SalesCenter v-else-if="activeNav === 'New Sales' && !repairManagementOpen && sosSalesSection !== 'New Sale'"
+             :section="sosSalesSection" />
 
 <OwnerReports v-if="activeNav === 'Reports' && !repairManagementOpen" />
 
