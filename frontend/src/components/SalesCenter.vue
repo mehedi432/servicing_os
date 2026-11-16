@@ -1,4 +1,6 @@
 <script setup>
+import SalesQuoteGrid from './SalesQuoteGrid.vue'
+import SalesReportsPanel from './SalesReportsPanel.vue'
 import { computed, ref, watch, onMounted, unref } from 'vue'
 import { currentLanguage } from '../i18n/servicingLanguage.js'
 import RetailSales from './RetailSales.vue'
@@ -60,7 +62,7 @@ function resetView() { rows.value=[]; selected.value=null; lines.value=[]; statu
 watch(() => props.section, async () => { resetView(); await refresh() })
 async function refresh() {
   if (props.section === 'New Sale' || props.section === 'Sales History') return
-  if (props.section === 'Sales Reports') { await loadStats(); return }
+  if (props.section === 'Sales Reports' || props.section === 'Quotations') return
   await run(async () => { rows.value = await call('records', {kind: kinds[props.section] || 'invoice',query:search.value,limit:80}) })
 }
 async function loadDetail(name) {
@@ -152,24 +154,7 @@ onMounted(()=>{init()})
 
     <RetailSales v-if="section==='New Sale'" />
     <RetailSalesHistory v-else-if="section==='Sales History'" />
-
-    <template v-else-if="section==='Quotations'">
-      <div class="sosc-panel">
-        <h2>{{bn?'নতুন কোটেশন':'Create quotation'}}</h2>
-        <div class="sosc-formgrid"><label>{{bn?'ক্রেতা খুঁজুন':'Find customer'}}<input v-model="customerQuery" placeholder="Name / Customer ID" @input="customer=''" @keyup.enter="lookupCustomer"/></label>
-        <div class="sosc-inline"><button class="sosc-button" :disabled="busy" @click="lookupCustomer">{{bn?'খুঁজুন':'Search'}}</button><span v-if="customer">✓ {{customer}}</span></div></div>
-        <div class="sosc-options" v-if="customerOptions.length"><button v-for="c in customerOptions" :key="c.name" class="sosc-result" @click="customer=c.name;customerQuery=c.customer_name;customerOptions=[]">{{c.customer_name}} <small>{{c.name}}</small></button></div>
-        <div class="sosc-formgrid"><label>{{bn?'পণ্য খুঁজুন':'Find product'}}<input v-model="itemQuery" placeholder="Item code / name" @keyup.enter="lookupProduct" /></label><div class="sosc-inline"><button class="sosc-button" :disabled="busy" @click="lookupProduct">{{bn?'খুঁজুন':'Search'}}</button></div></div>
-        <div class="sosc-options" v-if="productOptions.length"><button v-for="p in productOptions" :key="p.item_code" class="sosc-result" @click="addProduct(p)">{{p.item_name}} <small>{{p.item_code}} · {{bdt(p.rate)}} · Stock {{p.stock_qty}}</small></button></div>
-        <div class="sosc-table-scroll" v-if="quoteLines.length"><table><thead><tr><th>Product</th><th>Quantity</th><th>List price</th><th>Amount</th><th></th></tr></thead>
-        <tbody><tr v-for="(p,i) in quoteLines" :key="p.item_code"><td>{{p.item_name}}<small>{{p.item_code}}</small></td><td><input type="number" min="1" step="1" v-model.number="p.qty"/></td><td>{{bdt(p.rate)}}</td><td>{{bdt(p.rate*p.qty)}}</td><td><button class="sosc-link" @click="quoteLines.splice(i,1)">Remove</button></td></tr></tbody></table></div>
-        <div class="sosc-bottom"><label>Valid until<input type="date" v-model="expiry"/></label><strong>{{bdt(quoteLines.reduce((s,p)=>s+p.qty*p.rate,0))}}</strong><button class="sosc-primary" :disabled="busy||!customer||!quoteLines.length" @click="createQuote">{{bn?'ড্রাফট কোটেশন সংরক্ষণ':'Save quotation draft'}}</button></div>
-      </div>
-      <div class="sosc-panel"><h2>{{bn?'কোটেশন তালিকা':'Quotation register'}}</h2><div class="sosc-formgrid"><input v-model="search" placeholder="Search quotation number" @keyup.enter="refresh"/><button class="sosc-button" @click="refresh">Search</button></div>
-        <div class="sosc-table-scroll"><table><thead><tr><th>Quotation</th><th>Date</th><th>Customer</th><th>Status</th><th>Total</th><th>Actions</th></tr></thead><tbody>
-          <tr v-for="r in rows" :key="r.name"><td>{{r.name}}</td><td>{{r.transaction_date}}</td><td>{{r.party_name}}</td><td>{{r.status}}</td><td>{{bdt(r.grand_total)}}</td><td><button class="sosc-link" @click="printDoc('quotation',r.name)">Print</button> <button v-if="r.docstatus===0" class="sosc-link" @click="submitQuote(r.name)">Submit</button></td></tr>
-        </tbody></table></div></div>
-    </template>
+    <SalesQuoteGrid v-else-if="section==='Quotations'" />
 
     <template v-else-if="section==='Returns & Exchanges'">
       <div class="sosc-panel"><h2>{{bn?'মূল বিক্রয় খুঁজুন':'Return against original invoice'}}</h2><p class="sosc-hint">{{bn?'প্রথমে মূল ইনভয়েস নির্বাচন করুন। পূর্ণ রিটার্নের ড্রাফট তৈরি হবে।':'Choose a submitted sale. A full-return draft is prepared using ERPNext’s native return mapping. Nothing is refunded automatically.'}}</p>
@@ -205,12 +190,7 @@ onMounted(()=>{init()})
         </tbody></table><p class="sosc-hint">Enter 0 for no warranty. Manually entered days are added to the original invoice date. Warranty metadata does not modify accounting.</p></div>
       </div>
     </template>
-
-    <template v-else-if="section==='Sales Reports'">
-      <div class="sosc-panel"><h2>{{bn?'বিক্রয় পরিসংখ্যান':'Actual sales summary'}}</h2><div class="sosc-formgrid"><label>From<input type="date" v-model="reportFrom"/></label><label>To<input type="date" v-model="reportTo"/></label><button class="sosc-primary" :disabled="busy" @click="loadStats">Run report</button></div>
-      <div class="sosc-metrics" v-if="stats"><div><span>Invoices</span><b>{{stats.invoice_count}}</b></div><div><span>Gross sales</span><b>{{bdt(stats.sales)}}</b></div><div><span>Returns</span><b>{{bdt(stats.returns)}}</b></div><div><span>Net sales</span><b>{{bdt(stats.net_sales)}}</b></div><div><span>Outstanding</span><b>{{bdt(stats.outstanding)}}</b></div><div v-if="stats.collections_visible"><span>Customer collections</span><b>{{bdt(stats.collections)}}</b></div></div>
-      <p class="sosc-hint" v-if="stats">{{stats.from_date}} to {{stats.to_date}}. {{stats.limited?'WARNING: More than 5,000 invoices — this summary is incomplete. Narrow the date range.':'Based on submitted ERPNext Sales Invoices and Credit Notes.'}}</p></div>
-    </template>
+    <SalesReportsPanel v-else-if="section==='Sales Reports'" />
   </section>
 </template>
 

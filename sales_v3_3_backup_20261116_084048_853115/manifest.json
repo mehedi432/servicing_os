@@ -1,0 +1,38 @@
+{
+  "site": "servicing.local",
+  "had_public": true,
+  "files": [
+    {
+      "path": "frontend/src/components/ServicingSidebar.vue",
+      "existed": true
+    },
+    {
+      "path": "frontend/src/components/SalesCenter.vue",
+      "existed": true
+    },
+    {
+      "path": "frontend/src/components/SalesReportsPanel.vue",
+      "existed": false
+    },
+    {
+      "path": "frontend/src/components/SalesQuoteGrid.vue",
+      "existed": false
+    },
+    {
+      "path": "servicing_os/api/sales_analytics.py",
+      "existed": false
+    },
+    {
+      "path": "servicing_os/api/quotation_grid.py",
+      "existed": false
+    },
+    {
+      "path": "servicing_os/www/servicing-os.html",
+      "existed": true
+    },
+    {
+      "path": "servicing_os/www/servicing-os.py",
+      "existed": true
+    }
+  ]
+}
