@@ -50,7 +50,7 @@ html, body {
   overflow-x: hidden;
 }
 
-.navbar, .web-footer, footer {
+.navbar, .web-footer, body > footer {
   display: none !important;
 }
 
