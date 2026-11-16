@@ -1,4 +1,6 @@
 <script setup>
+import SalesInvoiceStudio from "./SalesInvoiceStudio.vue";
+
 // SERVICING_RETAIL_HISTORY_620D
 import { ref, onMounted } from 'vue'
 const props = defineProps({ posProfile: { type: String, default: '' } })
@@ -14,6 +16,8 @@ const data = ref(null)
 const busy = ref(false)
 const error = ref('')
 const selected = ref(null)
+const printSelection = ref(null)
+const printBusy = ref(false)
 const detailsBusy = ref(false)
 const detailsError = ref('')
 
@@ -55,6 +59,17 @@ async function viewDetails(row) {
   finally { detailsBusy.value=false }
 }
 function documentUrl(row) { return '/app/' + row.doctype.toLowerCase().replace(/\s+/g,'-') + '/' + encodeURIComponent(row.name) }
+async function printPremium(row) {
+ printBusy.value=true
+ detailsError.value=''
+ try {
+  const d=await api('get_retail_sale_detail',{doctype:row.doctype,name:row.name})
+  printSelection.value={...d, invoice:d.name||row.name, customer_name:d.customer_name||d.customer||row.customer_name||row.customer,
+   items:(d.items||[]).map(i=>({...i,item_name:i.item_name||i.description||i.code,item_code:i.code||i.item_code})),
+   total:d.grand_total,posting_date:d.posting_date||row.posting_date,currency:d.currency||row.currency}
+ } catch(e){detailsError.value=e.message||String(e)}
+ finally{printBusy.value=false}
+}
 function printUrl(row) { return '/printview?doctype=' + encodeURIComponent(row.doctype) + '&name=' + encodeURIComponent(row.name) }
 function money(value, currency='BDT') {
   return (currency==='BDT'?'৳':currency+' ') + Number(value||0).toLocaleString('en-BD', {minimumFractionDigits:2,maximumFractionDigits:2})
@@ -114,7 +129,7 @@ onMounted(load)
           <td>{{r.customer_name||r.customer}}</td><td>{{r.posting_date}}</td><td class="rh-muted">{{r.cashier}}</td>
           <td><span class="rh-status">{{r.status}}</span><small>{{r.posting_basis}}</small></td>
           <td class="rh-right rh-nowrap">{{money(r.grand_total,r.currency)}}</td>
-          <td class="rh-actions"><button type="button" @click="viewDetails(r)">Details</button><a :href="documentUrl(r)" target="_blank" rel="noopener noreferrer">Open ↗</a><a :href="printUrl(r)" target="_blank" rel="noopener noreferrer">Print ↗</a></td>
+          <td class="rh-actions"><button type="button" @click="viewDetails(r)">Details</button><a :href="documentUrl(r)" target="_blank" rel="noopener noreferrer">Open ↗</a><button type="button" :disabled="printBusy" @click="printPremium(r)">Premium Print ↗</button><a :href="printUrl(r)" target="_blank" rel="noopener noreferrer">ERPNext Print ↗</a></td>
         </tr>
       </tbody></table></div>
       <p class="rh-note">POS tickets may be consolidated into Sales Invoices during session closing. Totals above are separated, not combined revenue or collections. Print opens the original ERPNext document and requires permission.</p>
@@ -128,6 +143,7 @@ onMounted(load)
       </tbody></table></div>
       <div class="rh-detail-total"><strong>Document total</strong><strong>{{money(selected.grand_total,selected.currency)}}</strong></div>
     </div>
+    <SalesInvoiceStudio v-if="printSelection" :receipt="printSelection" @close="printSelection=null" />
   </section>
 </template>
 

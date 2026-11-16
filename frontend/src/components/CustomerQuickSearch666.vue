@@ -56,19 +56,19 @@ function lookup() {
   const term = query.value.trim()
   if (props.selected?.name && !sameSelected()) emit('clear')
   hits.value = []
-  if (!open.value || term.length < 2 || sameSelected()) { loading.value = false; return }
+  if (!open.value || sameSelected()) { loading.value = false; return }
   const mine = sequence
   loading.value = true
   timer = setTimeout(async () => {
     controller = new AbortController()
     try {
-      const u = new URL('/api/method/servicing_os.api.counter_fast_667.find_customers', window.location.origin)
-      u.searchParams.set('q', term)
+      const u = new URL(term.length >= 2 ? '/api/method/servicing_os.api.counter_fast_667.find_customers' : '/api/method/servicing_os.api.customer_grid_673.recent_customers', window.location.origin)
+      if (term.length >= 2) u.searchParams.set('q', term)
       const r = await fetch(u, { credentials: 'same-origin', cache: 'no-store', headers: { Accept: 'application/json' }, signal: controller.signal })
       const d = await r.json()
       if (!r.ok || d.exc || d.exception) throw new Error('Customer search unavailable. Check access or server logs.')
       if (mine !== sequence || !open.value || query.value.trim() !== term) return
-      hits.value = Array.isArray(d.message?.results) ? d.message.results.slice(0, 15) : []
+      hits.value = Array.isArray(d.message?.results) ? d.message.results.slice(0, 8) : []
     } catch (e) {
       if (e.name !== 'AbortError' && mine === sequence) error.value = e.message || 'Search failed'
     } finally { if (mine === sequence) loading.value = false }
@@ -125,15 +125,18 @@ onUnmounted(() => { cancel(); clearTimeout(closer) })
 
     <p v-if="error && !adding" class="sos669-error" role="alert">{{ error }}</p>
     <p v-if="newMessage" class="sos669-confirmation" role="status">{{ newMessage }}</p>
-    <div v-if="!props.selected?.name && open && query.trim().length >= 2 && !sameSelected()" class="sos669-results" role="listbox" aria-label="Matching customers">
-      <p v-if="loading" class="sos669-placeholder">Searching customers…</p>
+    <div v-if="!props.selected?.name && open && !sameSelected()" class="sos669-results" role="listbox" aria-label="Matching customers">
+      <div class="sos673-grid-head"><b>{{ query.trim().length >= 2 ? "Matching customers" : "Recent customers" }}</b><small>Up to 8 · Click to select</small></div>
+      <p v-if="loading" class="sos669-placeholder">Loading customers…</p>
+      <div class="sos673-customer-grid">
       <button v-for="c in hits" :key="c.name" type="button" role="option" aria-selected="false"
         @mousedown.prevent @click="choose(c)">
         <span class="sos669-result-avatar" aria-hidden="true">{{ (c.customer_name || c.name || 'C').slice(0,1).toUpperCase() }}</span>
-        <span class="sos669-result-main"><strong>{{ c.customer_name || c.name }}</strong><small>{{ c.name }}</small></span>
-        <span class="sos669-result-mobile">{{ c.mobile_no || 'No mobile' }}</span>
+        <span class="sos669-result-main"><strong>{{ c.customer_name || c.name }}</strong><small>{{ c.mobile_no || "No mobile recorded" }}</small></span>
+        
       </button>
-      <p v-if="!loading && !hits.length && !error" class="sos669-placeholder">No matching customer. Use <b>New Customer</b> to register.</p>
+      </div>
+      <p v-if="!loading && !hits.length && !error" class="sos669-placeholder">{{ query.trim().length >= 2 ? "No matching customers. Use New Customer to register." : "No recent customers. Start typing to search." }}</p>
     </div>
 
     <Teleport to="body">
@@ -164,6 +167,16 @@ onUnmounted(() => { cancel(); clearTimeout(closer) })
   </div>
 </template>
 <style>
+/* 6.73 — compact eight-customer picker */
+.sos669-results{max-height:340px!important;overflow:auto!important;top:calc(100% - 5px)!important}
+.sos673-grid-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:9px 10px 10px}
+.sos673-grid-head b{font-size:12px;color:#60452f}.sos673-grid-head small{font-size:10px;color:#a1876e}
+.sos673-customer-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;padding:2px 5px 7px}
+.sos669-results .sos673-customer-grid button{display:flex!important;align-items:center!important;min-width:0!important;min-height:58px!important;border:1px solid #eadbcc!important;border-radius:10px!important;background:#fffaf5!important;padding:9px!important}
+.sos669-results .sos673-customer-grid button:hover,.sos669-results .sos673-customer-grid button:focus-visible{background:#f1e4d6!important;border-color:#b38d6c!important;outline:2px solid #c7a48655!important}
+.sos673-customer-grid .sos669-result-main strong{font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sos673-customer-grid .sos669-result-main small{font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+@media(max-width:460px){.sos673-customer-grid{grid-template-columns:1fr}}
 /* 6.69 — customer selection is one coherent ivory card across both sale views. */
 .sos669-customer,.sos669-customer *,.sos669-modal,.sos669-modal *{box-sizing:border-box}
 .sos669-customer{position:relative;width:100%;min-width:0;max-width:100%;color:#3c2c25;font-family:inherit;border:1px solid #e7d6c5;border-radius:16px;background:#fffcf7;padding:15px;box-shadow:0 2px 6px #47331c0b;text-align:left;isolation:isolate}

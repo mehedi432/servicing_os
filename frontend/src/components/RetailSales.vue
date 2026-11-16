@@ -1,4 +1,6 @@
 <script setup>
+import SalesInvoiceStudio from "./SalesInvoiceStudio.vue";
+
 // SERVICING_OS_CUSTOMER_LOOKUP_666: hand off to existing native POS customer select.
 import CustomerQuickSearch666 from './CustomerQuickSearch666.vue'
 import { ref as sos666Ref } from 'vue'
@@ -38,6 +40,7 @@ async function sos665LoadStock(cursor=0) {
    sos665Warehouse.value=data.message?.warehouse || 'Retail warehouse'
    sos665Stock.value=(data.message?.items||[]).slice(0,20).map(x=>({
      ...x, ledger_qty:x.stock_qty, list_price:x.list_price ?? null,
+     rate: x.rate ?? x.list_price ?? null, // Retail catalog may return list_price instead of rate.
      item_code:x.item_code || x.name
    }))
    sos665NextCursor.value=data.message?.has_next ? data.message.next_cursor : null
@@ -357,7 +360,7 @@ onBeforeUnmount(()=>{clearTimeout(searchTimer);clearTimeout(customerTimer)})
         {{ Number(p.ledger_qty ?? p.stock_qty)>0 ? 'In stock: '+(p.ledger_qty ?? p.stock_qty) : 'Out of stock · 0' }}
       </span>
           <span class="cc-product-icon">▣</span><span class="cc-product-info"><b>{{p.item_name}}</b><small>{{p.item_code}}</small></span>
-          <span class="cc-product-price"><b>{{p.rate==null?'No price':money(p.rate)}}</b><small :class="Number(p.stock_qty)>0?'cc-available':'cc-out'">{{Number(p.stock_qty)>0?p.stock_qty+' in stock':'Out of stock'}}</small></span><span class="cc-add">+</span>
+          <span class="cc-product-price"><b>{{p.rate==null?'Price unavailable':money(p.rate)}}</b><small :class="Number(p.stock_qty)>0?'cc-available':'cc-out'">{{Number(p.stock_qty)<=0?'Out of stock':p.rate==null?'Selling price missing':p.stock_qty+' in stock'}}</small></span><span class="cc-add">+</span>
         </button>
         <div v-if="!products.length" class="cc-empty">No matching stock products. Try another search.</div>
       </div>
@@ -461,13 +464,7 @@ onBeforeUnmount(()=>{clearTimeout(searchTimer);clearTimeout(customerTimer)})
       </div>
     </section>
   </div>
-  <div v-if="receipt" class="cc-receipt-layer"><div class="cc-receipt">
-    <header><div class="cc-receipt-brand">SERVICING OS</div><small>AL MODINA COMPUTERS LIMITED</small><h2>Payment Received</h2></header>
-    <div class="cc-receipt-meta"><span>Invoice</span><b>{{receipt.invoice}}</b></div><div class="cc-receipt-meta"><span>Customer</span><b>{{receipt.customer}}</b></div>
-    <div v-for="r in receipt.items||[]" :key="r.item_code" class="cc-receipt-row"><span>{{r.item_name}} × {{r.qty}}</span><b>{{money(r.amount)}}</b></div>
-    <div class="cc-receipt-total"><span>Paid</span><b>{{money(receipt.total)}}</b></div><small>Thank you for shopping with us.</small>
-    <div class="cc-receipt-actions"><button type="button" class="cc-outline" @click="receipt=null">New Sale</button><button type="button" class="cc-primary" @click="printReceipt">Print Receipt</button></div>
-  </div></div>
+  <SalesInvoiceStudio v-if="receipt" :receipt="receipt" @close="receipt=null" />
  </section>
 </template>
 

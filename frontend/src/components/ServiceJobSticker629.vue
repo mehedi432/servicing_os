@@ -106,6 +106,77 @@ async function fetchJob() {
 }
 watch(mobileBase, () => { if (data.value) generateQr() })
 watch(() => props.jobName, name => { if (name) { search.value = name; fetchJob() } }, { immediate: true })
+/* SOS_QR_RECENT_V16_START */
+const sos16RecentJobs = ref([])
+const sos16Open = ref(false)
+const sos16Busy = ref(false)
+const sos16Error = ref('')
+const sos16Active = ref(-1)
+const sos16Filtering = ref(false)
+const sos16Options = computed(() => {
+  const term = sos16Filtering.value ? search.value.trim().toLowerCase() : ''
+  if (!term) return sos16RecentJobs.value
+  return sos16RecentJobs.value.filter(job =>
+    [job.name, job.customer_name, job.mobile, job.device_type, job.brand, job.device_model]
+      .some(value => String(value || '').toLowerCase().includes(term)))
+})
+async function sos16OnFocus() {
+  sos16Open.value = true
+  sos16Filtering.value = false
+  sos16Active.value = -1
+  sos16Busy.value = true
+  sos16Error.value = ''
+  try {
+    const url = new URL('/api/method/servicing_os.api.service.get_recent_service_jobs', window.location.origin)
+    url.searchParams.set('limit', '20')
+    const response = await fetch(url, { credentials: 'same-origin', headers: { Accept: 'application/json' } })
+    if (!response.ok) throw new Error(response.status === 403 ? 'এই অ্যাকাউন্টে সাম্প্রতিক জব দেখার অনুমতি নেই।' : `Recent jobs unavailable (${response.status}).`)
+    const json = await response.json()
+    if (!Array.isArray(json.message)) throw new Error('Recent service jobs could not be loaded.')
+    sos16RecentJobs.value = json.message.filter(x => x?.name).slice(0, 20)
+  } catch (e) {
+    sos16RecentJobs.value = []
+    sos16Error.value = e.message || 'সাম্প্রতিক জব লোড করা যায়নি।'
+  } finally {
+    sos16Busy.value = false
+  }
+}
+function sos16OnInput() {
+  sos16Open.value = true
+  sos16Filtering.value = true
+  sos16Active.value = -1
+}
+function sos16Choose(job) {
+  if (!job?.name) return
+  search.value = job.name
+  sos16Open.value = false
+  sos16Filtering.value = false
+  sos16Active.value = -1
+  fetchJob()
+}
+function sos16OnKeydown(event) {
+  const key = event.key
+  if (key === 'Escape' && sos16Open.value) {
+    event.preventDefault()
+    sos16Open.value = false
+    return
+  }
+  if (key === 'ArrowDown' || key === 'ArrowUp') {
+    event.preventDefault()
+    sos16Open.value = true
+    const n = sos16Options.value.length
+    if (n) sos16Active.value = key === 'ArrowDown'
+      ? (sos16Active.value + 1) % n
+      : (sos16Active.value <= 0 ? n - 1 : sos16Active.value - 1)
+    return
+  }
+  if (key === 'Enter' && sos16Open.value && sos16Active.value >= 0) {
+    const selected = sos16Options.value[sos16Active.value]
+    if (selected) { event.preventDefault(); sos16Choose(selected) }
+  }
+}
+/* SOS_QR_RECENT_V16_END */
+
 async function printSticker() {
   if (!data.value?.job?.name || !qrData.value || loading.value) return
   // Only numeric millimetres reach the @page rule.
@@ -224,11 +295,48 @@ function closeOnOverlay(e) { if (e.target === e.currentTarget) emit('close') }
         </header>
         <div class="sos629-dialog-body">
           <form class="sos629-lookup" @submit.prevent="fetchJob">
-            <label>Service Job Number<input v-model="search" autocomplete="off" placeholder="SRV-2026-00001" /></label>
+            <div class="sos16-search-field" data-sos-recent-version="SOS_QR_RECENT_V16">
+              <label for="sos16-job-input">Service Job Number <span class="sos16-bn">/ সার্ভিস জব</span></label>
+              <div class="sos16-combo">
+                <input id="sos16-job-input" v-model="search" autocomplete="off" spellcheck="false"
+                  placeholder="SRV-2026-00001" role="combobox" aria-autocomplete="list"
+                  aria-haspopup="listbox" aria-controls="sos16-recent-list"
+                  :aria-expanded="sos16Open ? 'true' : 'false'"
+                  :aria-activedescendant="sos16Active >= 0 && sos16Options[sos16Active] ? 'sos16-option-' + sos16Active : undefined"
+                  @focus="sos16OnFocus" @click="sos16Open = true" @input="sos16OnInput"
+                  @keydown="sos16OnKeydown" @blur="sos16Open = false" />
+                <span class="sos16-search-icon" aria-hidden="true">⌕</span>
+                <div v-if="sos16Open" id="sos16-recent-list" class="sos16-recent-list" role="listbox" aria-label="Recent service received jobs">
+                  <div class="sos16-list-header">
+                    <span>সাম্প্রতিক সার্ভিস রিসিভ <small>RECENT JOBS</small></span>
+                    <span class="sos16-count">{{ sos16Options.length }}</span>
+                  </div>
+                  <div v-if="sos16Busy" class="sos16-list-message" role="status">সাম্প্রতিক জব লোড হচ্ছে…</div>
+                  <div v-else-if="sos16Error" class="sos16-list-message sos16-list-error" role="status">{{ sos16Error }}</div>
+                  <template v-else-if="sos16Options.length">
+                    <button v-for="(job, index) in sos16Options" :id="'sos16-option-' + index"
+                      :key="job.name" class="sos16-recent-option" type="button" role="option"
+                      :aria-selected="sos16Active === index" :class="{ 'sos16-is-active': sos16Active === index }"
+                      @pointerdown.prevent="sos16Choose(job)" @mouseenter="sos16Active = index">
+                      <span class="sos16-result-main">
+                        <strong>{{ job.name }}</strong>
+                        <small>{{ job.customer_name || 'Customer not recorded' }} <span v-if="job.mobile">· {{ job.mobile }}</span></small>
+                      </span>
+                      <span class="sos16-result-aside">
+                        <span>{{ job.status || 'Received' }}</span>
+                        <small>{{ [job.brand, job.device_model].filter(Boolean).join(' ') || job.device_type || 'Device' }}</small>
+                      </span>
+                    </button>
+                  </template>
+                  <div v-else class="sos16-list-message">{{ sos16Filtering ? 'এ নামে সাম্প্রতিক জব নেই। নম্বর লিখে Find Service Job চাপুন।' : 'সাম্প্রতিক সার্ভিস জব পাওয়া যায়নি।' }}</div>
+                  <div class="sos16-list-tip">↑ ↓ বেছে নিন · Enter খুলুন · Esc বন্ধ করুন</div>
+                </div>
+              </div>
+            </div>
             <button type="submit" :disabled="loading">{{ loading ? 'Searching…' : 'Find Service Job' }}</button>
           </form>
           <div v-if="data" class="sos629-options">
-            <label>Sticker size
+            <label class="sos16-size-field">Sticker size / স্টিকারের মাপ
               <select v-model="printSize" aria-label="Label size">
                 <option v-for="size in stickerPresets" :key="size" :value="size">{{ size.replace('x', ' × ') }} mm</option>
                 <option value="custom">Custom / নিজের মাপ</option>
@@ -238,10 +346,10 @@ function closeOnOverlay(e) { if (e.target === e.currentTarget) emit('close') }
               <label>Width / প্রস্থ (mm)<input v-model.number="customWidth" type="number" min="20" max="150" step="1" /></label>
               <label>Height / উচ্চতা (mm)<input v-model.number="customHeight" type="number" min="15" max="200" step="1" /></label>
             </div>
-            <label>Copies / কপি
+            <label class="sos16-copies-field">Copies / কপি
               <input v-model.number="printCopies" type="number" min="1" max="20" step="1" />
             </label>
-            <label>Mobile access address
+            <label class="sos16-url-field">Mobile access address / মোবাইলে খোলার ঠিকানা
               <input v-model.trim="mobileBase" type="url" placeholder="http://192.168.0.100:8005" />
             </label>
             <p v-if="hasLocalhost" class="sos629-advice">A localhost QR link cannot open on another phone. Enter the computer's LAN IP or an accessible HTTPS domain.</p>
@@ -398,4 +506,392 @@ function closeOnOverlay(e) { if (e.target === e.currentTarget) emit('close') }
   min-height:43px!important; background:#644a36!important; color:white!important;
   font-weight:800!important; border-radius:10px!important; cursor:pointer!important;
 }
+</style>
+
+<style>
+/* SOS_QR_THEME_POLISH_V15_START
+   SCREEN-ONLY appearance for the QR device sticker dialog.
+   Intentionally does not style .sos629-paper or the print popup. */
+@media screen {
+  .sos629-sticker-overlay {
+    --sos-qr-v15-token: 1;
+    --sos-v15-ivory: #fffaf2;
+    --sos-v15-cream: #f7f0e5;
+    --sos-v15-taupe: #efe4d5;
+    --sos-v15-border: #e5d7c7;
+    --sos-v15-espresso: #3e2f22;
+    --sos-v15-muted: #796656;
+    --sos-v15-brown: #785338;
+    background: rgba(39, 30, 23, .64) !important;
+    backdrop-filter: blur(7px) saturate(.8);
+    -webkit-backdrop-filter: blur(7px) saturate(.8);
+    color: var(--sos-v15-espresso) !important;
+    font-family: 'Hind Siliguri', 'Noto Sans Bengali', 'Anek Bangla', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  }
+  .sos629-sticker-overlay .sos629-sticker-dialog {
+    width: min(810px, 100%) !important;
+    max-height: min(94dvh, 920px) !important;
+    border: 1px solid #eadfce !important;
+    border-radius: 22px !important;
+    background: var(--sos-v15-ivory) !important;
+    box-shadow: 0 34px 100px rgba(31, 21, 14, .33), 0 5px 15px rgba(59, 42, 27, .13) !important;
+    isolation: isolate;
+  }
+  .sos629-sticker-overlay .sos629-dialog-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 18px;
+    padding: 23px 28px 20px !important;
+    border-bottom: 1px solid var(--sos-v15-border) !important;
+    background: linear-gradient(145deg, #fffdf9 0%, #f7ecdd 100%) !important;
+  }
+  .sos629-sticker-overlay .sos629-dialog-header small {
+    display: block;
+    font-size: 10px !important;
+    font-weight: 850 !important;
+    letter-spacing: .14em !important;
+    color: #95755d !important;
+  }
+  .sos629-sticker-overlay .sos629-dialog-header h2 {
+    margin: 7px 0 4px !important;
+    color: var(--sos-v15-espresso) !important;
+    font-size: clamp(23px, 3vw, 27px) !important;
+    line-height: 1.3 !important;
+    font-weight: 800 !important;
+    letter-spacing: -.025em !important;
+  }
+  .sos629-sticker-overlay .sos629-dialog-header p {
+    margin: 0 !important;
+    color: var(--sos-v15-muted) !important;
+    font-size: 12px !important;
+    line-height: 1.6 !important;
+  }
+  .sos629-sticker-overlay button.sos629-close {
+    width: 40px !important;
+    height: 40px !important;
+    min-width: 40px !important;
+    border-radius: 12px !important;
+    background: #fffaf2 !important;
+    color: var(--sos-v15-espresso) !important;
+    border: 1px solid #ded0bf !important;
+    font-size: 23px !important;
+    box-shadow: 0 2px 8px #61492d0b;
+    transition: background .18s ease, border-color .18s ease;
+  }
+  .sos629-sticker-overlay button.sos629-close:hover {
+    background: #eee0cd !important;
+    border-color: #b99d80 !important;
+  }
+  .sos629-sticker-overlay .sos629-dialog-body {
+    padding: 23px 27px 21px !important;
+    gap: 16px !important;
+    background: var(--sos-v15-ivory) !important;
+    scrollbar-color: #d8c5af transparent;
+  }
+  .sos629-sticker-overlay .sos629-lookup {
+    display: flex;
+    align-items: end;
+    gap: 11px !important;
+    padding: 0 0 17px;
+    border-bottom: 1px solid #eee2d3;
+  }
+  .sos629-sticker-overlay .sos629-lookup label,
+  .sos629-sticker-overlay .sos629-options label {
+    display: grid;
+    align-content: start;
+    gap: 7px !important;
+    min-width: 0;
+    color: #69513f !important;
+    font-size: 12px !important;
+    font-weight: 800 !important;
+    line-height: 1.4 !important;
+  }
+  .sos629-sticker-overlay .sos629-options {
+    align-items: start !important;
+    gap: 13px 16px !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+  .sos629-sticker-overlay input,
+  .sos629-sticker-overlay select {
+    width: 100% !important;
+    min-height: 44px !important;
+    padding: 10px 13px !important;
+    border: 1px solid #dcccb8 !important;
+    border-radius: 12px !important;
+    background: #fffefb !important;
+    color: #3f3024 !important;
+    font-size: 13px !important;
+    font-weight: 650 !important;
+    line-height: 1.4 !important;
+    box-shadow: 0 1px 2px #50341c08;
+    outline: none;
+    transition: border-color .16s ease, box-shadow .16s ease;
+  }
+  .sos629-sticker-overlay input:focus,
+  .sos629-sticker-overlay select:focus {
+    border-color: #a67f60 !important;
+    box-shadow: 0 0 0 3px rgba(166, 127, 96, .14) !important;
+    outline: none !important;
+  }
+  .sos629-sticker-overlay .sos629-lookup > button,
+  .sos629-sticker-overlay .sos629-dialog-footer button.sos629-print {
+    min-height: 44px !important;
+    padding: 10px 19px !important;
+    border: 1px solid #785338 !important;
+    border-radius: 12px !important;
+    background: #785338 !important;
+    color: #fffaf4 !important;
+    font-size: 12.5px !important;
+    font-weight: 800 !important;
+    letter-spacing: 0 !important;
+    box-shadow: 0 4px 10px rgba(80, 47, 26, .15) !important;
+    transition: background .16s ease, transform .16s ease, box-shadow .16s ease;
+  }
+  .sos629-sticker-overlay .sos629-lookup > button:hover:not(:disabled),
+  .sos629-sticker-overlay .sos629-dialog-footer button.sos629-print:hover:not(:disabled) {
+    background: #61422d !important;
+    border-color: #61422d !important;
+    box-shadow: 0 5px 13px rgba(80, 47, 26, .21) !important;
+  }
+  .sos629-sticker-overlay .sos629-lookup > button:disabled,
+  .sos629-sticker-overlay .sos629-dialog-footer button.sos629-print:disabled {
+    opacity: .5 !important;
+    cursor: not-allowed !important;
+  }
+  .sos629-sticker-overlay .sos629-advice {
+    grid-column: 1 / -1;
+    margin: 0 !important;
+    padding: 9px 12px;
+    border-left: 3px solid #c2a082;
+    border-radius: 0 8px 8px 0;
+    background: #f8f0e5;
+    color: #806b56 !important;
+    font-size: 11px !important;
+    line-height: 1.65 !important;
+  }
+  .sos629-sticker-overlay .sos629-error {
+    border-radius: 11px !important;
+    padding: 12px 13px !important;
+  }
+  .sos629-sticker-overlay .sos629-paper-wrap {
+    min-height: 204px !important;
+    padding: 23px !important;
+    border: 1px solid #e4d6c5 !important;
+    border-radius: 16px !important;
+    background: radial-gradient(ellipse at 42% 20%, #f9f2e9 0%, #efe4d6 100%) !important;
+    box-shadow: inset 0 2px 9px #6c51300c;
+  }
+  .sos629-sticker-overlay .sos629-link-wrap {
+    display: grid;
+    gap: 6px !important;
+    font-size: 11px !important;
+    color: #816a56 !important;
+  }
+  .sos629-sticker-overlay .sos629-link-wrap code {
+    padding: 10px 13px !important;
+    border: 1px solid #eadccc;
+    border-radius: 11px !important;
+    color: #5f4936 !important;
+    background: #f3eadf !important;
+    font-size: 10px !important;
+    line-height: 1.6 !important;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .sos629-sticker-overlay footer.sos629-dialog-footer {
+    display: flex !important;
+    visibility: visible !important;
+    align-items: center;
+    gap: 10px !important;
+    flex-wrap: wrap;
+    min-height: 72px;
+    padding: 13px 27px !important;
+    border-top: 1px solid #e6d5c1 !important;
+    border-radius: 0 0 21px 21px;
+    background: #f7eee3 !important;
+    box-shadow: 0 -4px 15px rgba(79, 52, 26, .06) !important;
+  }
+  .sos629-sticker-overlay .sos629-dialog-footer .sos13-version {
+    color: #846a54 !important;
+    font-size: 10px !important;
+    font-weight: 750 !important;
+    line-height: 1.4 !important;
+    white-space: normal !important;
+    margin-right: auto !important;
+  }
+  .sos629-sticker-overlay .sos629-dialog-footer button.sos629-outline {
+    min-height: 44px !important;
+    padding: 10px 18px !important;
+    border: 1px solid #dac7b3 !important;
+    border-radius: 12px !important;
+    background: #fffaf3 !important;
+    color: #614d3d !important;
+    font-size: 12.5px !important;
+    font-weight: 800 !important;
+    box-shadow: none !important;
+  }
+  .sos629-sticker-overlay .sos629-dialog-footer button.sos629-outline:hover {
+    background: #efe1d1 !important;
+  }
+  .sos629-sticker-overlay button:focus-visible {
+    outline: 3px solid rgba(161, 121, 82, .35) !important;
+    outline-offset: 2px !important;
+  }
+  .sos629-sticker-overlay .sos13-custom-sizes {
+    gap: 12px !important;
+    grid-template-columns: repeat(2, minmax(0,1fr)) !important;
+  }
+}
+@media screen and (max-width: 650px) {
+  .sos629-sticker-overlay { padding: 8px !important; }
+  .sos629-sticker-overlay .sos629-sticker-dialog {
+    border-radius: 17px !important;
+    max-height: calc(100dvh - 16px) !important;
+  }
+  .sos629-sticker-overlay .sos629-dialog-header { padding: 18px !important; }
+  .sos629-sticker-overlay .sos629-dialog-header h2 { font-size: 22px !important; }
+  .sos629-sticker-overlay .sos629-dialog-body { padding: 18px !important; gap: 13px !important; }
+  .sos629-sticker-overlay .sos629-lookup { flex-direction: column !important; align-items: stretch !important; }
+  .sos629-sticker-overlay .sos629-options { grid-template-columns: 1fr !important; }
+  .sos629-sticker-overlay .sos13-custom-sizes { grid-template-columns: repeat(2, minmax(0,1fr)) !important; }
+  .sos629-sticker-overlay .sos629-paper-wrap { padding: 16px !important; min-height: 180px !important; }
+  .sos629-sticker-overlay footer.sos629-dialog-footer { padding: 12px 18px !important; border-radius: 0 0 16px 16px; }
+  .sos629-sticker-overlay .sos629-dialog-footer .sos13-version { width: 100%; margin: 0 !important; }
+  .sos629-sticker-overlay .sos629-dialog-footer button { flex: 1; }
+}
+/* SOS_QR_THEME_POLISH_V15_END */
+</style>
+
+<style>
+/* SOS_QR_RECENT_V16_STYLE_START */
+/* Screen only. No sticker-paper / print rules, so V14 print remains unchanged. */
+@media screen {
+  .sos629-sticker-overlay { --sos-qr-v16-token: 1; }
+  .sos629-sticker-overlay .sos629-lookup {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) 168px !important;
+    align-items: end !important;
+    gap: 12px !important;
+    position: relative !important;
+    z-index: 12 !important;
+  }
+  .sos629-sticker-overlay .sos16-search-field {
+    position: relative; display: grid; grid-template-rows: auto auto;
+    gap: 7px; min-width: 0;
+  }
+  .sos629-sticker-overlay .sos16-search-field > label {
+    margin: 0; color: #614b3b !important; font-weight: 800 !important;
+    font-size: 12px !important; line-height: 1.35;
+  }
+  .sos629-sticker-overlay .sos16-bn { color:#90745b; font-size: 11px; font-weight: 700; }
+  .sos629-sticker-overlay .sos16-combo { position: relative; min-width: 0; }
+  .sos629-sticker-overlay #sos16-job-input {
+    padding-left: 39px !important; padding-right: 13px !important;
+    letter-spacing: .018em; font-size: 14px !important; font-weight: 750 !important;
+    background-color: #fffdf9 !important; border-color: #d8c4ac !important;
+  }
+  .sos629-sticker-overlay .sos16-search-icon {
+    position:absolute; top:50%; left:13px; transform:translateY(-50%);
+    pointer-events:none; font-size:23px; color:#94775c; font-family:Arial,sans-serif;
+  }
+  .sos629-sticker-overlay .sos629-lookup > button {
+    width:100%; min-height:44px !important; white-space:normal;
+    padding-inline: 10px !important; line-height:1.3;
+  }
+  .sos629-sticker-overlay .sos16-recent-list {
+    display:block !important; position:absolute !important;
+    top:calc(100% + 7px); left:0; right:0; z-index:100 !important;
+    border-radius:14px; overflow-y:auto; max-height:282px;
+    border:1px solid #d9c5ac !important; background:#fffdf9 !important;
+    box-shadow:0 16px 44px rgba(57,37,18,.23),0 2px 5px rgba(57,37,18,.07);
+    color:#3e2f22; overscroll-behavior:contain;
+  }
+  .sos629-sticker-overlay .sos16-list-header {
+    display:flex; align-items:center; justify-content:space-between; gap:9px;
+    padding:10px 13px 8px; background:#f7eee3; border-bottom:1px solid #e6d8c6;
+    font-size:12px; font-weight:800; color:#604731;
+  }
+  .sos629-sticker-overlay .sos16-list-header small {
+    color:#92755e; font-size:9px; letter-spacing:.09em; margin-left:5px;
+  }
+  .sos629-sticker-overlay .sos16-count {
+    display:inline-flex; align-items:center; justify-content:center;
+    min-width:23px; height:23px; border-radius:8px;
+    color:#745037; background:#ecddca; font-size:11px;
+  }
+  .sos629-sticker-overlay .sos16-recent-option {
+    display:flex !important; align-items:center; justify-content:space-between; gap:12px;
+    width:100%; margin:0 !important; padding:11px 13px !important;
+    border:0 !important; border-bottom:1px solid #efe5d8 !important;
+    border-radius:0 !important; background:#fffdf9 !important;
+    color:#3f3025 !important; text-align:left; cursor:pointer;
+    box-shadow:none !important; font-size:12px;
+  }
+  .sos629-sticker-overlay .sos16-recent-option:last-of-type { border-bottom:0 !important; }
+  .sos629-sticker-overlay .sos16-recent-option:hover,
+  .sos629-sticker-overlay .sos16-recent-option.sos16-is-active { background:#f2e5d5 !important; }
+  .sos629-sticker-overlay .sos16-result-main,
+  .sos629-sticker-overlay .sos16-result-aside {
+    display:grid; gap:5px; min-width:0;
+  }
+  .sos629-sticker-overlay .sos16-result-main { flex:1 1 auto; }
+  .sos629-sticker-overlay .sos16-result-main strong {
+    font-size:12.5px; color:#463021; letter-spacing:.015em; overflow-wrap:anywhere;
+  }
+  .sos629-sticker-overlay .sos16-result-main small,
+  .sos629-sticker-overlay .sos16-result-aside small {
+    color:#856f5d; font-size:10.5px; line-height:1.35; overflow-wrap:anywhere;
+  }
+  .sos629-sticker-overlay .sos16-result-aside {
+    flex:0 1 34%; text-align:right; justify-items:end;
+  }
+  .sos629-sticker-overlay .sos16-result-aside > span {
+    font-size:10px; font-weight:750; border-radius:7px;
+    background:#eee1d2; color:#6f4b35; padding:3px 7px; max-width:100%;
+  }
+  .sos629-sticker-overlay .sos16-list-message { padding:17px 13px; color:#796452; font-size:11px; line-height:1.55; }
+  .sos629-sticker-overlay .sos16-list-error { color:#9b493d; }
+  .sos629-sticker-overlay .sos16-list-tip {
+    padding:8px 12px; background:#f9f3eb; color:#977d67;
+    border-top:1px solid #ebdfd0; font-size:9.5px; line-height:1.3;
+  }
+  .sos629-sticker-overlay .sos629-options {
+    display:grid !important; grid-template-columns:repeat(2,minmax(0,1fr)) !important;
+    align-items:start !important; gap:14px 16px !important;
+  }
+  .sos629-sticker-overlay .sos629-options > label.sos16-url-field,
+  .sos629-sticker-overlay .sos629-options > .sos13-custom-sizes {
+    grid-column:1 / -1 !important;
+  }
+  .sos629-sticker-overlay .sos629-options > label {
+    display:grid; grid-template-rows:auto auto; gap:7px !important;
+    align-content:start; min-width:0;
+  }
+  .sos629-sticker-overlay .sos629-options select {
+    -webkit-appearance:none !important; appearance:none !important;
+    background-color:#fffdf9 !important;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none'%3E%3Cpath d='m5 7.5 5 5 5-5' stroke='%23785338' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") !important;
+    background-position:right 13px center !important;
+    background-repeat:no-repeat !important; background-size:17px 17px !important;
+    padding:10px 41px 10px 14px !important;
+    min-height:46px !important; cursor:pointer; font-weight:700 !important;
+  }
+  .sos629-sticker-overlay .sos629-options input { min-height:46px !important; }
+  .sos629-sticker-overlay .sos629-options select:focus,
+  .sos629-sticker-overlay .sos629-options input:focus {
+    border-color:#997250 !important; box-shadow:0 0 0 3px rgba(153,114,80,.15) !important;
+  }
+  .sos629-sticker-overlay .sos13-custom-sizes { gap:12px !important; }
+}
+@media screen and (max-width:650px) {
+  .sos629-sticker-overlay .sos629-lookup { grid-template-columns:1fr !important; gap:10px !important; }
+  .sos629-sticker-overlay .sos629-lookup > button { width:100%; }
+  .sos629-sticker-overlay .sos629-options { grid-template-columns:1fr !important; }
+  .sos629-sticker-overlay .sos629-options > label.sos16-url-field,
+  .sos629-sticker-overlay .sos629-options > .sos13-custom-sizes { grid-column:1 !important; }
+  .sos629-sticker-overlay .sos16-recent-list { max-height:230px; }
+  .sos629-sticker-overlay .sos16-result-aside { flex-basis:39%; }
+}
+/* SOS_QR_RECENT_V16_STYLE_END */
 </style>
