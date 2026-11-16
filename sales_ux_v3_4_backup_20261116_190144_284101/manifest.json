@@ -1,0 +1,22 @@
+{
+  "version": "3.4",
+  "app": "servicing_os",
+  "site": "servicing.local",
+  "paths": {
+    "frontend/src/components/SalesQuoteGrid.vue": true,
+    "frontend/src/components/SalesReportsPanel.vue": true,
+    "servicing_os/www/servicing-os.html": true,
+    "servicing_os/www/servicing-os.py": true
+  },
+  "had_public": true,
+  "protected_hashes": {
+    "frontend/src/components/RetailSales.vue": "78b1ce7430b224e881152f7a900f1dc4d3a9cd767b3e2569d0e82f1f841b57aa",
+    "frontend/src/components/RetailSalesHistory.vue": "acf5bb872ced9d1fd61a64e9c58f8996a05cfca7bb3cc9704f8d9acd64fef72b",
+    "frontend/src/components/ServicingSidebar.vue": "5a6027ccafe61eb215514c0158c45ba7cabd35efc4a41a2d107e8c96c075a379",
+    "frontend/src/components/SalesCenter.vue": "219cad0647af4bde9b093730c7297fa1d05591f4214e0fea3044a629bbc13ec0",
+    "frontend/src/App.vue": "77e907695ae844b195ccd1d99711626ccdd4250ccfc028741c852703847ec33d",
+    "servicing_os/api/quotation_grid.py": "db93a56e541065e46bd09195a9ff6054b569be1cc7409a6e7c6fc9c10372c044",
+    "servicing_os/api/sales_analytics.py": "8a110cbdbfa755a3bd72a2593198417412d55915c70be6656cf5063b5e896f07",
+    "servicing_os/api/sales_center.py": "da01c1b495369a2d5c90b678137636527ab38865282d3be3ea099228822433ec"
+  }
+}

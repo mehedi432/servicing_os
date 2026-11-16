@@ -1,0 +1,12 @@
+{
+  "release": "SOS_CART_UX_671",
+  "source_sha256": "78b1ce7430b224e881152f7a900f1dc4d3a9cd767b3e2569d0e82f1f841b57aa",
+  "installed_sha256": "652a8c5a23d5ec039850ea9c12eca1946d49fab3f9a385e0b243afb97ac2c3b5",
+  "backup_root": "/Users/mehediabdullah/ctf/servicing/apps/servicing_os",
+  "present": {
+    "frontend/src/components/RetailSales.vue": true,
+    "servicing_os/public/frontend": true,
+    "servicing_os/www/servicing-os.html": true
+  },
+  "created_utc": "2026-11-16T13:35:02.208870+00:00"
+}

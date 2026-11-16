@@ -1,0 +1,637 @@
+<script setup>
+
+// SOS_635_QR_INSIDE_RECEIPT_MODAL — QR and barcode sticker in existing receipt modal.
+import { ref as sos35Ref, watch as sos35Watch, nextTick as sos35NextTick } from 'vue'
+import SOS35QrCode from 'qrcode'
+import SOS35JsBarcode from 'jsbarcode'
+const sos35Sticker = sos35Ref(false)
+const sos35QrImage = sos35Ref('')
+const sos35BarcodeImage = sos35Ref('')
+const sos35Error = sos35Ref('')
+const sos35Host = sos35Ref(window.location.origin)
+const sos35Job = () => String(props.data?.job?.name || '').trim()
+const sos35Customer = () => String(props.data?.job?.customer_name || '').trim()
+const sos35Phone = () => String(props.data?.job?.mobile || '').trim()
+const sos35Problem = () => String(props.data?.job?.reported_problem || '').trim()
+const sos35Device = () => [props.data?.job?.brand, props.data?.job?.device_model].filter(Boolean).join(' ').trim() || String(props.data?.job?.device_type || '').trim()
+const sos35Serial = () => String(props.data?.job?.serial_number || '').trim()
+function sos35BuildUrl() {
+  const jobId = sos35Job()
+  if (!jobId) throw Error('Service Job ID is missing.')
+  const base = new URL(sos35Host.value.trim())
+  if (!['http:', 'https:'].includes(base.protocol) || base.username || base.password || !base.hostname) {
+    throw Error('Enter a valid shop URL reachable from the phone.')
+  }
+  if (['localhost', '127.0.0.1', '::1'].includes(base.hostname.toLowerCase())) {
+    throw Error('For mobile scanning, replace localhost with your computer LAN address (for example http://192.168.0.100:8005).')
+  }
+  const url = new URL('/servicing-os', base.origin)
+  url.searchParams.set('service_job', jobId)
+  return url.href
+}
+async function sos35BuildImages() {
+  sos35QrImage.value = ''
+  sos35BarcodeImage.value = ''
+  sos35Error.value = ''
+  try {
+    const jobId = sos35Job()
+    const url = sos35BuildUrl()
+    sos35QrImage.value = await SOS35QrCode.toDataURL(url, { width: 420, margin: 2, errorCorrectionLevel: 'M' })
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+    SOS35JsBarcode(svg, jobId, { format: 'CODE128', width: 1.05, height: 23, margin: 0, displayValue: false })
+    sos35BarcodeImage.value = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg.outerHTML)
+  } catch (e) {
+    sos35Error.value = e?.message || 'Could not generate the QR sticker.'
+  }
+}
+// SOS_638_BN_QR_FULL_PROBLEM — stable button markers, independent of language.
+function sos35ClickCapture(event) {
+  const btn = event.target?.closest?.('button')
+  if (!btn) return
+  if (btn.dataset.sosStickerPrint === '1') {
+    if (sos35Sticker.value) {
+      event.preventDefault()
+      event.stopPropagation()
+      event.stopImmediatePropagation?.()
+      sos35Print()
+    }
+    return
+  }
+  if (btn.dataset.sosStickerTab === '1') {
+    sos35Sticker.value = true
+    sos35BuildImages()
+  }
+}
+// Watching the component's actual mode prevents Bangla DOM text replacements
+// from hiding the sticker view or disabling its print control.
+sos35Watch(() => format.value, (nextMode) => {
+  const isSticker = /sticker|label/i.test(String(nextMode || ''))
+  if (isSticker !== sos35Sticker.value) {
+    sos35Sticker.value = isSticker
+    if (isSticker) sos35BuildImages()
+  }
+}, { immediate: true })
+sos35Watch(sos35Host, () => { if (sos35Sticker.value) sos35BuildImages() })
+sos35Watch(() => props.data?.job?.name, () => { if (sos35Sticker.value) sos35BuildImages() })
+function sos35Escape(value) {
+  return String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c])
+}
+function sos35Html() {
+  if (!sos35QrImage.value) throw Error(sos35Error.value || 'QR is not ready to print.')
+  const name = sos35Escape(props.data?.shop?.name || 'AL MODINA COMPUTERS LIMITED')
+  const job = sos35Escape(sos35Job())
+  const device = sos35Escape(sos35Device().slice(0, 55))
+  const serial = sos35Escape(sos35Serial().slice(0, 38))
+  const customer = sos35Escape(sos35Customer().slice(0, 46))
+  const phone = sos35Escape(sos35Phone().slice(0, 22))
+  const problem = sos35Escape(sos35Problem().replace(/\s+/g, ' '))
+  const barcode = sos35BarcodeImage.value ? `<img class="code128" alt="Code 128 job barcode" src="${sos35BarcodeImage.value}">` : ''
+  // Local data URLs only. No remote QR/barcode service, no customer details in QR.
+  return `<!doctype html><html><head><meta charset="utf-8"><title>Service Sticker ${job}</title><style>
+    @page{size:50mm 30mm;margin:0}
+    *{box-sizing:border-box}html,body{margin:0;padding:0;background:white;color:#17120e;font-family:Arial,Helvetica,sans-serif}
+    .label{width:50mm;height:30mm;padding:1mm 1.4mm 0.5mm;overflow:hidden;display:flex;flex-direction:column;gap:.35mm}
+    .row{display:flex;align-items:flex-start;gap:.8mm;height:23mm;overflow:hidden}
+    .qr{width:14.5mm;height:14.5mm;object-fit:contain;flex:0 0 14.5mm;image-rendering:pixelated}
+    .meta{flex:1;min-width:0;display:flex;flex-direction:column;gap:.3mm;overflow:hidden}
+    .brand{font-size:5.8pt;font-weight:800;line-height:1.06;max-height:4mm;overflow:hidden}
+    .job{font-size:7pt;font-weight:900;overflow-wrap:anywhere;line-height:1.05}
+    .detail{font-size:5.1pt;line-height:1.08;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.detail.problem{font-size:5.3pt;font-weight:650;white-space:normal;overflow-wrap:anywhere;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;line-clamp:3;max-height:8.6mm;overflow:hidden;text-overflow:clip}
+    .code128{width:100%;height:3.7mm;object-fit:fill;display:block}
+    .barcode-caption{font-size:4.5pt;text-align:center;margin:0;line-height:1}
+    @media screen{body{width:50mm;min-height:30mm}}
+  </style></head><body><div class="label"><div class="row">
+    <img class="qr" alt="QR for ${job}" src="${sos35QrImage.value}">
+    <div class="meta"><div class="brand">${name}</div><div class="job">${job}</div>
+      <div class="detail">${device}</div><div class="detail">S/N: ${serial || '—'}</div>
+      <div class="detail">${customer}${phone ? ' · ' + phone : ''}</div>
+      <div class="detail problem">${problem}</div>
+    </div></div>${barcode}<div class="barcode-caption">SERVICE JOB · SCAN QR FOR RECORD</div>
+  </div></body></html>`
+}
+async function sos35Print() {
+  if (!sos35QrImage.value) { sos35Error.value = 'Generate the QR before printing.'; return }
+  // Isolated print document, preventing A4/thermal CSS from affecting sticker dimensions.
+  let iframe = null
+  try {
+    iframe = document.createElement('iframe')
+    iframe.style.cssText = 'position:fixed;width:0;height:0;opacity:0;border:0;pointer-events:none;'
+    iframe.setAttribute('aria-hidden', 'true')
+    document.body.appendChild(iframe)
+    const doc = iframe.contentDocument
+    doc.open(); doc.write(sos35Html()); doc.close()
+    await new Promise((resolve, reject) => {
+      const imageNodes = [...doc.images]
+      if (!imageNodes.length) return resolve()
+      let remaining = imageNodes.length
+      const finished = () => { if (--remaining === 0) resolve() }
+      imageNodes.forEach(img => {
+        if (img.complete && img.naturalWidth) return finished()
+        img.addEventListener('load', finished, { once: true })
+        img.addEventListener('error', () => reject(Error('Sticker image failed to load.')), { once: true })
+      })
+      setTimeout(() => reject(Error('Sticker image loading timed out.')), 7000)
+    })
+    await sos35NextTick()
+    iframe.contentWindow?.focus()
+    iframe.contentWindow?.print()
+    setTimeout(() => iframe?.remove(), 45000)
+  } catch (e) {
+    iframe?.remove()
+    sos35Error.value = e?.message || 'Sticker printing failed.'
+  }
+}
+
+import JsBarcode from "jsbarcode";
+
+import { ref, computed, watch, nextTick } from "vue";
+import QRCode from "qrcode";
+
+const props = defineProps({ data: { type: Object, required: true } });
+const emit = defineEmits(["close"]);
+const format = ref("thermal");
+const qr = ref("");
+
+const serviceBarcodeSrc = computed(() => {
+  const value = String(job.value.name || "").trim();
+  if (!value) return "";
+
+  try {
+    const svg = document.createElementNS(
+      "http://www.w3.org/2000/svg", "svg"
+    );
+
+    JsBarcode(svg, value, {
+      format: "CODE128",
+      displayValue: true,
+      font: "monospace",
+      fontSize: 13,
+      textMargin: 3,
+      width: 1.6,
+      height: 48,
+      margin: 3,
+      background: "#ffffff",
+      lineColor: "#000000"
+    });
+
+    return "data:image/svg+xml;charset=utf-8," +
+      encodeURIComponent(
+        new XMLSerializer().serializeToString(svg)
+      );
+  } catch (error) {
+    console.error("Barcode generation:", error);
+    return "";
+  }
+});
+
+const job = computed(() => props.data.job || {});
+const shop = computed(() => props.data.shop || {});
+const amount = computed(() => new Intl.NumberFormat("en-BD", {
+  minimumFractionDigits: 2, maximumFractionDigits: 2
+}).format(Number(job.value.estimated_cost || 0)));
+const deviceName = computed(() => [
+  job.value.device_type, job.value.brand, job.value.device_model
+].filter(Boolean).join(" / "));
+
+watch(() => job.value.name, async (name) => {
+  qr.value = "";
+  if (!name) return;
+  try {
+    // SOS_RECEIPT_LINK_QR_629: Deep link, never a customer name/mobile.
+    const mobileLink = new URL('/servicing-os', window.location.origin);
+    mobileLink.searchParams.set('service_job', name);
+    qr.value = await QRCode.toDataURL(mobileLink.href, {
+      width: 180, margin: 1, errorCorrectionLevel: "M"
+    });
+  } catch (e) { console.error("Receipt QR error:", e); }
+}, { immediate: true });
+
+async function printReceipt() {
+  await nextTick();
+  if (document.fonts?.ready) await document.fonts.ready;
+  window.print();
+}
+</script>
+
+<template>
+  <div class="sr-overlay" @click.capture="sos35ClickCapture" role="dialog" aria-modal="true" aria-label="Service receipt preview">
+    <div class="sr-dialog">
+      <header class="sr-toolbar">
+        <div><strong>Service Receipt Preview</strong><div class="sr-muted">{{ job.name }}</div></div>
+        <button type="button" @click="emit('close')">Close</button>
+      </header>
+      <nav class="sr-toolbar sr-actions">
+                <button type="button"
+                :class="{ selected: format === 'a4' }"
+                @click="format = 'a4'">
+          A4 Receipt
+        </button>
+        <button type="button"
+                :class="{ selected: format === 'a5' }"
+                @click="format = 'a5'">
+          A5 Receipt
+        </button>
+        <button type="button"
+                :class="{ selected: format === 'thermal' }"
+                @click="format = 'thermal'">
+          80mm Thermal
+        </button>
+        <button type="button"
+                :class="{ selected: format === 'sticker' }"
+                @click="format = 'sticker'" data-sos-sticker-tab="1">
+          Device Sticker 50 × 30mm
+        </button>
+        <button type="button"
+                class="sr-print"
+                @click="printReceipt" data-sos-sticker-print="1">
+          {{ format === 'sticker' ? 'Print Sticker' : 'Print Receipt' }}
+        </button>
+      </nav>
+      <!-- SOS_632_RECEIPT_DETAILS_QR: Full customer name, mobile, fault, and QR on the paper receipt. -->
+      
+      <!-- SOS_635_QR_INSIDE_RECEIPT_MODAL: sticker preview replaces original sticker paper only for selected mode. -->
+      <section v-if="sos35Sticker" class="sos35-preview-shell" aria-label="QR sticker preview inside service receipt modal">
+        <div class="sos35-utilities">
+          <label>QR link base (phone-reachable address)
+            <input v-model.trim="sos35Host" type="url" placeholder="http://192.168.0.100:8005" autocomplete="url" />
+          </label>
+          <button type="button" class="sos35-print-button" :disabled="!sos35QrImage" @click="sos35Print">Print QR Sticker 50 × 30 mm</button>
+        </div>
+        <p v-if="sos35Error" class="sos35-error" role="alert">{{ sos35Error }}</p>
+        <div class="sos35-sticker-stage">
+          <div class="sos35-label">
+            <div class="sos35-top">
+              <img v-if="sos35QrImage" :src="sos35QrImage" alt="Scannable QR code for this service job" />
+              <span v-else class="sos35-qr-missing">QR pending</span>
+              <div class="sos35-words">
+                <strong class="sos35-shop">{{ shop.name || 'AL MODINA COMPUTERS LIMITED' }}</strong>
+                <strong class="sos35-id">{{ job.name }}</strong>
+                <small>{{ sos35Device() }}</small>
+                <small>S/N: {{ sos35Serial() || '—' }}</small>
+                <small>{{ sos35Customer() }} · {{ sos35Phone() }}</small>
+                <small class="sos638-sticker-problem">{{ sos35Problem() || "—" }}</small>
+              </div>
+            </div>
+            <img v-if="sos35BarcodeImage" class="sos35-barcode" :src="sos35BarcodeImage" alt="Service Job Code 128 barcode" />
+            <span class="sos35-footer">SERVICE JOB · QR OPENS JOB</span>
+          </div>
+        </div>
+        <section class="sos35-sticker-full-problem" aria-label="Full reported problems">
+          <h4>Reported Problem / জানানো সব সমস্যা — সম্পূর্ণ বিবরণ</h4>
+          <p>{{ sos35Problem() || 'Not recorded' }}</p>
+        </section>
+        <p class="sos35-hint">Scan with a phone on your shop Wi-Fi. QR contains the job link only; staff must sign in to view customer information.</p>
+      </section>
+
+      <div class="sr-preview" v-show="!sos35Sticker">
+        <article id="servicing-receipt-paper"
+                 :class="['sr-paper', 'sr-' + format]">
+          
+          
+<template v-if="format === 'sticker'">
+  <div class="sr-barcode-sticker">
+    <div class="sr-sticker-title">
+      {{ shop.name }}
+    </div>
+
+    <img
+      v-if="serviceBarcodeSrc"
+      :src="serviceBarcodeSrc"
+      class="sr-sticker-barcode"
+      alt="Service Job Code 128 barcode"
+    />
+
+    <div class="sr-sticker-device-info">
+      {{ deviceName }}
+    </div>
+
+    <div class="sr-sticker-contact">
+      {{ job.customer_name }} · {{ job.mobile }}
+    </div>
+  </div>
+</template>
+
+          <template v-else>
+<header class="sr-company">
+            <h1>{{ shop.name }}</h1>
+            <p v-if="shop.address">{{ shop.address }}</p>
+            <p v-if="shop.phone">Phone: {{ shop.phone }}</p>
+          </header>
+          <h2 class="sr-heading">SERVICE RECEIVE RECEIPT</h2>
+          <div class="sr-line"><span>Job No.</span><strong>{{ job.name }}</strong></div>
+          <div class="sr-line"><span>Received</span><span>{{ job.received_date }}</span></div>
+          <div class="sr-line"><span>Status</span><span>{{ job.status }}</span></div>
+          <div class="sr-line"><span>Priority</span><span>{{ job.priority }}</span></div>
+          <h3>CUSTOMER DETAILS</h3>
+          <div class="sr-line"><span>Name</span><strong>{{ job.customer_name }}</strong></div>
+          <div class="sr-line"><span>Mobile</span><strong>{{ job.mobile }}</strong></div>
+          <h3>DEVICE DETAILS</h3>
+          <div class="sr-line"><span>Device</span><span>{{ deviceName }}</span></div>
+          <div v-if="job.serial_number" class="sr-line"><span>Serial No.</span><span>{{ job.serial_number }}</span></div>
+          <section class="sr-description"><strong>Reported Problem</strong><p>{{ job.reported_problem || "Not recorded" }}</p></section>
+          <section class="sr-description"><strong>Accessories Received</strong><p>{{ job.accessories_received || "None recorded" }}</p></section>
+          <div v-if="job.expected_delivery" class="sr-line"><span>Expected Delivery</span><span>{{ job.expected_delivery }}</span></div>
+          <div class="sr-total"><span>Estimated Repair Cost</span><strong>{{ shop.currency }} {{ amount }}</strong></div>
+          <div class="sr-qr"><img v-if="qr" :src="qr" alt="Service Job QR code"/><strong>{{ job.name }}</strong></div>
+          <p class="sr-notice">This is a device receiving acknowledgment, not a payment receipt. Estimated repair charges may change after diagnosis and customer approval. Please retain this receipt when collecting your device.</p>
+          
+<div class="sr-receipt-barcode">
+  <img
+    v-if="serviceBarcodeSrc"
+    :src="serviceBarcodeSrc"
+    alt="Service Job Code 128 barcode"
+  />
+  <div>Scan to find this Service Job</div>
+</div>
+<footer class="sr-signatures"><span>Received By</span><span>Customer Signature</span></footer>
+                  </template>
+        </article>
+      </div>
+    </div>
+  </div>
+</template>
+
+<style>
+.sr-overlay{position:fixed;inset:0;z-index:99999;display:flex;justify-content:center;align-items:center;padding:10px;background:rgba(15,23,42,.78)}
+.sr-dialog{width:100%;max-width:850px;max-height:96dvh;display:flex;flex-direction:column;overflow:hidden;background:#f1f5f9;border-radius:14px}
+.sr-toolbar{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;padding:12px;background:#fff;color:#0f172a;border-bottom:1px solid #cbd5e1}
+.sr-muted{font-size:12px;color:#64748b}
+.sr-toolbar button{border:1px solid #cbd5e1;border-radius:8px;padding:9px 12px;background:#fff;color:#0f172a;font-size:13px;cursor:pointer}
+.sr-toolbar button.selected{background:#2563eb;color:#fff;border-color:#2563eb}
+.sr-toolbar button.sr-print{background:#059669;color:#fff;border-color:#059669;font-weight:bold}
+.sr-preview{overflow:auto;padding:16px}
+.sr-paper{box-sizing:border-box;background:#fff;color:#111;margin:0 auto;font-family:Arial,sans-serif;line-height:1.4;overflow-wrap:anywhere;box-shadow:0 3px 16px #0002}
+.sr-thermal{width:80mm;max-width:100%;padding:4mm;font-size:10px}
+.sr-a5{width:148mm;max-width:100%;min-height:210mm;padding:12mm;font-size:12px}
+.sr-company{text-align:center;margin-bottom:12px}
+.sr-company h1{font-size:1.35em;font-weight:800;margin:0;text-transform:uppercase}
+.sr-company p{margin:3px 0}
+.sr-heading{font-size:1.1em;font-weight:800;text-align:center;padding:8px 0;margin:12px 0;border-top:2px solid;border-bottom:2px solid}
+.sr-line{display:flex;justify-content:space-between;gap:10px;padding:4px 0}
+.sr-line>:first-child{flex:0 0 34%}
+.sr-line>:last-child{text-align:right;min-width:0}
+.sr-paper h3{font-size:1em;font-weight:800;margin:14px 0 6px;border-bottom:1px solid;padding-bottom:4px}
+.sr-description{margin-top:12px}
+.sr-description p{white-space:pre-wrap;margin:4px 0}
+.sr-total{display:flex;justify-content:space-between;gap:10px;margin-top:16px;padding:10px 0;border-top:2px solid;border-bottom:2px solid;font-weight:bold}
+.sr-qr{display:flex;align-items:center;flex-direction:column;gap:4px;margin:15px 0;font-size:10px}
+.sr-qr img{width:92px;height:92px}
+.sr-notice{font-size:.9em;text-align:center;border-top:1px dashed #777;padding-top:10px}
+.sr-signatures{display:flex;justify-content:space-between;gap:20px;margin-top:38px;font-size:.9em}
+.sr-signatures span{flex:1;border-top:1px solid #555;text-align:center;padding-top:5px}
+@media print{
+  @page{margin:0}
+  body:has(.sr-overlay) *{visibility:hidden!important}
+  body:has(.sr-overlay) .sr-paper,body:has(.sr-overlay) .sr-paper *{visibility:visible!important}
+  body:has(.sr-overlay) .sr-overlay,body:has(.sr-overlay) .sr-dialog,body:has(.sr-overlay) .sr-preview{position:static!important;display:block!important;width:100%!important;max-width:none!important;max-height:none!important;overflow:visible!important;padding:0!important;margin:0!important;background:#fff!important;box-shadow:none!important}
+  body:has(.sr-overlay) .sr-toolbar{display:none!important}
+  body:has(.sr-overlay) .sr-paper{position:absolute!important;top:0!important;left:0!important;margin:0!important;box-shadow:none!important;max-width:none!important}
+  body:has(.sr-overlay) .sr-thermal{width:80mm!important;min-height:0!important;padding:3mm 4mm!important}
+  body:has(.sr-overlay) .sr-a5{width:148mm!important;min-height:210mm!important;padding:12mm!important}
+}
+
+/* A4 receipt */
+.sr-a4 {
+  width: 210mm;
+  max-width: 100%;
+  min-height: 297mm;
+  padding: 16mm;
+  font-size: 13px;
+}
+
+/* 50 x 30 mm device sticker */
+.sr-sticker {
+  width: 50mm;
+  height: 30mm;
+  max-width: none;
+  min-height: 0;
+  padding: 1.5mm 2mm;
+  font-size: 7px;
+  line-height: 1.15;
+  overflow: hidden;
+}
+
+.sr-sticker-head {
+  height: 5mm;
+  line-height: 4mm;
+  font-size: 8px;
+  font-weight: 800;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-bottom: 1px solid #111;
+}
+
+.sr-sticker-body {
+  height: 21mm;
+  display: flex;
+  align-items: center;
+  gap: 1.5mm;
+}
+
+.sr-sticker-qr {
+  width: 17mm;
+  height: 17mm;
+  flex-shrink: 0;
+}
+
+.sr-sticker-qr img {
+  width: 17mm;
+  height: 17mm;
+  display: block;
+}
+
+.sr-sticker-details {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.sr-sticker-details > * {
+  display: block;
+  margin-bottom: 1mm;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sr-sticker-job {
+  font-size: 8px;
+  overflow-wrap: anywhere;
+}
+
+.sr-sticker-device,
+.sr-sticker-customer {
+  white-space: nowrap;
+}
+
+.sr-sticker-mobile {
+  font-size: 8px;
+}
+
+@media print {
+  body:has(.sr-overlay) .sr-a4 {
+    width: 210mm !important;
+    min-height: 297mm !important;
+    padding: 16mm !important;
+  }
+
+  body:has(.sr-overlay) .sr-sticker {
+    width: 50mm !important;
+    height: 30mm !important;
+    min-height: 0 !important;
+    padding: 1.5mm 2mm !important;
+    overflow: hidden !important;
+  }
+
+  body:has(.sr-overlay) .sr-sticker-qr img {
+    width: 17mm !important;
+    height: 17mm !important;
+  }
+}
+
+
+/* Step 6.9: Code 128 printing */
+.sr-receipt-barcode {
+  text-align: center;
+  margin: 14px auto;
+  page-break-inside: avoid;
+  break-inside: avoid;
+}
+
+.sr-receipt-barcode img {
+  display: block;
+  width: 100%;
+  max-width: 78mm;
+  height: auto;
+  margin: 0 auto;
+}
+
+.sr-receipt-barcode > div {
+  font-size: 9px;
+  margin-top: 3px;
+}
+
+.sr-barcode-sticker {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  color: #000;
+  background: #fff;
+  text-align: center;
+}
+
+.sr-sticker-title {
+  font-size: 7px;
+  line-height: 1.1;
+  font-weight: 800;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.sr-sticker-barcode {
+  display: block;
+  width: 100%;
+  max-width: 45mm;
+  height: 13mm;
+  object-fit: fill;
+  margin: 1mm auto;
+}
+
+.sr-sticker-device-info {
+  width: 100%;
+  font-size: 7px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sr-sticker-contact {
+  width: 100%;
+  font-size: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media print {
+  .sr-receipt-barcode,
+  .sr-barcode-sticker {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+
+  .sr-sticker-barcode {
+    width: 100% !important;
+    height: 13mm !important;
+  }
+}
+
+
+/* SOS_635_QR_INSIDE_RECEIPT_MODAL — ivory controls; 50x30mm label preview. */
+.sos35-preview-shell{padding:16px 18px 20px;background:#faf5eb;color:#443426;display:grid;gap:12px;min-width:0;overflow:auto}
+.sos35-utilities{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end}
+.sos35-utilities label{flex:1 1 270px;display:grid;gap:5px;font-size:11px;font-weight:700;color:#66543f}
+.sos35-utilities input{min-height:40px;padding:8px 11px;background:#fff;border:1px solid #d9c9b4;border-radius:9px;color:#352717;font:inherit}
+.sos35-print-button{min-height:40px;padding:10px 16px;background:#705137;border:1px solid #705137;border-radius:9px;color:white;font-weight:800;cursor:pointer}
+.sos35-print-button:disabled{opacity:.5;cursor:not-allowed}
+.sos35-error{background:#fff1eb;border:1px solid #e5b19e;color:#9a3127;font-size:12px;padding:9px 12px;border-radius:9px}
+.sos35-sticker-stage{padding:20px 12px;background:#f2e9dc;border:1px solid #e2d4c1;border-radius:12px;display:grid;place-items:center;overflow:auto}
+.sos35-label{width:50mm;height:30mm;flex:0 0 auto;box-sizing:border-box;padding:1mm 1.4mm .5mm;background:#fff;color:#18130e;border:1px solid #ddd;display:flex;flex-direction:column;gap:.3mm;font-family:Arial,Helvetica,sans-serif;overflow:hidden;box-shadow:0 3px 12px #241a151c}
+.sos35-top{display:flex;align-items:flex-start;gap:.8mm;height:23mm;overflow:hidden}
+.sos35-top>img,.sos35-qr-missing{width:14.5mm;height:14.5mm;flex:0 0 14.5mm;object-fit:contain;image-rendering:pixelated}
+.sos35-qr-missing{font-size:8px;display:grid;place-items:center;color:#998}
+.sos35-words{flex:1;min-width:0;display:flex;flex-direction:column;gap:.3mm;overflow:hidden}
+.sos35-words>*{line-height:1.08;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:5.8pt}
+.sos35-words>.sos35-shop{font-size:5.8pt;white-space:normal;max-height:4mm}
+.sos35-words>.sos35-id{font-size:7pt;white-space:normal;overflow-wrap:anywhere;line-height:1.05}
+.sos35-barcode{display:block;width:100%;height:3.7mm;object-fit:fill}
+.sos35-footer{text-align:center;line-height:1;font-size:5.2pt}
+.sos35-hint{font-size:11px;color:#7c6854;margin:0;line-height:1.45}
+.sos35-utilities button:focus-visible,.sos35-utilities input:focus-visible{outline:3px solid #cfab73;outline-offset:2px}
+@media(max-width:440px){.sos35-preview-shell{padding:12px}.sos35-sticker-stage{padding:12px 6px}}
+@media print{.sos35-preview-shell{display:none!important}}
+
+
+/* SOS_638_BN_QR_FULL_PROBLEM — only receipt / QR-sticker presentation. */
+.sos35-sticker-full-problem {
+  padding: 11px 13px; border: 1px solid #dbcbb8; border-radius: 10px;
+  background: #fffcf7; color: #493626; min-width: 0;
+}
+.sos35-sticker-full-problem h4 { margin: 0 0 5px; font-size: 12px; font-weight: 800; }
+.sos35-sticker-full-problem p {
+  margin: 0; font-size: 12px; line-height: 1.5;
+  white-space: pre-wrap; overflow-wrap: anywhere; overflow: visible;
+  max-height: none; text-overflow: clip;
+}
+.sos35-words .sos638-sticker-problem {
+  font-size: 5.2pt; font-weight: 650; line-height: 1.12;
+  white-space: normal; overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3; line-clamp: 3; max-height: 9mm;
+}
+/* Never truncate reported problems on the full A4/A5/80mm receipt. */
+.sr-preview .sr-description, .sr-preview .sr-description p {
+  max-height: none !important; overflow: visible !important;
+  text-overflow: clip !important; -webkit-line-clamp: unset !important;
+  line-clamp: unset !important; white-space: pre-wrap !important;
+  overflow-wrap: anywhere !important;
+}
+@media print {
+  .sr-paper .sr-description, .sr-paper .sr-description p {
+    max-height: none !important; overflow: visible !important;
+    text-overflow: clip !important; -webkit-line-clamp: unset !important;
+    line-clamp: unset !important; white-space: pre-wrap !important;
+    overflow-wrap: anywhere !important;
+  }
+  .sr-paper:not(.sos35-label) { height: auto !important; overflow: visible !important; }
+  .sos35-sticker-full-problem { display: none !important; }
+}
+
+</style>

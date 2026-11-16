@@ -96,6 +96,8 @@ const t = (k) => copy[k]?.[bn.value ? 1 : 0] || k
 const inventory = ref({ company:'', currency:'BDT', items:[], warehouses:[], groups:[], uoms:[], brands:[], price_lists:{}, permissions:{} })
 const loading = ref(false), error = ref(''), success = ref(''), newSku = ref('')
 const warehouse = ref(''), group = ref(''), stockFilter = ref('all'), search = ref(''), threshold = ref(5)
+// SOS_INV_UX_V52 — catalog-only advanced filters; no stock ledger or API changes.
+const brandFilter = ref('')
 const sort = ref('newest'), view = ref('grid'), pageSize = ref(48), lastRefreshed = ref(null)
 const modal = ref(''), busy = ref(false), modalError = ref(''), chosenImage = ref(null)
 const stockSearch = ref('')
@@ -143,8 +145,8 @@ async function reload() {
   } catch (e) { if (seq === requestSeq) error.value = e?.message || String(e) }
   finally { if (seq === requestSeq) loading.value = false }
 }
-watch(warehouse, () => { pageSize.value=48; group.value=''; reload() })
-watch([search,group,stockFilter,sort,view], () => { pageSize.value=48 })
+watch(warehouse, () => { pageSize.value=48; group.value=''; brandFilter.value=''; reload() })
+watch([search,group,stockFilter,sort,view,brandFilter,threshold], () => { pageSize.value=48 })
 // SOS_INV_HERO_V46 — independent read-only Sales Invoice ranking for every Inventory layout.
 const heroSellerState = ref({status:'loading',top:[],total_units:0,partial:false,period_days:90,warehouse:''})
 const heroSellerError = ref(''), heroSellerLoading = ref(false)
@@ -196,6 +198,9 @@ onMounted(() => { reload(); poller = window.setInterval(onFocus, 60000); window.
 onUnmounted(() => { window.clearInterval(poller); window.removeEventListener('focus',onFocus) })
 const items = computed(() => inventory.value.items || [])
 const groups = computed(() => [...new Set(items.value.map(i => i.item_group).filter(Boolean))].sort())
+const brandOptions = computed(() => [...new Set(items.value.map(i => i.brand).filter(Boolean))].sort((a,b)=>String(a).localeCompare(String(b))))
+const advancedCount = computed(() => Number(!!group.value)+Number(!!brandFilter.value)+Number(sort.value!=='newest')+Number(Number(threshold.value)!==5))
+function clearAdvancedFilters() { group.value=''; brandFilter.value=''; sort.value='newest'; threshold.value=5 }
 const permissions = computed(() => inventory.value.permissions || {})
 function statusOf(i) { const q=Number(i.actual_qty||0); return q<=0?'out':q<=Number(threshold.value||5)?'low':'in' }
 const filtered = computed(() => {
@@ -203,6 +208,7 @@ const filtered = computed(() => {
   const arr=items.value.filter(i => {
     if (q && ![i.item_code,i.item_name,i.item_group,i.brand].some(v=>String(v||'').toLocaleLowerCase().includes(q))) return false
     if (group.value && i.item_group!==group.value) return false
+    if (brandFilter.value && i.brand!==brandFilter.value) return false
     if (stockFilter.value==='stocked' && heroAvailableQty(i)<=0) return false
     if (stockFilter.value==='pricing' && (!heroPriceReady.value || (i.buying_price!=null && i.selling_price!=null))) return false
     if (!['all','stocked','pricing'].includes(stockFilter.value) && statusOf(i)!==stockFilter.value) return false
@@ -514,18 +520,45 @@ function close() {if (!busy.value) {dismissLookup(); modal.value=''}}
           </div>
         </div>
       </div>
-      <div class="inv-toolbar">
+      <!-- SOS_INV_UX_V52: core controls remain visible; secondary filters use native details. -->
+      <div class="inv-toolbar inv52-toolbar">
         <label class="inv-search"><span aria-hidden="true">⌕</span><input v-model="search" type="search" :placeholder="t('search')" :aria-label="t('search')" /></label>
-        <select v-model="warehouse" :aria-label="t('warehouses')"><option value="">{{ t('warehouses') }}</option><option v-for="w in inventory.warehouses" :key="w.name" :value="w.name">{{ w.warehouse_name||w.name }}</option></select>
-        <select v-model="group" :aria-label="t('groups')"><option value="">{{ t('groups') }}</option><option v-for="g in groups" :key="g" :value="g">{{ g }}</option></select>
-        <select v-model="stockFilter" :aria-label="t('all')"><option value="all">{{ t('all') }}</option><option value="in">{{ t('in') }}</option><option value="low">{{ t('low') }}</option><option value="out">{{ t('out') }}</option><option value="stocked">{{ t('heroStocked') }}</option><option v-if="heroPriceReady" value="pricing">{{ t('heroPricing') }}</option></select>
+        <label class="inv52-main-select"><span>{{ bn?'গুদাম':'Warehouse' }}</span>
+          <select v-model="warehouse"><option value="">{{ t('warehouses') }}</option><option v-for="w in inventory.warehouses" :key="w.name" :value="w.name">{{ w.warehouse_name||w.name }}</option></select>
+        </label>
+        <label class="inv52-main-select"><span>{{ bn?'স্টকের অবস্থা':'Stock status' }}</span>
+          <select v-model="stockFilter"><option value="all">{{ t('all') }}</option><option value="in">{{ t('in') }}</option><option value="low">{{ t('low') }}</option><option value="out">{{ t('out') }}</option><option value="stocked">{{ t('heroStocked') }}</option><option v-if="heroPriceReady" value="pricing">{{ t('heroPricing') }}</option></select>
+        </label>
       </div>
-      <div class="inv-summary">
-        <span>{{ t('showing') }} {{ number(visible.length) }} {{ t('of') }} {{ number(filtered.length) }} {{ t('products').toLowerCase() }}</span>
-        <div class="inv-sorters">
-          <label>{{ t('threshold') }} <input v-model.number="threshold" type="number" min="1" max="100000" step="1" /></label>
-          <select v-model="sort" :aria-label="'Sort products'"><option value="newest">{{ bn?'সর্বশেষ পরিবর্তন':'Recently updated' }}</option><option value="name">{{ bn?'নাম অনুযায়ী':'Product name' }}</option><option value="stock">{{ bn?'মজুত অনুযায়ী':'Highest stock' }}</option><option value="sell">{{ bn?'বিক্রয়মূল্য অনুযায়ী':'Selling price' }}</option></select>
+      <details class="inv52-advanced">
+        <summary class="inv52-advanced-trigger">
+          <span class="inv52-filter-icon" aria-hidden="true">☷</span>
+          <span class="inv52-trigger-copy"><strong>{{ bn?'অতিরিক্ত ফিল্টার':'Advanced filters' }}</strong><small>{{ bn?'ক্যাটাগরি, ব্র্যান্ড, সাজানো ও সতর্কতা সীমা':'Category, brand, sorting & alert threshold' }}</small></span>
+          <span v-if="advancedCount" class="inv52-filter-count">{{ number(advancedCount) }} {{ bn?'সক্রিয়':'active' }}</span>
+          <span class="inv52-chevron" aria-hidden="true">⌄</span>
+        </summary>
+        <div class="inv52-advanced-body">
+          <label class="inv52-field"><span>{{ t('group') }}</span>
+            <select v-model="group"><option value="">{{ t('groups') }}</option><option v-for="g in groups" :key="g" :value="g">{{ g }}</option></select>
+          </label>
+          <label class="inv52-field"><span>{{ t('brand') }}</span>
+            <select v-model="brandFilter"><option value="">{{ bn?'সব ব্র্যান্ড':'All brands' }}</option><option v-for="b in brandOptions" :key="b" :value="b">{{ b }}</option></select>
+          </label>
+          <label class="inv52-field"><span>{{ bn?'সাজানোর ক্রম':'Sort products' }}</span>
+            <select v-model="sort"><option value="newest">{{ bn?'সর্বশেষ পরিবর্তন':'Recently updated' }}</option><option value="name">{{ bn?'নাম অনুযায়ী':'Product name' }}</option><option value="stock">{{ bn?'মজুত অনুযায়ী':'Highest stock' }}</option><option value="sell">{{ bn?'বিক্রয়মূল্য অনুযায়ী':'Selling price' }}</option></select>
+          </label>
+          <label class="inv52-field"><span>{{ t('threshold') }}</span>
+            <input v-model.number="threshold" type="number" min="1" max="100000" step="1" />
+          </label>
+          <div class="inv52-advanced-foot">
+            <span>{{ bn?'সতর্কতা সীমা শুধু এই ক্যাটালগের প্রদর্শনকে প্রভাবিত করে।':'Alert threshold changes this catalog’s status display only.' }}</span>
+            <button type="button" @click="clearAdvancedFilters" :disabled="!advancedCount">{{ bn?'অতিরিক্ত ফিল্টার মুছুন':'Clear advanced filters' }}</button>
+          </div>
         </div>
+      </details>
+      <div class="inv-summary inv52-summary">
+        <span>{{ t('showing') }} {{ number(visible.length) }} {{ t('of') }} {{ number(filtered.length) }} {{ t('products').toLowerCase() }}</span>
+        <span v-if="advancedCount" class="inv52-summary-active">{{ number(advancedCount) }} {{ bn?'অতিরিক্ত ফিল্টার সক্রিয়':'advanced filters active' }}</span>
       </div>
       <div v-if="loading && !items.length" class="inv-empty">{{ t('loading') }}</div>
       <div v-else-if="!filtered.length" class="inv-empty">{{ t('empty') }} <button v-if="permissions.create_item && !items.length" type="button" class="inv-btn inv-primary" @click="openAdd">＋ {{ t('add') }}</button></div>
@@ -830,4 +863,45 @@ button.inv44-kpi{cursor:pointer}button.inv44-kpi:hover:not(:disabled){border-col
 }
 @media(prefers-reduced-motion:reduce){.inv46-leader{transition:none}}
 
+
+/* SOS_INV_UX_V52 — scoped catalog filter polish; no hero, card, FAB or modal overrides. */
+.inv-root .inv52-toolbar{grid-template-columns:minmax(210px,1.7fr) repeat(2,minmax(150px,1fr));align-items:end;gap:11px;padding:14px 19px}
+.inv-root .inv52-toolbar .inv-search{height:44px;min-height:44px}
+.inv-root .inv52-toolbar .inv52-main-select{display:flex;flex-direction:column;gap:5px;min-width:0;font-size:10px;font-weight:750;color:#816a56}
+.inv-root .inv52-main-select select,.inv-root .inv52-field select,.inv-root .inv52-field input{
+  box-sizing:border-box;display:block;width:100%;height:44px;min-height:44px;padding:0 35px 0 13px;
+  border:1px solid #dfd0bd;border-radius:10px;background-color:#fffdfa;color:#513c2c;
+  font-family:inherit;font-size:12px;font-weight:600;line-height:1.35;min-width:0;
+  box-shadow:0 1px 2px #7355360a;outline-offset:2px
+}
+.inv-root .inv52-main-select select,.inv-root .inv52-field select{
+  appearance:none;-webkit-appearance:none;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none'%3E%3Cpath d='m5 7 5 5 5-5' stroke='%237d6045' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-size:16px;background-position:right 11px center;background-repeat:no-repeat
+}
+.inv-root .inv52-field input{padding:0 13px}
+.inv-root .inv52-main-select select:focus-visible,.inv-root .inv52-field select:focus-visible,.inv-root .inv52-field input:focus-visible,.inv-root .inv52-advanced-trigger:focus-visible{outline:3px solid #b88e61;outline-offset:2px}
+.inv-root .inv52-advanced{border-bottom:1px solid #eee3d5;background:#fffdf9}
+.inv-root .inv52-advanced-trigger{display:flex;align-items:center;gap:10px;cursor:pointer;list-style:none;padding:11px 20px;min-height:57px;color:#71563f;user-select:none}
+.inv-root .inv52-advanced-trigger::-webkit-details-marker{display:none}
+.inv-root .inv52-advanced-trigger:hover{background:#fbf4ea}
+.inv-root .inv52-filter-icon{flex:0 0 31px;width:31px;height:31px;border-radius:9px;display:grid;place-items:center;background:#f1e6d8;color:#7d5a3d;font-size:18px}
+.inv-root .inv52-trigger-copy{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1}
+.inv-root .inv52-trigger-copy strong{font-size:12px;line-height:1.3;font-weight:800;color:#59412f}
+.inv-root .inv52-trigger-copy small{font-size:10px;line-height:1.4;color:#9a836e}
+.inv-root .inv52-filter-count{border-radius:999px;background:#f0dfc9;border:1px solid #e1c8aa;color:#745438;padding:5px 8px;font-size:10px;font-weight:800;white-space:nowrap}
+.inv-root .inv52-chevron{flex:0 0 auto;font-size:23px;line-height:1;color:#967758;transition:transform .16s ease}
+.inv-root .inv52-advanced[open] .inv52-chevron{transform:rotate(180deg)}
+.inv-root .inv52-advanced-body{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;padding:15px 19px 17px;border-top:1px solid #f0e4d6;background:#fdf8f1}
+.inv-root .inv52-field{display:flex;flex-direction:column;gap:7px;min-width:0;color:#816a56;font-size:11px;font-weight:750}
+.inv-root .inv52-advanced-foot{grid-column:1/-1;display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap;padding-top:4px}
+.inv-root .inv52-advanced-foot>span{color:#9a846f;font-size:10px;line-height:1.45}
+.inv-root .inv52-advanced-foot button{border:1px solid #d8c4ac;border-radius:9px;padding:9px 12px;background:#fffaf4;color:#735437;font-size:11px;font-family:inherit;font-weight:800;cursor:pointer}
+.inv-root .inv52-advanced-foot button:hover:not(:disabled){background:#efe1d0}
+.inv-root .inv52-advanced-foot button:disabled{opacity:.48;cursor:not-allowed}
+.inv-root .inv52-summary{min-height:38px}.inv-root .inv52-summary-active{font-size:10px;color:#9b7551;font-weight:750}
+@media(max-width:1030px){.inv-root .inv52-advanced-body{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:740px){.inv-root .inv52-toolbar{grid-template-columns:repeat(2,minmax(0,1fr));padding:12px;gap:10px}.inv-root .inv52-toolbar .inv-search{grid-column:1/-1}.inv-root .inv52-advanced-body{padding:12px;gap:10px}.inv-root .inv52-advanced-trigger{padding:11px 12px}}
+@media(max-width:420px){.inv-root .inv52-toolbar{grid-template-columns:minmax(0,1fr)}.inv-root .inv52-toolbar .inv-search{grid-column:auto}.inv-root .inv52-advanced-body{grid-template-columns:minmax(0,1fr)}.inv-root .inv52-trigger-copy small{font-size:9px}}
+@media(prefers-reduced-motion:reduce){.inv-root .inv52-chevron{transition:none}}
 </style>

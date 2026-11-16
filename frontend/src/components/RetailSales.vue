@@ -8,7 +8,10 @@ function sos666RetailChoose(c) {
   chooseCustomer(c)
   sos666RetailSelected.value = c
 }
-function sos666RetailClear() { sos666RetailSelected.value = null }
+function sos666RetailClear() {
+  sos666RetailSelected.value = null
+  changeCustomer() // Keep native ERPNext checkout customer synchronized with the visual picker.
+}
 
 
 
@@ -290,9 +293,14 @@ async function complete(){
     const result=await call('complete_cash_sale',{
       customer:customer.value,items:cart.value.map(x=>({item_code:x.item_code,qty:x.qty})),
       checkout_key:key.value,expected_total:quote.value.grand_total},true)
-    receipt.value=result;quote.value=null;cart.value=[];key.value=newKey();search.value='';customer.value='';selectedCustomer.value=null;customerSearch.value='';matchedCustomers.value=[]
+    receipt.value=result;quote.value=null;cart.value=[];key.value=newKey();search.value='';customer.value='';selectedCustomer.value=null;customerSearch.value='';matchedCustomers.value=[];sos666RetailSelected.value=null
     await loadProducts();await loadRecent()
   }catch(e){error.value=e.message}finally{checking.value=false}
+}
+// SOS_CART_UX_671: Protect an in-progress sale from accidental clearing.
+function sos671ConfirmClear() {
+  if (checking.value || !cart.value.length) return
+  if (window.confirm('Clear all items from this sale?')) reset()
 }
 function reset(){cart.value=[];clearQuote();error.value='';key.value=newKey()}
 function printReceipt(){window.print()}
@@ -371,58 +379,86 @@ onBeforeUnmount(()=>{clearTimeout(searchTimer);clearTimeout(customerTimer)})
   </div>
 </div>
     </section>
-    <section class="cc-checkout">
-      <div class="cc-checkout-title"><div><div class="cc-eyebrow">CURRENT ORDER</div><h2>Shopping Cart <span>{{count}} items</span></h2></div><button type="button" class="cc-small" @click="reset" :disabled="checking">Clear</button></div>
-      <section class="cc-customer-card" aria-label="Customer selection">
-        <div class="cc-customer-title"><div><strong>Customer</strong><small>Search once, or add a new customer here</small></div>
-          <button type="button" class="cc-new-customer" v-if="customerConfig.can_create" @click="startNewCustomer">＋ New Customer</button>
+    <!-- SOS_CART_UX_671: Replaces only the visual order panel. Checkout methods are original. -->
+    <section class="cc-checkout sos671-order" aria-label="Current sale order">
+      <header class="sos671-heading">
+        <div>
+          <div class="sos671-overline">CURRENT ORDER</div>
+          <div class="sos671-heading-main">
+            <h2>Your cart</h2>
+            <span class="sos671-count">{{ count }} {{ count === 1 ? 'item' : 'items' }}</span>
+          </div>
         </div>
-        <div v-if="selectedCustomer" class="cc-selected-person">
-          <span class="cc-person-avatar" aria-hidden="true">✓</span>
-          <span class="cc-person-details"><strong>{{selectedCustomer.customer_name || selectedCustomer.name}}</strong><small>{{selectedCustomer.mobile || 'Mobile not recorded'}}</small></span>
-          <button type="button" class="cc-customer-change" @click="changeCustomer">Change</button>
+        <button v-if="cart.length" type="button" class="sos671-clear" :disabled="checking" @click="sos671ConfirmClear" aria-label="Clear all items from cart">Clear cart</button>
+      </header>
+
+      <div class="sos671-customer" aria-label="Customer selection">
+        <CustomerQuickSearch666 :selected="sos666RetailSelected"
+          label="Customer · Search by name or mobile"
+          @selected="sos666RetailChoose" @clear="sos666RetailClear" />
+      </div>
+
+      <div class="sos671-items-head">
+        <h3>Order items</h3>
+        <span>{{ cart.length ? count + (count === 1 ? ' unit' : ' units') : 'Nothing added' }}</span>
+      </div>
+
+      <div class="cc-cart-items sos671-item-list" aria-label="Items in cart">
+        <div v-if="!cart.length" class="sos671-empty" role="status">
+          <span class="sos671-empty-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/>
+              <path d="M2 3h2l2.4 12h12.1l2.1-9H5"/><path d="M10 10h5M12.5 7.5v5"/>
+            </svg>
+          </span>
+          <strong>Cart is ready</strong>
+          <p>Select an available product from the catalog to begin a sale.</p>
         </div>
-        <div v-else class="cc-customer-search-area">
-          <div class="cc-customer-query"><span aria-hidden="true">⌕</span>
-            <div class="sos666-retail-picker"><CustomerQuickSearch666 :selected="sos666RetailSelected"
-  label="Customer · Search by name or mobile" @selected="sos666RetailChoose" @clear="sos666RetailClear" /></div>
-<input id="cc-customer-search" v-model="customerSearch" @focus="customerPickerOpen=true" @input="onCustomerSearch" @keydown.esc="customerPickerOpen=false" @keydown.enter.prevent="matchedCustomers.length===1 ? chooseCustomer(matchedCustomers[0]) : (customerPickerOpen=true)" placeholder="Customer name or mobile number" autocomplete="off" aria-label="Find customer by name or phone" class="sos666-native-old-search" />
-            <span v-if="customerLoading" class="cc-customer-loader" aria-label="Searching">…</span>
+        <div v-for="row in cart" :key="row.item_code" class="sos671-item">
+          <div class="sos671-item-info">
+            <strong>{{ row.item_name }}</strong>
+            <small>{{ row.item_code }} · {{ money(row.rate) }} each</small>
           </div>
-          <div v-if="customerPickerOpen && customerSearch.trim()" class="cc-customer-options" role="listbox" aria-label="Customer matches">
-            <button v-for="c in matchedCustomers" :key="c.name" type="button" class="cc-customer-option" role="option" @click="chooseCustomer(c)">
-              <span class="cc-person-avatar" aria-hidden="true">{{(c.customer_name || c.name).slice(0,1).toUpperCase()}}</span>
-              <span class="cc-person-details"><strong>{{c.customer_name || c.name}}</strong><small>{{c.mobile || 'No mobile saved'}} · {{c.name}}</small></span><span aria-hidden="true">↗</span>
-            </button>
-            <div v-if="!matchedCustomers.length && !customerLoading" class="cc-customer-empty">No matching customer. Use <b>＋ New Customer</b> below.</div>
+          <div class="sos671-item-bottom">
+            <div class="cc-cart-qty sos671-qty" role="group" :aria-label="'Quantity for '+row.item_name">
+              <button type="button" :disabled="checking" :aria-label="'Decrease '+row.item_name+' quantity'" @click="changeQty(row,-1)">−</button>
+              <span aria-live="polite">{{ row.qty }}</span>
+              <button type="button" :disabled="checking || Number(row.qty)>=Number(row.stock_qty)" :aria-label="'Increase '+row.item_name+' quantity'" @click="changeQty(row,1)">+</button>
+            </div>
+            <strong class="sos671-line-total">{{ money(row.rate * row.qty) }}</strong>
+            <button type="button" class="sos671-remove" :disabled="checking" :aria-label="'Remove '+row.item_name+' from cart'" title="Remove item" @click="remove(row)">×</button>
           </div>
-          <p v-if="!customerSearch.trim()" class="cc-customer-tip">Start typing a name or mobile number to find an existing customer.</p>
-        </div>
-        <form v-if="newCustomerOpen" class="cc-new-customer-form" @submit.prevent="saveNewCustomer">
-          <div class="cc-new-form-heading"><strong>Create Customer</strong><button type="button" @click="newCustomerOpen=false">✕</button></div>
-          <div class="cc-new-form-fields">
-            <label>Customer Name <span>*</span><input v-model="newCustomerName" type="text" maxlength="120" required autocomplete="name" placeholder="Full customer name"/></label>
-            <label>Mobile Number <span>*</span><input v-model="newCustomerMobile" type="tel" maxlength="18" required autocomplete="tel-national" inputmode="tel" placeholder="01XXXXXXXXX"/></label>
-          </div>
-          <button v-if="newCustomerGroup && newCustomerTerritory && !classificationOpen" class="cc-classification-toggle" type="button" @click="classificationOpen=true">Customer classification · Change</button>
-          <div v-if="classificationOpen || !newCustomerGroup || !newCustomerTerritory" class="cc-new-form-fields">
-            <label>Customer Group <span>*</span><select v-model="newCustomerGroup" required><option disabled value="">Select group</option><option v-for="g in customerConfig.groups" :key="g" :value="g">{{g}}</option></select></label>
-            <label>Territory <span>*</span><select v-model="newCustomerTerritory" required><option disabled value="">Select territory</option><option v-for="t in customerConfig.territories" :key="t" :value="t">{{t}}</option></select></label>
-          </div>
-          <div class="cc-new-form-actions"><button class="cc-outline" type="button" @click="newCustomerOpen=false">Cancel</button><button class="cc-new-save" type="submit" :disabled="savingCustomer">{{savingCustomer?'Saving…':'Save & Select Customer'}}</button></div>
-        </form>
-        <p v-if="customerHint" class="cc-customer-hint" role="status">{{customerHint}}</p>
-      </section>
-      <div class="cc-cart-items"><div v-if="!cart.length" class="cc-cart-empty">Cart is empty. Select a product on the left.</div>
-        <div v-for="row in cart" :key="row.item_code" class="cc-cart-row"><div><b>{{row.item_name}}</b><small>{{money(row.rate)}} each</small></div>
-          <div class="cc-cart-qty"><button type="button" @click="changeQty(row,-1)">−</button><span>{{row.qty}}</span><button type="button" @click="changeQty(row,1)">+</button></div><b>{{money(row.rate*row.qty)}}</b><button type="button" class="cc-remove" aria-label="Remove" @click="remove(row)">×</button>
         </div>
       </div>
-      <div class="cc-summary"><div><span>Product subtotal</span><b>{{money(subtotal)}}</b></div><div v-if="quote"><span>Taxes and charges</span><b>{{money(quote.tax_total)}}</b></div><div class="cc-grand"><span>{{quote?'Total due':'Estimated subtotal'}}</span><strong>{{money(quote?quote.grand_total:subtotal)}}</strong></div></div>
-      <div v-if="quote" class="cc-paybox"><label class="cc-label" for="cc-cash">Cash received (BDT)</label><input id="cc-cash" v-model="tendered" class="cc-input" type="number" min="0" step="0.01" /><div class="cc-change"><span>Change to return</span><b>{{money(change)}}</b></div><p>Completing the sale posts the invoice, reduces stock and records payment.</p></div>
-      <button v-if="!quote" type="button" class="cc-primary" :disabled="checking || !cart.length || !customer" @click="review">{{checking?'Checking...':'Review & Take Cash'}}</button>
-      <div v-if="!quote" class="cc-action-help" role="status">{{ checkoutHelp620G }}</div>
-      <div v-else class="cc-pay-actions"><button type="button" class="cc-outline" @click="clearQuote" :disabled="checking">Back</button><button type="button" class="cc-primary" :disabled="checking || Number(tendered)<Number(quote.grand_total)" @click="complete">{{checking?'Processing...':'Confirm Sale & Payment'}}</button></div>
+
+      <div class="sos671-total" aria-live="polite">
+        <div v-if="quote" class="sos671-breakdown"><span>Items subtotal</span><strong>{{ money(subtotal) }}</strong></div>
+        <div v-if="quote" class="sos671-breakdown"><span>Taxes &amp; charges</span><strong>{{ money(quote.tax_total) }}</strong></div>
+        <div class="sos671-total-row">
+          <span>{{ quote ? 'Total payable' : 'Estimated total' }}</span>
+          <strong>{{ money(quote ? quote.grand_total : subtotal) }}</strong>
+        </div>
+        <p v-if="!quote && cart.length">Final taxes and charges are confirmed during review.</p>
+      </div>
+
+      <div v-if="quote" class="cc-paybox sos671-paybox">
+        <div class="sos671-step-label">STEP 2 OF 2 · PAYMENT</div>
+        <label class="cc-label" for="cc-cash">Cash received (BDT)</label>
+        <input id="cc-cash" v-model="tendered" class="cc-input" type="number" min="0" step="0.01" inputmode="decimal" />
+        <div class="cc-change"><span>Change to give customer</span><b>{{ money(change) }}</b></div>
+        <p>Confirming the sale posts the invoice, stock movement and payment through your existing ERPNext checkout.</p>
+      </div>
+      <div v-else class="sos671-step-label">STEP 1 OF 2 · REVIEW YOUR ORDER</div>
+
+      <button v-if="!quote" type="button" class="cc-primary sos671-primary"
+        :disabled="checking || !cart.length || !customer" @click="review">
+        <span>{{ checking ? 'Reviewing…' : 'Review &amp; Take Cash' }}</span><span aria-hidden="true">→</span>
+      </button>
+      <div v-if="!quote && cart.length && !customer" class="sos671-guidance" role="status">Select a customer above to continue to payment.</div>
+      <div v-if="quote" class="cc-pay-actions sos671-pay-actions">
+        <button type="button" class="cc-outline" @click="clearQuote" :disabled="checking">Back to cart</button>
+        <button type="button" class="cc-primary sos671-primary" :disabled="checking || Number(tendered) < Number(quote.grand_total)" @click="complete">{{ checking ? 'Processing…' : 'Confirm Sale &amp; Payment' }}</button>
+      </div>
     </section>
   </div>
   <div v-if="receipt" class="cc-receipt-layer"><div class="cc-receipt">
@@ -577,3 +613,66 @@ onBeforeUnmount(()=>{clearTimeout(searchTimer);clearTimeout(customerTimer)})
 
 <!-- SERVICING_SALES_VISUAL_669: shared visual rules only; existing product and cart events preserved. -->
 <style src="./SalesProductVisual669.css"></style>
+
+<!-- SOS_CART_UX_671: order panel only, warm ivory palette; source payment handlers unchanged. -->
+<style scoped>
+.cc-root .sos671-order{padding:0!important;overflow:visible;border-radius:18px!important;background:#fffefa!important;border:1px solid #e5d8c8!important;box-shadow:0 14px 34px rgba(72,48,23,.07)!important;position:sticky;top:12px;min-width:0}
+.sos671-order .sos671-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:18px 19px 14px;border-bottom:1px solid #eee4d7;background:#fffefa;border-radius:18px 18px 0 0}
+.sos671-overline{font-size:10px;font-weight:800;letter-spacing:1.7px;color:#a28768}
+.sos671-heading-main{display:flex;align-items:center;gap:10px;margin-top:5px;flex-wrap:wrap}
+.sos671-heading-main h2{font-size:20px;line-height:1.25;font-weight:800;letter-spacing:-.45px;color:#403022;margin:0}
+.sos671-count{border-radius:100px;padding:3px 9px;font-size:11px;font-weight:750;color:#765738;background:#f3e8d9;white-space:nowrap}
+.sos671-clear{font-size:12px;font-weight:650;color:#856c54;background:transparent;border:1px solid transparent;border-radius:9px;padding:7px 9px;cursor:pointer;white-space:nowrap}
+.sos671-clear:hover{background:#f8ede1;color:#62472f}
+.sos671-clear:disabled{opacity:.5;cursor:not-allowed}
+.sos671-customer{margin:14px 15px 17px;min-width:0}
+.sos671-customer :deep(.sos669-customer){margin:0!important;border-color:#e9ddcf!important;box-shadow:none!important}
+.sos671-items-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 19px 10px}
+.sos671-items-head h3{font-size:12px;font-weight:800;color:#503b2a;letter-spacing:.01em;margin:0}
+.sos671-items-head span{font-size:11px;color:#a08b75}
+.cc-root .sos671-item-list{padding:0 15px;min-height:0!important;max-height:min(35vh,350px);overflow-y:auto;overscroll-behavior:contain}
+.sos671-empty{border:1px dashed #e7d8c5;background:#fcf8f1;border-radius:13px;margin:0 0 16px;padding:22px 15px;text-align:center;color:#7c684f}
+.sos671-empty-icon{width:42px;height:42px;border-radius:14px;display:grid;place-items:center;margin:0 auto 10px;background:#f3e7d5;color:#936d46}
+.sos671-empty strong{display:block;color:#5f4730;font-size:13px;font-weight:780;margin-bottom:3px}
+.sos671-empty p{font-size:11px;line-height:1.5;color:#978570;max-width:245px;margin:0 auto}
+.sos671-item{display:grid;grid-template-columns:minmax(0,1fr);gap:9px;padding:12px 3px;border-top:1px solid #eee4d8}
+.sos671-item:first-child{border-top:0}
+.sos671-item-info{min-width:0;display:grid;gap:3px}
+.sos671-item-info strong{font-size:12px;line-height:1.4;font-weight:750;color:#463529;overflow-wrap:anywhere}
+.sos671-item-info small{font-size:10px;color:#9d8b78;overflow-wrap:anywhere}
+.sos671-item-bottom{display:flex;align-items:center;gap:10px;min-width:0}
+.sos671-qty{display:inline-flex;align-items:center;gap:0;flex-shrink:0;border:1px solid #e8d7c2;background:#fcf7f0;border-radius:10px;overflow:hidden}
+.sos671-qty button{width:34px;height:34px;display:grid;place-items:center;flex-shrink:0;color:#6e5135;font-size:18px;font-weight:600;background:transparent;border:0;cursor:pointer}
+.sos671-qty button:hover:not(:disabled){background:#f0e1cc}
+.sos671-qty button:disabled{opacity:.4;cursor:not-allowed}
+.sos671-qty span{min-width:24px;text-align:center;font-size:12px;font-weight:750;color:#4c3927}
+.sos671-line-total{margin-left:auto;font-size:13px;font-weight:800;color:#453122;white-space:nowrap}
+.sos671-remove{width:30px;height:30px;display:grid;place-items:center;flex-shrink:0;color:#a27665;border-radius:9px;border:0;background:transparent;font-size:20px;cursor:pointer}
+.sos671-remove:hover{background:#fff0e8;color:#9b4938}
+.sos671-remove:disabled{opacity:.4;cursor:not-allowed}
+.sos671-total{margin:6px 15px 0;padding:14px 15px 12px;border:1px solid #e8d9c5;border-radius:13px;background:#f7efe4}
+.sos671-total-row{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
+.sos671-total-row span{font-size:12px;font-weight:750;color:#795d42}
+.sos671-total-row strong{font-size:25px;line-height:1.2;font-weight:850;color:#3f2d20;letter-spacing:-.7px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.sos671-total p{color:#94806b;font-size:10px;line-height:1.5;margin:7px 0 0}
+.sos671-breakdown{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:9px;color:#846d54;font-size:11px}
+.sos671-breakdown strong{font-size:11px;color:#694e34;font-variant-numeric:tabular-nums}
+.sos671-breakdown + .sos671-total-row{border-top:1px solid #e7d5c0;padding-top:12px;margin-top:3px}
+.sos671-step-label{font-size:10px;font-weight:800;letter-spacing:.65px;color:#9d8266;margin:15px 18px 8px}
+.sos671-order .sos671-primary{display:flex;align-items:center;justify-content:space-between;gap:9px;margin:0 15px 16px;width:calc(100% - 30px);min-height:46px;background:#725338;color:#fffdf8;border-radius:11px;font-size:13px;font-weight:750;padding:12px 15px;transition:background-color .13s,transform .13s}
+.sos671-order .sos671-primary:hover:not(:disabled){background:#583b25;transform:translateY(-1px)}
+.sos671-order .sos671-primary:disabled{background:#d8c8b7;color:#715a43;opacity:1;transform:none}
+.sos671-order .sos671-guidance{font-size:11px;text-align:center;color:#9e7050;margin:-6px 16px 16px}
+.sos671-order .sos671-paybox{margin:0 15px 14px;border:1px solid #e4d4bf;background:#fffaf2;padding:13px;border-radius:12px}
+.sos671-paybox .sos671-step-label{margin:0 0 10px}
+.sos671-paybox .cc-input{border-color:#decbb3!important;min-height:45px;background:#fffefa}
+.sos671-paybox .cc-change{border-top:1px solid #e9ddcb;padding-top:9px}
+.sos671-order .sos671-pay-actions{display:grid;grid-template-columns:minmax(0,110px) minmax(0,1fr);gap:8px;margin:0 15px 16px}
+.sos671-order .sos671-pay-actions .sos671-primary{width:100%;margin:0;min-width:0;justify-content:center;text-align:center}
+.sos671-order .sos671-pay-actions .cc-outline{padding:10px 7px;white-space:normal;min-width:0;font-size:11px}
+.sos671-order button:focus-visible{outline:3px solid #bb9264;outline-offset:2px}
+@media(max-width:1050px){.cc-root .sos671-order{position:static}}
+@media(max-width:560px){.sos671-order .sos671-heading{padding:15px 14px}.sos671-heading-main h2{font-size:19px}.sos671-customer{margin:11px 11px 14px}.sos671-items-head{padding:0 14px 9px}.cc-root .sos671-item-list{padding:0 11px;max-height:none}.sos671-total{margin:5px 11px 0}.sos671-total-row strong{font-size:23px}.sos671-order .sos671-primary{margin:0 11px 13px;width:calc(100% - 22px)}.sos671-order .sos671-paybox{margin:0 11px 12px}.sos671-order .sos671-pay-actions{margin:0 11px 13px}}
+@media(max-width:350px){.sos671-order .sos671-pay-actions{grid-template-columns:1fr}.sos671-total-row strong{font-size:21px}}
+@media(prefers-reduced-motion:reduce){.sos671-order .sos671-primary{transition:none}}
+</style>

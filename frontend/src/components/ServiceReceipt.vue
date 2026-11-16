@@ -76,37 +76,51 @@ sos35Watch(() => props.data?.job?.name, () => { if (sos35Sticker.value) sos35Bui
 function sos35Escape(value) {
   return String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c])
 }
+// SOS_50X30_SYMMETRIC_STICKER_V7 — printed 50×30mm label only.
 function sos35Html() {
   if (!sos35QrImage.value) throw Error(sos35Error.value || 'QR is not ready to print.')
   const name = sos35Escape(props.data?.shop?.name || 'AL MODINA COMPUTERS LIMITED')
   const job = sos35Escape(sos35Job())
   const device = sos35Escape(sos35Device().slice(0, 55))
   const serial = sos35Escape(sos35Serial().slice(0, 38))
-  const customer = sos35Escape(sos35Customer().slice(0, 46))
-  const phone = sos35Escape(sos35Phone().slice(0, 22))
-  const problem = sos35Escape(sos35Problem().replace(/\s+/g, ' '))
+  const customerText = sos35Customer().trim()
+  const customer = sos35Escape(customerText || 'Customer not recorded')
+  const phone = sos35Escape(sos35Phone().slice(0, 26))
+  const problemText = sos35Problem().replace(/\s+/g, ' ').trim()
+  const problem = sos35Escape(problemText || 'Not recorded')
+  const compactName = customerText.length > 28 ? ' compact-name' : ''
+  const compactFault = problemText.length > 75 ? ' compact-fault' : ''
+  const serialLine = serial && !compactName ? `<div class="serial">S/N: ${serial}</div>` : ''
   const barcode = sos35BarcodeImage.value ? `<img class="code128" alt="Code 128 job barcode" src="${sos35BarcodeImage.value}">` : ''
-  // Local data URLs only. No remote QR/barcode service, no customer details in QR.
+  // QR links to the service job only; no personal information is encoded in it.
   return `<!doctype html><html><head><meta charset="utf-8"><title>Service Sticker ${job}</title><style>
     @page{size:50mm 30mm;margin:0}
-    *{box-sizing:border-box}html,body{margin:0;padding:0;background:white;color:#17120e;font-family:Arial,Helvetica,sans-serif}
-    .label{width:50mm;height:30mm;padding:1mm 1.4mm 0.5mm;overflow:hidden;display:flex;flex-direction:column;gap:.35mm}
-    .row{display:flex;align-items:flex-start;gap:.8mm;height:23mm;overflow:hidden}
-    .qr{width:14.5mm;height:14.5mm;object-fit:contain;flex:0 0 14.5mm;image-rendering:pixelated}
-    .meta{flex:1;min-width:0;display:flex;flex-direction:column;gap:.3mm;overflow:hidden}
-    .brand{font-size:5.8pt;font-weight:800;line-height:1.06;max-height:4mm;overflow:hidden}
-    .job{font-size:7pt;font-weight:900;overflow-wrap:anywhere;line-height:1.05}
-    .detail{font-size:5.1pt;line-height:1.08;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.detail.problem{font-size:5.3pt;font-weight:650;white-space:normal;overflow-wrap:anywhere;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;line-clamp:3;max-height:8.6mm;overflow:hidden;text-overflow:clip}
-    .code128{width:100%;height:3.7mm;object-fit:fill;display:block}
-    .barcode-caption{font-size:4.5pt;text-align:center;margin:0;line-height:1}
+    *{box-sizing:border-box}
+    html,body{width:50mm;height:30mm;margin:0;padding:0;background:#fff;color:#17120e;font-family:Arial,"Noto Sans Bengali","Hind Siliguri",sans-serif;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    .label{width:50mm;height:30mm;padding:.85mm 1mm .65mm;overflow:hidden;display:flex;flex-direction:column;gap:.22mm}
+    .top{height:16.2mm;flex:0 0 16.2mm;display:flex;align-items:flex-start;gap:.9mm;overflow:hidden;min-width:0}
+    .qr{width:13.5mm;height:13.5mm;flex:0 0 13.5mm;object-fit:contain;image-rendering:pixelated}
+    .meta{min-width:0;flex:1;height:16.2mm;display:flex;flex-direction:column;gap:.14mm;overflow:hidden}
+    .brand{font-size:5.2pt;font-weight:800;line-height:1.04;overflow:hidden;max-height:3.8mm;overflow-wrap:anywhere}
+    .job{font-size:6.6pt;font-weight:900;line-height:1.05;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .customer{font-size:9.2pt;font-weight:900;line-height:1.05;white-space:normal;overflow-wrap:anywhere;overflow:hidden;max-height:6.9mm}
+    .mobile{font-size:7.7pt;font-weight:800;line-height:1.05;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .device{font-size:5.8pt;font-weight:600;line-height:1.05;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .serial{font-size:5pt;line-height:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .meta.compact-name .customer{font-size:7.8pt;max-height:6.1mm}
+    .meta.compact-name .device,.meta.compact-name .serial{display:none}
+    .fault{height:8.1mm;flex:0 0 8.1mm;margin:0;padding-top:.25mm;border-top:.15mm solid #2d251c;font-size:7.7pt;font-weight:800;line-height:1.06;overflow-wrap:anywhere;overflow:hidden;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;line-clamp:3}
+    .fault.compact-fault{font-size:6.7pt;line-height:1.06}
+    .code128{width:100%;height:3.1mm;flex:0 0 3.1mm;object-fit:fill;display:block}
     @media screen{body{width:50mm;min-height:30mm}}
-  </style></head><body><div class="label"><div class="row">
-    <img class="qr" alt="QR for ${job}" src="${sos35QrImage.value}">
-    <div class="meta"><div class="brand">${name}</div><div class="job">${job}</div>
-      <div class="detail">${device}</div><div class="detail">S/N: ${serial || '—'}</div>
-      <div class="detail">${customer}${phone ? ' · ' + phone : ''}</div>
-      <div class="detail problem">${problem}</div>
-    </div></div>${barcode}<div class="barcode-caption">SERVICE JOB · SCAN QR FOR RECORD</div>
+  </style></head><body><div class="label" data-sos-sticker-layout="SOS_STICKER_LAYOUT_V8_20261116">
+    <div class="top"><img class="qr" alt="QR for ${job}" src="${sos35QrImage.value}">
+      <div class="meta${compactName}"><div class="brand">${name}</div><div class="job">${job}</div>
+        <div class="customer">${customer}</div><div class="mobile">Mobile: ${phone || '—'}</div>
+        <div class="device">${device}</div>${serialLine}
+      </div></div>
+    <div class="fault${compactFault}">Problem: ${problem}</div>
+    ${barcode}
   </div></body></html>`
 }
 async function sos35Print() {
@@ -259,28 +273,29 @@ async function printReceipt() {
         </div>
         <p v-if="sos35Error" class="sos35-error" role="alert">{{ sos35Error }}</p>
         <div class="sos35-sticker-stage">
-          <div class="sos35-label">
+          <div class="sos35-label" data-sos-sticker-layout="SOS_STICKER_LAYOUT_V8_20261116">
             <div class="sos35-top">
               <img v-if="sos35QrImage" :src="sos35QrImage" alt="Scannable QR code for this service job" />
               <span v-else class="sos35-qr-missing">QR pending</span>
-              <div class="sos35-words">
-                <strong class="sos35-shop">{{ shop.name || 'AL MODINA COMPUTERS LIMITED' }}</strong>
-                <strong class="sos35-id">{{ job.name }}</strong>
-                <small>{{ sos35Device() }}</small>
-                <small>S/N: {{ sos35Serial() || '—' }}</small>
-                <small>{{ sos35Customer() }} · {{ sos35Phone() }}</small>
-                <small class="sos638-sticker-problem">{{ sos35Problem() || "—" }}</small>
-              </div>
-            </div>
-            <img v-if="sos35BarcodeImage" class="sos35-barcode" :src="sos35BarcodeImage" alt="Service Job Code 128 barcode" />
-            <span class="sos35-footer">SERVICE JOB · QR OPENS JOB</span>
+              <div class="sos35-words" :class="{ 'sos35-compact-name': sos35Customer().length > 28 }">
+                 <strong class="sos35-shop">{{ shop.name || 'AL MODINA COMPUTERS LIMITED' }}</strong>
+                 <strong class="sos35-id">{{ job.name }}</strong>
+                 <strong class="sos35-customer">{{ sos35Customer() || 'Customer not recorded' }}</strong>
+                 <strong class="sos35-mobile">Mobile: {{ sos35Phone() || '—' }}</strong>
+                 <small class="sos35-device">{{ sos35Device() }}</small>
+                 <small v-if="sos35Serial() && sos35Customer().length <= 28" class="sos35-serial">S/N: {{ sos35Serial() }}</small>
+               </div>
+             </div>
+             <div class="sos35-fault" :class="{ 'sos35-compact-fault': sos35Problem().length > 75 }">Problem: {{ sos35Problem() || 'Not recorded' }}</div>
+             <img v-if="sos35BarcodeImage" class="sos35-barcode" :src="sos35BarcodeImage" alt="Service Job Code 128 barcode" />
+            
           </div>
         </div>
         <section class="sos35-sticker-full-problem" aria-label="Full reported problems">
           <h4>Reported Problem / জানানো সব সমস্যা — সম্পূর্ণ বিবরণ</h4>
           <p>{{ sos35Problem() || 'Not recorded' }}</p>
         </section>
-        <p class="sos35-hint">Scan with a phone on your shop Wi-Fi. QR contains the job link only; staff must sign in to view customer information.</p>
+        <p class="sos35-hint"><strong>Sticker layout V8</strong> · Scan with a phone on your shop Wi-Fi. QR contains the job link only; staff must sign in to view customer information.</p>
       </section>
 
       <div class="sr-preview" v-show="!sos35Sticker">
@@ -633,5 +648,52 @@ async function printReceipt() {
   .sr-paper:not(.sos35-label) { height: auto !important; overflow: visible !important; }
   .sos35-sticker-full-problem { display: none !important; }
 }
+
+
+/* SERVICING_OS_STICKER_FONT_FIX_V1_BEGIN */
+/* Scoped only to the Service Receive device QR sticker.
+   Keep the existing sticker dimensions, colors, QR and field arrangement. */
+.sr-sticker.sr-sticker {
+  font-size: 11px !important;
+  line-height: 1.22 !important;
+}
+.sr-sticker.sr-sticker :is(div, span, p, small, strong, b, label, time, dt, dd, td, th) {
+  font-size: max(11px, 1em) !important;
+  line-height: 1.20 !important;
+  overflow-wrap: anywhere;
+}
+.sr-sticker.sr-sticker :is(h1, h2, h3, h4) {
+  font-size: max(13px, 1em) !important;
+  line-height: 1.16 !important;
+}
+/* QR/barcode graphics and the physical paper sizes are deliberately untouched. */
+/* SERVICING_OS_STICKER_FONT_FIX_V1_END */
+
+/* SOS_50X30_SYMMETRIC_STICKER_V7 — mirror the isolated 50×30mm print layout in the preview. */
+.sos35-label {
+  width:50mm;height:30mm;padding:.85mm 1mm .65mm;
+  border:0;gap:.22mm;box-sizing:border-box;
+}
+.sos35-top {height:16.2mm;flex:0 0 16.2mm;align-items:flex-start;gap:.9mm;min-width:0;overflow:hidden}
+.sos35-top>img,.sos35-qr-missing {width:13.5mm;height:13.5mm;flex:0 0 13.5mm}
+.sos35-words {height:16.2mm;flex:1;min-width:0;gap:.14mm;overflow:hidden}
+.sos35-words>* {text-overflow:ellipsis;overflow:hidden}
+.sos35-words>.sos35-shop {font-size:5.2pt;font-weight:800;line-height:1.04;white-space:normal;max-height:3.8mm;overflow-wrap:anywhere}
+.sos35-words>.sos35-id {font-size:6.6pt;font-weight:900;line-height:1.05;white-space:nowrap;max-height:none}
+.sos35-words>.sos35-customer {font-size:9.2pt;font-weight:900;line-height:1.05;white-space:normal;overflow-wrap:anywhere;max-height:6.9mm;text-overflow:clip}
+.sos35-words>.sos35-mobile {font-size:7.7pt;font-weight:800;line-height:1.05;white-space:nowrap}
+.sos35-words>.sos35-device {font-size:5.8pt;font-weight:600;line-height:1.05;white-space:nowrap}
+.sos35-words>.sos35-serial {font-size:5pt;line-height:1;white-space:nowrap}
+.sos35-words.sos35-compact-name>.sos35-customer {font-size:7.8pt;max-height:6.1mm}
+.sos35-words.sos35-compact-name>.sos35-device,.sos35-words.sos35-compact-name>.sos35-serial {display:none}
+.sos35-fault {
+  margin:0;height:8.1mm;flex:0 0 8.1mm;padding-top:.25mm;border-top:.15mm solid #2d251c;
+  font-size:7.7pt;font-weight:800;line-height:1.06;overflow-wrap:anywhere;
+  display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;line-clamp:3;
+  overflow:hidden;color:#18130e;
+}
+.sos35-fault.sos35-compact-fault {font-size:6.7pt;line-height:1.06}
+.sos35-barcode {height:3.1mm;flex:0 0 3.1mm;object-fit:fill}
+@media print {.sos35-preview-shell {display:none!important}}
 
 </style>
