@@ -5,6 +5,20 @@ import { currentLanguage } from '../i18n/servicingLanguage.js'
 // SERVICING_OS_INVENTORY_V4: actual ERPNext Items, Item Prices, Bins and Stock Entries.
 const bn = computed(() => currentLanguage.value === 'bn')
 const copy = {
+  sellerTitle:['Most sold products','সর্বাধিক বিক্রীত পণ্য'],
+  sellerPeriod:['Last 90 days · submitted invoices','গত ৯০ দিন · সাবমিটকৃত ইনভয়েস'],
+  sellerSold:['sold','বিক্রি'],
+  sellerOnHand:['available','উপলব্ধ'],
+  sellerLoading:['Checking shop sales history…','দোকানের বিক্রয় তথ্য পরীক্ষা চলছে…'],
+  sellerError:['Sales API unavailable · check server logs','বিক্রয় API পাওয়া যায়নি · সার্ভার লগ দেখুন'],
+  sellerRestricted:['Sales Invoice permission required','সেলস ইনভয়েস দেখার অনুমতি প্রয়োজন'],
+  sellerNoInvoice:['No submitted Sales Invoices in the last 90 days','গত ৯০ দিনে সাবমিটকৃত সেলস ইনভয়েস নেই'],
+  sellerNoSales:['No stock-item sales in submitted invoices','সাবমিটকৃত ইনভয়েসে স্টক পণ্য বিক্রি নেই'],
+  sellerNotReady:['Sales information not verified','বিক্রয় তথ্য যাচাই হয়নি'],
+  sellerPartial:['Partial ranking · invoice limit reached','আংশিক র‍্যাঙ্কিং · ইনভয়েস সীমা পূর্ণ'],
+  sellerSource:['Actual sales, less returns · stock UOM','প্রকৃত বিক্রয়, রিটার্ন বাদে · স্টক একক'],
+  sellerExplore:['View product in catalog','ক্যাটালগে পণ্য দেখুন'],
+  sellerSalesUnits:['Total net units · 90 days','মোট নিট বিক্রীত ইউনিট · ৯০ দিন'],
   heroKicker:['INVENTORY COMMAND CENTER','ইনভেন্টরি কন্ট্রোল সেন্টার'],
   heroTitle:['Stock intelligence','স্টক বিশ্লেষণ'],
   heroDescription:['A live operational view of products, availability and demand signals.','পণ্য, মজুত ও বিক্রয়ের তথ্যভিত্তিক সার্বিক চিত্র।'],
@@ -125,11 +139,58 @@ async function reload() {
       truncated:!!data.truncated, warranty_supported:!!data.warranty_supported,
     }
     lastRefreshed.value = new Date()
+    void loadHeroSellers(warehouse.value)
   } catch (e) { if (seq === requestSeq) error.value = e?.message || String(e) }
   finally { if (seq === requestSeq) loading.value = false }
 }
 watch(warehouse, () => { pageSize.value=48; group.value=''; reload() })
 watch([search,group,stockFilter,sort,view], () => { pageSize.value=48 })
+// SOS_INV_HERO_V46 — independent read-only Sales Invoice ranking for every Inventory layout.
+const heroSellerState = ref({status:'loading',top:[],total_units:0,partial:false,period_days:90,warehouse:''})
+const heroSellerError = ref(''), heroSellerLoading = ref(false)
+let heroSellerSeq = 0
+const heroSellerCards = computed(() => heroSellerState.value.warehouse === warehouse.value && heroSellerState.value.status === 'ready' ? heroSellerState.value.top.slice(0,3) : [])
+const heroSellerReady = computed(() => !heroSellerLoading.value && !heroSellerError.value && heroSellerState.value.warehouse === warehouse.value && heroSellerState.value.status === 'ready')
+const heroSellerCaption = computed(() => {
+  if (heroSellerLoading.value || heroSellerState.value.warehouse !== warehouse.value) return t('sellerLoading')
+  if (heroSellerError.value) return t('sellerError')
+  if (heroSellerState.value.status === 'permission_denied') return t('sellerRestricted')
+  if (heroSellerState.value.status === 'no_submitted_sales') return t('sellerNoInvoice')
+  if (heroSellerState.value.status === 'no_stock_sales') return t('sellerNoSales')
+  if (heroSellerState.value.status !== 'ready') return t('sellerNotReady')
+  return heroSellerState.value.partial ? t('sellerPartial') : t('sellerSource')
+})
+function heroSellerStock(code) {
+  const item = items.value.find(x => x.item_code === code)
+  return item ? Math.max(0,heroAvailableQty(item)) : null
+}
+function heroSellerProgress(qty) {
+  const high = Math.max(1,...heroSellerCards.value.map(x=>Number(x.sold_units)||0))
+  return Math.max(4, Math.min(100, Math.round((Number(qty)||0)/high*100)))
+}
+function heroChooseSeller(code) {
+  stockFilter.value='all'; group.value=''; search.value=code; pageSize.value=48
+  Promise.resolve().then(()=>heroCatalogRef.value?.scrollIntoView?.({behavior:'smooth',block:'start'}))
+}
+async function loadHeroSellers(chosenWarehouse) {
+  const seq = ++heroSellerSeq
+  heroSellerLoading.value = true; heroSellerError.value = ''
+  heroSellerState.value = {status:'loading',top:[],total_units:0,partial:false,period_days:90,warehouse:chosenWarehouse}
+  try {
+    const url = new URL('/api/method/servicing_os.api.inventory_hero_sellers.get_hero_sellers',window.location.origin)
+    url.searchParams.set('warehouse', chosenWarehouse||''); url.searchParams.set('days','90')
+    const response = await fetch(url,{credentials:'same-origin',headers:{Accept:'application/json'},cache:'no-store'})
+    const raw = await response.json()
+    if (!response.ok || raw.exc || raw.exception) throw new Error(apiError(raw,`Sales API error (${response.status})`))
+    if (seq!==heroSellerSeq || chosenWarehouse!==warehouse.value) return
+    heroSellerState.value = {...(raw.message||{}), warehouse:chosenWarehouse, top:Array.isArray(raw.message?.top)?raw.message.top:[]}
+  } catch(e) {
+    if (seq===heroSellerSeq) heroSellerError.value=e?.message||String(e)
+  } finally {
+    if (seq===heroSellerSeq) heroSellerLoading.value=false
+  }
+}
+
 function onFocus() { if (!modal.value && !document.hidden) reload() }
 onMounted(() => { reload(); poller = window.setInterval(onFocus, 60000); window.addEventListener('focus',onFocus) })
 onUnmounted(() => { window.clearInterval(poller); window.removeEventListener('focus',onFocus) })
@@ -386,6 +447,20 @@ function close() {if (!busy.value) {dismissLookup(); modal.value=''}}
           </div>
           <p class="inv44-health-hint">{{ t('heroHealthNote') }}</p>
         </div>
+        <!-- SOS_INV_HERO_V46: real submitted-invoice leaders; no synthetic ranks -->
+        <section class="inv46-leaders" aria-live="polite" :aria-label="t('sellerTitle')">
+          <div class="inv46-leader-head"><div><strong>{{ t('sellerTitle') }}</strong><small>{{ t('sellerPeriod') }}</small></div><span class="inv46-leader-count" v-if="heroSellerReady">{{ number(heroSellerState.total_units) }} {{ t('sellerSold') }}</span></div>
+          <div v-if="heroSellerCards.length && heroSellerReady" class="inv46-leader-grid">
+            <button v-for="(seller,index) in heroSellerCards" :key="seller.item_code" type="button" class="inv46-leader"
+              :title="t('sellerExplore')+': '+seller.item_name" @click="heroChooseSeller(seller.item_code)">
+              <div class="inv46-leader-line"><span class="inv46-rank">{{ index+1 }}</span><strong class="inv46-name">{{ seller.item_name }}</strong><span class="inv46-arr" aria-hidden="true">↗</span></div>
+              <div class="inv46-leader-meta"><span><b>{{ number(seller.sold_units) }}</b> {{ t('sellerSold') }}</span><span v-if="heroSellerStock(seller.item_code)!==null">{{ number(heroSellerStock(seller.item_code)) }} {{ t('sellerOnHand') }}</span></div>
+              <div class="inv46-leader-track" aria-hidden="true"><span :style="{width:heroSellerProgress(seller.sold_units)+'%'}"></span></div>
+            </button>
+          </div>
+          <div v-else class="inv46-no-sellers" :title="heroSellerError || undefined">{{ heroSellerCaption }}</div>
+          <p v-if="heroSellerReady" class="inv46-leader-foot">{{ heroSellerCaption }}</p>
+        </section>
         <div class="inv44-hero-buttons">
           <button type="button" class="inv44-primary" @click="heroShow(heroOut>0?'out':heroLow>0?'low':'all')">{{ heroOut>0?t('heroReviewStockouts'):t('heroReview') }} <span aria-hidden="true">↗</span></button>
           <button type="button" class="inv44-secondary" :disabled="loading" @click="reload">↻ {{ t('refresh') }}</button>
@@ -405,9 +480,10 @@ function close() {if (!busy.value) {dismissLookup(); modal.value=''}}
           <button v-else type="button" class="inv44-side-action" @click="heroShow(statusOf(heroAction.item)==='out'?'out':'low')">{{ t('heroReview') }} <span aria-hidden="true">↗</span></button>
         </template>
         <template v-else><strong class="inv44-priority-name">{{ items.length?t('heroAllSet'):t('heroNoItems') }}</strong><p class="inv44-priority-explain">{{ t('heroReviewMessage') }}</p><button v-if="!items.length && permissions.create_item" type="button" class="inv44-side-action" @click="openAdd">{{ t('add') }} ＋</button></template>
-        <div class="inv44-sales-signal">
-          <div class="inv44-sales-head"><span>{{ t('heroSales') }}</span><strong>—</strong></div>
-          <p>{{ t('heroLegacy') }}</p>
+        <div class="inv44-sales-signal" aria-live="polite">
+          <div class="inv44-sales-head"><span>{{ t('sellerSalesUnits') }}</span><strong>{{ heroSellerReady ? number(heroSellerState.total_units) : '—' }}</strong></div>
+          <p>{{ heroSellerCaption }}</p>
+          <div v-if="heroSellerCards.length && heroSellerReady" class="inv44-best"><span>{{ t('heroBest') }}</span><b :title="heroSellerCards[0].item_name">{{ heroSellerCards[0].item_name }}</b></div>
         </div>
       </aside>
     </section>
@@ -703,5 +779,55 @@ button.inv44-kpi{cursor:pointer}button.inv44-kpi:hover:not(:disabled){border-col
 @media(max-width:950px){.inv44-hero{grid-template-columns:minmax(0,1fr)}.inv44-hero-side{border-left:0;border-top:1px solid #e8daca}.inv44-sales-signal{margin-top:16px}}
 @media(max-width:630px){.inv44-hero-main{padding:18px}.inv44-heading{flex-direction:column}.inv44-scope{text-align:left}.inv44-health{padding:12px}.inv44-hero-side{padding:16px}.inv44-kpis{grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}.inv44-kpi{min-height:95px;padding:10px}.inv44-primary,.inv44-secondary{font-size:10px;min-height:36px}.inv44-best>span{display:none}}
 @media(prefers-reduced-motion:reduce){.inv44-track>span,.inv44-primary,.inv44-secondary,.inv44-side-action{transition:none}}
+
+
+/* SOS_INV_HERO_V46: always side-by-side, one floating quick-action pill. */
+.inv-root .inv-floating-actions{
+  position:fixed!important;display:inline-flex!important;flex-direction:row!important;flex-wrap:nowrap!important;
+  align-items:center!important;justify-content:flex-end!important;gap:7px!important;
+  right:clamp(8px,2vw,24px)!important;bottom:calc(14px + env(safe-area-inset-bottom,0px))!important;
+  width:max-content!important;max-width:calc(100vw - 16px)!important;padding:6px!important;
+  border-radius:17px;background:#fff9f1f2;border:1px solid #ddc9ad;
+  box-shadow:0 8px 28px #38271833;backdrop-filter:blur(10px);z-index:75
+}
+.inv-root .inv-floating-actions .inv-fab{
+  min-width:0!important;max-width:none;min-height:43px!important;flex:0 1 auto;
+  display:inline-flex!important;align-items:center;justify-content:center;
+  gap:7px!important;padding:5px 13px 5px 7px!important;border-radius:12px!important;
+  margin:0!important;white-space:nowrap;box-shadow:none!important;line-height:1.15
+}
+.inv-root .inv-floating-actions .inv-fab-icon{width:30px!important;height:30px!important;flex:0 0 30px!important;border-radius:9px}
+.inv46-leaders{margin-top:15px;padding:14px;border:1px solid #e6d6c3;border-radius:13px;background:#fffdf9da;min-width:0}
+.inv46-leader-head{display:flex;align-items:center;justify-content:space-between;gap:10px;min-width:0;margin-bottom:10px}
+.inv46-leader-head>div{display:flex;flex-direction:column;gap:3px;min-width:0}
+.inv46-leader-head strong{color:#62472f;font-size:12px;font-weight:850}
+.inv46-leader-head small{color:#a38c75;font-size:10px}
+.inv46-leader-count{white-space:nowrap;color:#805c3c;background:#f2e4d4;padding:6px 8px;border-radius:9px;font-size:10px;font-weight:800}
+.inv46-leader-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.inv46-leader{display:flex;flex-direction:column;min-width:0;min-height:105px;padding:10px;
+  border:1px solid #e7dbcd;border-radius:11px;background:#fffaf3;color:#5c4634;text-align:left;
+  font-family:inherit;cursor:pointer;transition:border-color .14s ease,transform .14s ease}
+.inv46-leader:hover{border-color:#bb9a76;transform:translateY(-1px)}.inv46-leader:focus-visible{outline:3px solid #b79570;outline-offset:2px}
+.inv46-leader-line{display:flex;align-items:flex-start;gap:6px;min-width:0}
+.inv46-rank{flex:0 0 21px;width:21px;height:21px;border-radius:7px;background:#ebdac2;color:#745234;
+  display:grid;place-items:center;font-weight:900;font-size:10px}
+.inv46-name{min-width:0;flex:1;font-size:10px;line-height:1.35;font-weight:850;color:#4b3828;
+  display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;overflow-wrap:anywhere}
+.inv46-arr{color:#a88c72;font-size:12px;flex:0 0 auto}
+.inv46-leader-meta{display:flex;flex-wrap:wrap;gap:3px 8px;margin-top:auto;padding-top:9px;color:#97806b;font-size:9px}
+.inv46-leader-meta b{color:#674a32;font-size:12px;font-variant-numeric:tabular-nums}
+.inv46-leader-track{height:4px;border-radius:6px;background:#ead9c8;margin-top:8px;overflow:hidden}
+.inv46-leader-track>span{display:block;height:100%;border-radius:6px;background:#9c7a56}
+.inv46-no-sellers{padding:10px 11px;border-radius:9px;background:#f8f0e6;color:#967c63;font-size:11px;line-height:1.45}
+.inv46-leader-foot{color:#a48b72;font-size:9px;line-height:1.4;margin:9px 0 0}
+@media(max-width:1250px){.inv46-leader-grid{grid-template-columns:1fr}.inv46-leader{min-height:80px}}
+@media(max-width:950px){.inv46-leader-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:580px){.inv46-leader-grid{grid-template-columns:1fr}.inv46-leader{min-height:74px}
+  .inv46-leader-head{align-items:flex-start;flex-wrap:wrap}
+  .inv-root .inv-floating-actions{right:8px!important;bottom:calc(8px + env(safe-area-inset-bottom,0px))!important;gap:4px!important;padding:4px!important}
+  .inv-root .inv-floating-actions .inv-fab{min-height:41px!important;padding:5px 9px 5px 5px!important;gap:5px!important;font-size:11px!important}
+  .inv-root .inv-floating-actions .inv-fab-icon{width:27px!important;height:27px!important;flex-basis:27px!important}
+}
+@media(prefers-reduced-motion:reduce){.inv46-leader{transition:none}}
 
 </style>
