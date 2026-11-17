@@ -1,7 +1,10 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { currentLanguage } from '../i18n/servicingLanguage.js'
+import InventoryPurchaseOrdersDesk from './InventoryPurchaseOrdersDesk.vue' // SOS_INV_PO_V54
+import InventoryReceiveStudio from './InventoryReceiveStudio.vue' // SOS_INV_RECEIVE_V57
 
+// SOS_INV_TABS_V56
 // SERVICING_OS_INVENTORY_V4: actual ERPNext Items, Item Prices, Bins and Stock Entries.
 const bn = computed(() => currentLanguage.value === 'bn')
 const copy = {
@@ -100,6 +103,30 @@ const warehouse = ref(''), group = ref(''), stockFilter = ref('all'), search = r
 const brandFilter = ref('')
 const sort = ref('newest'), view = ref('grid'), pageSize = ref(48), lastRefreshed = ref(null)
 const modal = ref(''), busy = ref(false), modalError = ref(''), chosenImage = ref(null)
+const purchaseOpen = ref(false)
+const receiveOpen = ref(false), receiveSku = ref('')
+// SOS_INV_PO_V55_NAV — Counter-inspired navigation without changing stock or PO operations.
+const inventoryTopTab = ref('overview')
+const purchaseDeskStart = ref('draft')
+const purchaseDeskMode = ref('draft')
+const inventorySections = [
+  {id:'overview',en:'Overview',bn:'সারসংক্ষেপ',enHint:'Stock · sales · priorities',bnHint:'মজুত · বিক্রয় · অগ্রাধিকার',paths:['M3 3h18v7H3z','M3 14h8v7H3z','M15 14h6v7h-6z']},
+  {id:'catalog',en:'Product Catalog',bn:'পণ্যের তালিকা',enHint:'Products · pricing · warranty',bnHint:'পণ্য · মূল্য · ওয়ারেন্টি',paths:['M3 3h7v7H3z','M14 3h7v7h-7z','M3 14h7v7H3z','M14 14h7v7h-7z']},
+  {id:'orders',en:'Purchase Orders',bn:'ক্রয়াদেশ',enHint:'Drafts · suppliers · orders',bnHint:'খসড়া · সরবরাহকারী · অর্ডার',paths:['M8 3h9l4 4v14H8a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z','M17 3v5h4','M10 12h7','M10 16h7']},
+  {id:'planner',en:'Reorder Planner',bn:'পুনঃক্রয় পরিকল্পনা',enHint:'Priorities · stock coverage',bnHint:'অগ্রাধিকার · মজুত পর্যবেক্ষণ',paths:['M3 17l6-6 4 3 7-8','M15 6h5v5','M3 21h18']},
+]
+function isInventoryTabSelected(tab) {
+  if (tab==='overview') return inventoryTopTab.value==='overview'
+  if (tab==='catalog') return inventoryTopTab.value==='catalog'
+  return inventoryTopTab.value==='orders' && (tab==='planner' ? purchaseDeskMode.value==='reorder' : purchaseDeskMode.value!=='reorder')
+}
+function onPurchaseModeChange(mode) { purchaseDeskMode.value = mode }
+function selectInventoryTopTab(tab) {
+  if (modal.value || busy.value) return
+  inventoryTopTab.value = tab === 'overview' ? 'overview' : tab === 'catalog' ? 'catalog' : 'orders'
+  purchaseDeskMode.value = tab === 'planner' ? 'reorder' : 'draft'
+  purchaseDeskStart.value = tab === 'planner' ? 'reorder' : 'draft'
+}
 const stockSearch = ref('')
 const lookup = ref({open:false,kind:'product',options:[],loading:false,index:-1,query:''})
 let lookupTimer = null, lookupSeq = 0, lookupBlurTimer = null
@@ -171,6 +198,7 @@ function heroSellerProgress(qty) {
   return Math.max(4, Math.min(100, Math.round((Number(qty)||0)/high*100)))
 }
 function heroChooseSeller(code) {
+  inventoryTopTab.value='catalog'
   stockFilter.value='all'; group.value=''; search.value=code; pageSize.value=48
   Promise.resolve().then(()=>heroCatalogRef.value?.scrollIntoView?.({behavior:'smooth',block:'start'}))
 }
@@ -194,7 +222,7 @@ async function loadHeroSellers(chosenWarehouse) {
 }
 
 function onFocus() { if (!modal.value && !document.hidden) reload() }
-onMounted(() => { reload(); poller = window.setInterval(onFocus, 60000); window.addEventListener('focus',onFocus) })
+onMounted(() => { void loadCatalogPermissions(); reload(); poller = window.setInterval(onFocus, 60000); window.addEventListener('focus',onFocus) })
 onUnmounted(() => { window.clearInterval(poller); window.removeEventListener('focus',onFocus) })
 const items = computed(() => inventory.value.items || [])
 const groups = computed(() => [...new Set(items.value.map(i => i.item_group).filter(Boolean))].sort())
@@ -247,6 +275,7 @@ const heroAction = computed(() => {
 })
 const heroCatalogRef = ref(null)
 function heroShow(filter){
+  inventoryTopTab.value='catalog'
   stockFilter.value=filter;group.value='';search.value='';pageSize.value=48
   Promise.resolve().then(()=>heroCatalogRef.value?.scrollIntoView?.({behavior:'smooth',block:'start'}))
 }
@@ -401,6 +430,12 @@ async function saveProduct() {
 }
 function openMovement(type,item='') {
   if (!permissions.value.stock_post) return
+  if (type === 'receive') {
+    dismissLookup()
+    receiveSku.value = item
+    receiveOpen.value = true
+    return
+  }
   dismissLookup()
   movement.value=type
   motion.value={...blankMotion(),item_code:item,warehouse:warehouse.value||(inventory.value.warehouses?.[0]?.name||'')}
@@ -430,11 +465,91 @@ async function saveMovement() {
     modal.value='';success.value=`Stock Entry: ${data.stock_entry}`;newSku.value='';await reload()
   } catch(e) {modalError.value=e?.message||String(e)} finally {busy.value=false}
 }
+function openPurchaseOrder(){ if (!modal.value) { dismissLookup(); purchaseDeskStart.value='form'; inventoryTopTab.value='orders' } }
+function purchaseOrderCreated(doc){ success.value=`Draft Purchase Order ${doc.name} created`; void reload() }
+function finishReceive(doc) { receiveOpen.value=false;receiveSku.value='';success.value=`Stock Entry ${doc.stock_entry} submitted`;void reload() }
+function finishRequest(doc) { receiveOpen.value=false;receiveSku.value='';success.value=`Draft Material Request ${doc.material_request} created`;void reload() }
+
+// SOS_INV_V56 — permission-aware archive/delete and isolated Overview/Catalog tabs.
+const catalogPermissions = ref({can_archive:false,can_delete:false})
+const catalogAdminError = ref('')
+const removal = ref({item:null,loading:false,options:null,confirmation:''})
+async function catalogAdminApi(method,params={},post=false){
+  const url=new URL('/api/method/servicing_os.api.inventory_catalog_admin.'+method,window.location.origin)
+  const headers={Accept:'application/json'}
+  const opts={credentials:'same-origin',cache:'no-store',headers}
+  if(post){
+    opts.method='POST';headers['Content-Type']='application/json'
+    const token=window.csrf_token||window.frappe?.csrf_token
+    if(token)headers['X-Frappe-CSRF-Token']=token
+    opts.body=JSON.stringify(params)
+  }else{for(const [k,v] of Object.entries(params))if(v!==null&&v!==undefined)url.searchParams.set(k,String(v))}
+  const r=await fetch(url,opts)
+  const p=await r.json().catch(()=>{throw new Error('ERPNext returned an unreadable response')})
+  if(!r.ok||p.exc||p.exception)throw new Error(apiError(p,`ERPNext request failed (${r.status})`))
+  return p.message
+}
+async function loadCatalogPermissions(){
+  try{catalogPermissions.value=await catalogAdminApi('get_catalog_permissions');catalogAdminError.value=''}
+  catch(e){catalogPermissions.value={can_archive:false,can_delete:false};catalogAdminError.value=e?.message||String(e)}
+}
+async function openRemove(i){
+  if(!i||busy.value||!(catalogPermissions.value.can_archive||catalogPermissions.value.can_delete))return
+  dismissLookup();modalError.value='';modal.value='remove'
+  removal.value={item:i,loading:true,options:null,confirmation:''}
+  try{
+    const options=await catalogAdminApi('get_removal_options',{item_code:i.item_code})
+    if(modal.value==='remove'&&removal.value.item?.item_code===i.item_code)removal.value.options=options
+  }catch(e){if(modal.value==='remove')modalError.value=e?.message||String(e)}
+  finally{if(modal.value==='remove')removal.value.loading=false}
+}
+async function submitRemove(action){
+  const code=removal.value.item?.item_code
+  if(!code||busy.value||removal.value.confirmation!==code)return
+  if(action==='delete'&&!removal.value.options?.can_delete)return
+  if(action==='archive'&&!removal.value.options?.can_archive)return
+  busy.value=true;modalError.value=''
+  try{
+    const result=await catalogAdminApi('retire_product',{item_code:code,action,confirmation:code},true)
+    modal.value='';removal.value={item:null,loading:false,options:null,confirmation:''}
+    success.value=result.action==='deleted'?`Product ${code} deleted.`:`Product ${code} archived (disabled).`
+    search.value='';await reload()
+  }catch(e){modalError.value=e?.message||String(e)}finally{busy.value=false}
+}
+
 function close() {if (!busy.value) {dismissLookup(); modal.value=''}}
 </script>
 
 <template>
   <section class="inv-root sos-inventory-view-root" :lang="bn ? 'bn' : 'en'">
+    <!-- SOS_INV_PO_V55_NAV — one primary Counter-style operation rail -->
+    <div class="inv55-rail">
+      <div class="inv55-rail-header">
+        <span class="inv55-rail-kicker"><span class="inv55-rail-pin" aria-hidden="true"></span>{{ bn?'ইনভেন্টরি ওয়ার্কস্পেস':'INVENTORY WORKSPACES' }}</span>
+        <span class="inv55-rail-hint">{{ bn?'এক জায়গায় সব কার্যক্রম':'One workspace · four focused views' }}</span>
+      </div>
+      <nav class="inv55-operations" role="tablist" :aria-label="bn?'ইনভেন্টরি ওয়ার্কস্পেস':'Inventory workspaces'">
+        <button v-for="tab in inventorySections" :key="tab.id" type="button" role="tab"
+          class="inv55-operation" :class="{'is-current':isInventoryTabSelected(tab.id)}"
+          :aria-selected="isInventoryTabSelected(tab.id)"
+          @click="selectInventoryTopTab(tab.id)">
+          <span class="inv55-operation-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path v-for="(p,n) in tab.paths" :key="n" :d="p"/></svg>
+          </span>
+          <span class="inv55-operation-copy"><strong>{{bn?tab.bn:tab.en}}</strong><small>{{bn?tab.bnHint:tab.enHint}}</small></span>
+          <svg class="inv55-operation-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+        </button>
+      </nav>
+    </div>
+    <div class="inv54-catalog-page inv56-main-content">
+    <div v-if="error" class="inv-alert inv-error" role="alert">{{ error }} <button type="button" @click="reload">{{ t('refresh') }}</button></div>
+    <div v-if="success" class="inv-alert inv-success" role="status">{{ success }} <button v-if="newSku && permissions.stock_post" type="button" @click="openMovement('receive',newSku)">{{ t('receive') }} ↗</button><button type="button" @click="success='';newSku=''">×</button></div>
+    <div v-if="inventory.truncated" class="inv-alert">{{ t('truncated') }}</div>
+    <div v-if="inventory.items.length && (!inventory.price_lists.buying || !inventory.price_lists.selling)" class="inv-alert">{{ t('noPrices') }}</div>
+    <div v-if="!permissions.price_read && !loading && items.length" class="inv-alert">{{ t('noPriceAccess') }}</div>
+
+    <div v-show="inventoryTopTab==='overview'" class="inv56-overview-page">
+      <div class="inv56-overview-intro"><strong>{{bn?'ব্যবসার বর্তমান অবস্থা':'Operational Overview'}}</strong><small>{{ bn?'ERPNext-এর লাইভ মজুত ও বিক্রয় তথ্য':'ERPNext stock & sales intelligence' }}</small></div>
     <!-- SOS_INV_HERO_V45 — operational overview; only this Inventory component -->
     <section class="inv44-hero" :aria-label="t('heroTitle')">
       <div class="inv44-hero-main">
@@ -494,12 +609,6 @@ function close() {if (!busy.value) {dismissLookup(); modal.value=''}}
       </aside>
     </section>
 
-    <div v-if="error" class="inv-alert inv-error" role="alert">{{ error }} <button type="button" @click="reload">{{ t('refresh') }}</button></div>
-    <div v-if="success" class="inv-alert inv-success" role="status">{{ success }} <button v-if="newSku && permissions.stock_post" type="button" @click="openMovement('receive',newSku)">{{ t('receive') }} ↗</button><button type="button" @click="success='';newSku=''">×</button></div>
-    <div v-if="inventory.truncated" class="inv-alert">{{ t('truncated') }}</div>
-    <div v-if="inventory.items.length && (!inventory.price_lists.buying || !inventory.price_lists.selling)" class="inv-alert">{{ t('noPrices') }}</div>
-    <div v-if="!permissions.price_read && !loading && items.length" class="inv-alert">{{ t('noPriceAccess') }}</div>
-
     <section class="inv44-kpis" :aria-label="t('heroTitle')">
       <button type="button" class="inv44-kpi" @click="heroShow('all')"><span class="inv44-kpi-top"><span class="inv44-kpi-icon">▦</span><span>01</span></span><strong>{{ number(totals.products) }}</strong><small>{{ t('products') }}</small></button>
       <button type="button" class="inv44-kpi" @click="heroShow('stocked')"><span class="inv44-kpi-top"><span class="inv44-kpi-icon">◫</span><span>02</span></span><strong>{{ number(heroStocked) }}</strong><small>{{ t('heroStocked') }}</small></button>
@@ -509,6 +618,10 @@ function close() {if (!busy.value) {dismissLookup(); modal.value=''}}
       <button type="button" class="inv44-kpi" :disabled="!heroPriceReady" :title="t('heroPricingHelp')" @click="heroShow('pricing')"><span class="inv44-kpi-top"><span class="inv44-kpi-icon">◇</span><span>06</span></span><strong>{{ heroPriceGaps===null?'—':number(heroPriceGaps) }}</strong><small>{{ t('heroPricing') }}</small></button>
     </section>
 
+    </div><!-- End Overview: hero and KPIs remain live, not duplicated. -->
+    <div v-show="inventoryTopTab==='catalog'" class="inv56-catalog-page">
+      <div class="inv56-catalog-headline"><div><strong>{{bn?'পণ্যের তালিকা ও ব্যবস্থাপনা':'Product Catalog & Management'}}</strong><small>{{bn?'গ্রিড ও তালিকায় সম্পাদনা এবং পণ্য মুছুন':'Edit or remove products from Grid and List views'}}</small></div><span class="inv-chip">{{ number(filtered.length) }} {{t('products')}}</span></div>
+      <p v-if="catalogAdminError" class="inv-alert inv-error" role="alert">{{bn?'পণ্য মুছা/নিষ্ক্রিয় API পাওয়া যাচ্ছে না। Bench পুনরায় চালু করে Refresh করুন।':'Product removal controls are unavailable. Restart Bench and refresh the page.'}} <span :title="catalogAdminError">({{catalogAdminError}})</span></p>
     <div class="inv-panel" ref="heroCatalogRef">
       <div class="inv-panel-head">
         <div><h2>{{ t('catalog') }}</h2><p>{{ t('countNote') }}<span v-if="lastRefreshed"> · {{ t('updated') }} {{ lastRefreshed.toLocaleTimeString(bn?'bn-BD':'en-BD',{hour:'2-digit',minute:'2-digit'}) }}</span></p></div>
@@ -574,7 +687,8 @@ function close() {if (!busy.value) {dismissLookup(); modal.value=''}}
             <div class="inv-price-duo"><div><small>{{ t('buying') }}</small><strong>{{ permissions.price_read ? money(i.buying_price) : t('restricted') }}</strong></div><div><small>{{ t('selling') }}</small><strong class="inv-sellprice">{{ permissions.price_read ? money(i.selling_price) : t('restricted') }}</strong></div></div>
             <div class="inv-card-meta"><span><b>{{ number(i.actual_qty) }}</b> {{ i.stock_uom }}</span><span>◷ {{ warrantyText(i) }}</span></div>
             <div class="inv-card-foot"><span>{{ t('amount') }}: {{ money(i.stock_value) }}</span><div>
-              <button type="button" class="inv-square" :aria-label="t('details')+': '+i.item_name" :title="t('details')" @click="openEdit(i)">↗</button>
+              <button type="button" class="inv56-catalog-action" :aria-label="(bn?'সম্পাদনা: ':'Edit: ')+i.item_name" :title="bn?'পণ্য সম্পাদনা':'Edit product'" @click="openEdit(i)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L8 18l-4 1 1-4z"/></svg><span>{{bn?'সম্পাদনা':'Edit'}}</span></button>
+              <button v-if="catalogPermissions.can_archive || catalogPermissions.can_delete" type="button" class="inv56-catalog-action inv56-danger" :aria-label="(bn?'মুছুন: ':'Delete: ')+i.item_name" :title="bn?'মুছুন অথবা নিষ্ক্রিয় করুন':'Delete or archive product'" @click="openRemove(i)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18M8 6V4h8v2m3 0-1 15H6L5 6m5 4v7m4-7v7"/></svg><span>{{bn?'মুছুন':'Delete'}}</span></button>
               <button v-if="permissions.stock_post" type="button" class="inv-square" :disabled="!!i.has_serial_no || !!i.has_batch_no" :aria-label="t('receive')+': '+i.item_name" :title="(i.has_serial_no || i.has_batch_no)?t('serial'):t('receive')" @click="openMovement('receive',i.item_code)">＋</button>
             </div></div>
           </div>
@@ -589,20 +703,58 @@ function close() {if (!busy.value) {dismissLookup(); modal.value=''}}
             <td class="inv-right inv-money">{{ permissions.price_read?money(i.buying_price):t('restricted') }}</td>
             <td class="inv-right inv-money">{{ permissions.price_read?money(i.selling_price):t('restricted') }}</td>
             <td>{{ warrantyText(i) }}</td><td><span class="inv-chip" :class="'inv-'+statusOf(i)">{{ t(statusOf(i)) }}</span></td>
-            <td><button type="button" class="inv-rowaction" :title="t('details')" @click="openEdit(i)">✎</button><button v-if="permissions.stock_post" type="button" class="inv-rowaction" :disabled="!!i.has_serial_no || !!i.has_batch_no" :title="t('receive')" @click="openMovement('receive',i.item_code)">＋</button></td>
+            <td><span class="inv56-list-actions"><button type="button" class="inv56-catalog-action" :aria-label="(bn?'সম্পাদনা: ':'Edit: ')+i.item_name" :title="bn?'পণ্য সম্পাদনা':'Edit product'" @click="openEdit(i)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L8 18l-4 1 1-4z"/></svg><span>{{bn?'সম্পাদনা':'Edit'}}</span></button><button v-if="catalogPermissions.can_archive || catalogPermissions.can_delete" type="button" class="inv56-catalog-action inv56-danger" :aria-label="(bn?'মুছুন: ':'Delete: ')+i.item_name" :title="bn?'মুছুন অথবা নিষ্ক্রিয় করুন':'Delete or archive product'" @click="openRemove(i)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18M8 6V4h8v2m3 0-1 15H6L5 6m5 4v7m4-7v7"/></svg><span>{{bn?'মুছুন':'Delete'}}</span></button><button v-if="permissions.stock_post" type="button" class="inv-rowaction" :disabled="!!i.has_serial_no || !!i.has_batch_no" :title="t('receive')" @click="openMovement('receive',i.item_code)">＋</button></span></td>
           </tr>
         </tbody></table>
       </div>
       <div v-if="pageSize<filtered.length" class="inv-more"><button type="button" class="inv-btn inv-outline" @click="pageSize+=48">{{ t('more') }} ({{ number(filtered.length-pageSize) }})</button></div>
     </div>
 
-    <div v-if="!modal && (permissions.create_item || permissions.stock_post)" class="inv-floating-actions" role="group" :aria-label="bn?'পণ্য ও স্টক কার্যক্রম':'Product and stock quick actions'">
+    </div><!-- End Product Catalog view -->
+    <div v-if="!modal && !purchaseOpen && !receiveOpen && (inventoryTopTab==='overview' || inventoryTopTab==='catalog')" class="inv-floating-actions" role="group" :aria-label="bn?'পণ্য ও স্টক কার্যক্রম':'Product and stock quick actions'">
+      <button type="button" class="inv-fab inv-fab-po53" @click="openPurchaseOrder" :title="bn?'ক্রয়াদেশ তৈরি':'Create Purchase Order'">
+        <span class="inv-fab-icon" aria-hidden="true">▤</span><span class="inv-po53-wide">{{ bn?'ক্রয়াদেশ':'Purchase Order' }}</span><span class="inv-po53-short">PO</span>
+      </button>
       <button v-if="permissions.stock_post" type="button" class="inv-fab inv-fab-restock" :disabled="!items.length" @click="openMovement('receive')" :title="t('restock')">
         <span class="inv-fab-icon" aria-hidden="true">↥</span><span>{{ t('restock') }}</span>
       </button>
       <button v-if="permissions.create_item" type="button" class="inv-fab inv-fab-add" @click="openAdd" :title="t('add')">
         <span class="inv-fab-icon" aria-hidden="true">＋</span><span>{{ t('add') }}</span>
       </button>
+    </div>
+
+    </div><!-- End Product Catalog; preserve component and its existing state. -->
+    <InventoryPurchaseOrdersDesk v-if="inventoryTopTab==='orders'" :key="purchaseDeskStart" :catalog="items" :current-warehouse="warehouse" :company="inventory.company" :currency="inventory.currency" :top-sellers="heroSellerCards" :initial-tab="purchaseDeskStart" @mode-change="onPurchaseModeChange" @created="purchaseOrderCreated" @updated="purchaseOrderCreated" />
+
+
+    <!-- SOS_INV_V56 — destructive actions are explicit and server validated. -->
+    <div v-if="modal==='remove'" class="inv-modal-backdrop" @click.self="close" @keydown.esc="close">
+      <div class="inv-modal inv56-removal-modal" role="dialog" aria-modal="true" :aria-label="bn?'পণ্য মুছুন অথবা নিষ্ক্রিয় করুন':'Remove or archive product'">
+        <div class="inv-modal-header">
+          <div><div class="inv-eyebrow">{{ bn?'প্রোডাক্ট ব্যবস্থাপনা':'PRODUCT MANAGEMENT' }}</div><h2>{{ bn?'পণ্য মুছুন / নিষ্ক্রিয় করুন':'Remove product' }}</h2>
+            <p class="inv-helper">{{ bn?'এখানকার পরিবর্তন ERPNext Item Master-এ প্রভাব ফেলে।':'Changes here affect the ERPNext Item Master across all companies.' }}</p></div>
+          <button type="button" class="inv-close" :disabled="busy" :aria-label="t('close')" @click="close">×</button>
+        </div>
+        <div class="inv56-removal-body">
+          <div class="inv56-item-summary"><strong>{{ removal.item?.item_name }}</strong><code>{{ removal.item?.item_code }}</code></div>
+          <p v-if="removal.loading" class="inv56-note">{{ bn?'ERPNext-এ পণ্যের স্টক ও ইতিহাস যাচাই হচ্ছে…':'Checking stock, commitments and transaction history in ERPNext…' }}</p>
+          <template v-else-if="removal.options">
+            <p class="inv56-note">{{ bn?'Archive করলে পণ্য নিষ্ক্রিয় হবে কিন্তু ইতিহাস থাকবে। Permanent Delete কেবল লিংক ও মজুত না থাকলে সম্ভব।':'Archive disables the Item and preserves history. Permanent Delete is available only for unused Items with no stock or linked records.' }}</p>
+            <p class="inv56-note inv56-note-warn">{{ removal.options.scope_warning }}</p>
+            <p v-if="removal.options.message" class="inv56-note inv56-note-warn">{{ removal.options.message }}</p>
+            <label class="inv56-confirm-label">{{ bn?'নিশ্চিত করতে সম্পূর্ণ SKU লিখুন':'Type the exact SKU to confirm' }}
+              <input v-model="removal.confirmation" type="text" autocomplete="off" spellcheck="false" :placeholder="removal.item?.item_code || ''" />
+            </label>
+          </template>
+          <p v-if="modalError" class="inv-alert inv-error" role="alert">{{ modalError }}</p>
+          <div class="inv56-removal-actions">
+            <button class="inv-btn inv-outline" type="button" :disabled="busy" @click="close">{{ t('cancel') }}</button>
+            <button v-if="removal.options?.can_archive" type="button" class="inv-btn inv56-archive-btn" :disabled="busy || removal.confirmation!==removal.item?.item_code" @click="submitRemove('archive')">{{ bn?'Archive / নিষ্ক্রিয়':'Archive / Disable' }}</button>
+            <button v-if="removal.options?.can_delete" type="button" class="inv-btn inv56-delete-btn" :disabled="busy || removal.confirmation!==removal.item?.item_code" @click="submitRemove('delete')">{{ bn?'স্থায়ীভাবে মুছুন':'Delete Permanently' }}</button>
+          </div>
+          <p v-if="removal.options && !removal.options.can_archive && !removal.options.can_delete" class="inv56-muted">{{ bn?'এই পণ্য এখন মুছা বা নিষ্ক্রিয় করা যাবে না।':'This product cannot currently be archived or deleted. Resolve linked stock or permissions in ERPNext.' }}</p>
+        </div>
+      </div>
     </div>
 
     <div v-if="modal==='product'" class="inv-modal-backdrop" @click.self="close" @keydown.esc="close">
@@ -649,6 +801,11 @@ function close() {if (!busy.value) {dismissLookup(); modal.value=''}}
         </form>
       </div>
     </div>
+
+    <InventoryReceiveStudio v-if="receiveOpen"
+      :items="items" :warehouses="inventory.warehouses" :company="inventory.company"
+      :currency="inventory.currency" :initial-sku="receiveSku" :selected-warehouse="warehouse"
+      @close="receiveOpen=false;receiveSku=''" @received="finishReceive" @requested="finishRequest" />
 
     <div v-if="modal==='movement'" class="inv-modal-backdrop" @click.self="close" @keydown.esc="close">
       <div class="inv-modal" role="dialog" aria-modal="true" :aria-label="movement==='receive'?t('receive'):t('issue')">
@@ -904,4 +1061,91 @@ button.inv44-kpi{cursor:pointer}button.inv44-kpi:hover:not(:disabled){border-col
 @media(max-width:740px){.inv-root .inv52-toolbar{grid-template-columns:repeat(2,minmax(0,1fr));padding:12px;gap:10px}.inv-root .inv52-toolbar .inv-search{grid-column:1/-1}.inv-root .inv52-advanced-body{padding:12px;gap:10px}.inv-root .inv52-advanced-trigger{padding:11px 12px}}
 @media(max-width:420px){.inv-root .inv52-toolbar{grid-template-columns:minmax(0,1fr)}.inv-root .inv52-toolbar .inv-search{grid-column:auto}.inv-root .inv52-advanced-body{grid-template-columns:minmax(0,1fr)}.inv-root .inv52-trigger-copy small{font-size:9px}}
 @media(prefers-reduced-motion:reduce){.inv-root .inv52-chevron{transition:none}}
+/* SOS_INV_PO_V53 — third action retains one horizontal floating bar. */
+.inv-root .inv-floating-actions .inv-fab-po53{background:#ead8bf;color:#573d29;border-color:#d7b78e}
+.inv-root .inv-floating-actions .inv-fab-po53 .inv-fab-icon{background:#d8bb94;color:#503520}
+.inv-root .inv-po53-short{display:none}
+@media(max-width:560px){
+ .inv-root .inv-po53-wide{display:none}
+ .inv-root .inv-po53-short{display:inline}
+ .inv-root .inv-floating-actions .inv-fab{flex-shrink:1!important;padding:4px 6px!important;font-size:10px!important}
+ .inv-root .inv-floating-actions .inv-fab-icon{width:25px!important;height:25px!important;flex-basis:25px!important}
+}
+
+/* SOS_INV_PO_V55_NAV — Counter-aligned, balanced ivory operation rail. */
+.inv55-rail{margin:0 0 18px;padding:12px 13px 13px;border:1px solid #e8ddce;border-radius:19px;
+  background:linear-gradient(165deg,#fffcf7,#f9f2e8);box-shadow:0 7px 24px #5039230e,inset 0 1px 0 #fff}
+.inv55-rail-header{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 3px 11px}
+.inv55-rail-kicker{display:flex;align-items:center;gap:7px;color:#93795e;font-size:10px;letter-spacing:.115em;font-weight:850}
+.inv55-rail-pin{height:7px;width:7px;flex:0 0 7px;background:#b99874;border:2px solid #e9d6bf;border-radius:50%}
+.inv55-rail-hint{font-size:10px;font-weight:600;color:#ab957e;text-align:right}
+.inv55-operations{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px;min-width:0}
+.inv55-operation{position:relative;appearance:none;display:flex;align-items:center;gap:12px;width:100%;min-width:0;min-height:78px;
+  padding:12px 12px;border:1px solid #e8ded0;border-radius:14px;background:#fffdf9;color:#69513b;
+  cursor:pointer;text-align:left;box-shadow:0 2px 6px #553a1f09;transition:background .16s,border-color .16s,box-shadow .16s,transform .16s}
+.inv55-operation:hover{border-color:#d5b99a;background:#fffbf4;transform:translateY(-1px);box-shadow:0 5px 13px #71533214}
+.inv55-operation.is-current{border-color:#d9b995;background:linear-gradient(140deg,#fff9ef,#f2e3cd);box-shadow:0 4px 13px #6d4d3018,inset 0 1px 0 #fff}
+.inv55-operation.is-current:after{content:'';position:absolute;bottom:0;left:22px;right:22px;height:3px;border-radius:6px 6px 0 0;background:#936c45}
+.inv55-operation-icon{width:43px;height:43px;flex:0 0 43px;display:grid;place-items:center;border-radius:13px;
+  background:#f5ecdf;color:#8a6b4e;border:1px solid #e9dccc;box-shadow:inset 0 1px 0 #fff}
+.inv55-operation.is-current .inv55-operation-icon{background:#e8d5bd;color:#604127;border-color:#d8b996}
+.inv55-operation-icon svg{width:21px;height:21px;display:block}
+.inv55-operation-copy{min-width:0;flex:1;display:flex;flex-direction:column;gap:4px}
+.inv55-operation-copy strong{display:block;font-size:13px;font-weight:850;line-height:1.22;letter-spacing:-.015em;color:#563f2c;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.inv55-operation-copy small{display:block;color:#9d8975;font-size:10px;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.inv55-operation.is-current .inv55-operation-copy strong{color:#503620}
+.inv55-operation-arrow{width:15px;height:15px;flex:0 0 15px;color:#b8a48d;opacity:.75}
+.inv55-operation.is-current .inv55-operation-arrow{color:#86613f;opacity:1}
+.inv55-operation:focus-visible{outline:3px solid #b58d61;outline-offset:3px}
+.inv54-catalog-page{min-width:0}
+@media(max-width:1040px){.inv55-operation{padding:10px;gap:8px}.inv55-operation-icon{width:37px;height:37px;flex-basis:37px}.inv55-operation-copy strong{font-size:12px}.inv55-operation-arrow{display:none}}
+@media(max-width:700px){.inv55-rail{padding:9px 10px 11px;border-radius:15px}.inv55-rail-header{margin:0 3px 9px}.inv55-rail-hint{display:none}
+ .inv55-operations{display:flex;gap:7px;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:thin;padding-bottom:2px}
+ .inv55-operation{flex:0 0 200px;min-height:64px;scroll-snap-align:start;padding:8px;gap:9px;border-radius:12px}
+ .inv55-operation-icon{width:37px;height:37px;flex-basis:37px;border-radius:10px}.inv55-operation-copy strong{font-size:12px}
+ .inv55-operation-copy small{font-size:9px}.inv55-operation-arrow{display:none}}
+@media(prefers-reduced-motion:reduce){.inv55-operation{transition:none}}
+
+/* SOS_INV_V56: distinct overview/catalog and safe catalog actions; no route edits. */
+.inv55-operations{grid-template-columns:repeat(4,minmax(0,1fr))}
+@media(min-width:701px) and (max-width:1120px){.inv55-operations{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+.inv56-overview-page,.inv56-catalog-page{min-width:0}
+.inv56-overview-page{animation:inv56-appear .15s ease-out}
+.inv56-catalog-page{animation:inv56-appear .15s ease-out}
+@keyframes inv56-appear{from{opacity:.7;transform:translateY(2px)}to{opacity:1;transform:none}}
+.inv56-overview-intro{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 13px;padding:0 3px}
+.inv56-overview-intro strong{font-size:13px;color:#5a422f}
+.inv56-overview-intro small{color:#ab937d;font-size:11px}
+.inv56-catalog-headline{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:2px 0 13px;padding:0 2px}
+.inv56-catalog-headline strong{font-size:15px;color:#503726;letter-spacing:-.025em}
+.inv56-catalog-headline small{font-size:11px;color:#9e8a75}
+.inv56-catalog-action{border:1px solid #ddcbb6;border-radius:9px;min-height:30px;padding:5px 8px;display:inline-flex;gap:5px;align-items:center;justify-content:center;font-family:inherit;font-size:10px;font-weight:750;line-height:1.2;cursor:pointer;background:#fff9f1;color:#79563c;white-space:nowrap}
+.inv56-catalog-action:hover{background:#f0e4d2}
+.inv56-catalog-action.inv56-danger{color:#9a5c50;background:#fff7f4;border-color:#e8cdc7}
+.inv56-catalog-action.inv56-danger:hover{background:#fcebe7}
+.inv56-catalog-action svg{width:13px;height:13px;flex:0 0 13px}
+.inv-card-foot{align-items:center}
+.inv-card-foot>div{gap:5px;flex-wrap:wrap;justify-content:flex-end}
+.inv56-list-actions{display:flex;align-items:center;gap:5px;white-space:nowrap}
+.inv56-list-actions .inv56-catalog-action{min-height:31px}
+.inv56-list-actions .inv-rowaction{margin-right:0}
+.inv56-removal-modal{width:min(540px,calc(100vw - 20px))}
+.inv56-removal-body{padding:18px 22px 22px;display:flex;flex-direction:column;gap:12px}
+.inv56-item-summary{border:1px solid #e7d9c8;background:#fbf6ee;border-radius:13px;padding:14px;display:flex;flex-direction:column;gap:5px;overflow-wrap:anywhere}
+.inv56-item-summary strong{font-size:13px;color:#4c3829}
+.inv56-item-summary code{font-size:11px;color:#9a7a5b}
+.inv56-note{margin:0;color:#806953;font-size:12px;line-height:1.5}
+.inv56-note-warn{padding:10px 12px;background:#fff5ed;border:1px solid #eed8c8;border-radius:9px;color:#885a48}
+.inv56-confirm-label{font-size:12px;color:#70533d;font-weight:700;display:flex;flex-direction:column;gap:6px}
+.inv56-confirm-label input{min-height:44px;min-width:0;background:#fffdf9;border:1px solid #decfbd;border-radius:10px;color:#4d3626;padding:9px 12px;font:inherit}
+.inv56-removal-actions{display:flex;justify-content:flex-end;flex-wrap:wrap;gap:8px;padding-top:3px}
+.inv56-archive-btn{background:#f0e3d2;color:#684b36}
+.inv56-delete-btn{background:#985f52;color:#fffaf7;border-color:#985f52}
+.inv56-delete-btn:hover:not(:disabled){background:#79483f}
+.inv56-muted{color:#967d69;font-size:11px;line-height:1.4}
+.inv56-catalog-action:focus-visible,.inv56-confirm-label input:focus-visible,.inv56-removal-actions button:focus-visible{outline:3px solid #be9972;outline-offset:2px}
+@media(max-width:640px){.inv56-catalog-headline{align-items:flex-start;flex-direction:column}.inv56-removal-body{padding:14px}.inv56-catalog-action{padding:5px 6px}.inv56-catalog-action span{font-size:10px}}
+@media(prefers-reduced-motion:reduce){.inv56-overview-page,.inv56-catalog-page{animation:none}}
+
 </style>

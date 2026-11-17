@@ -1,0 +1,64 @@
+/* SERVICING OS | Components Receive compact layout | 6.95
+   Ivory / espresso palette retained. Affects only runtime-tagged Receive Components panel. */
+.sos-component-receive-compact-695 .sos-component-receive-grid-695 {
+  display: grid !important;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  gap: 8px 11px !important;
+  align-items: start !important;
+}
+.sos-component-receive-compact-695 .sos-component-receive-grid-695 > * {
+  min-width: 0 !important;
+  max-width: 100% !important;
+  width: auto !important;
+  margin: 0 !important;
+  grid-column: auto !important;
+}
+.sos-component-receive-compact-695 .sos-component-receive-grid-695 > .sos-component-receive-wide-695 {
+  grid-column: 1 / -1 !important;
+}
+.sos-component-receive-compact-695 .sos-component-receive-grid-695 label {
+  display: block;
+  color: #665447;
+  font-size: 11px !important;
+  font-weight: 600;
+  line-height: 1.25 !important;
+  margin-bottom: 3px !important;
+}
+.sos-component-receive-compact-695 .sos-component-receive-grid-695 input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+.sos-component-receive-compact-695 .sos-component-receive-grid-695 select,
+.sos-component-receive-compact-695 .sos-component-receive-grid-695 [role="combobox"] {
+  box-sizing: border-box !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  height: 35px !important;
+  min-height: 35px !important;
+  padding: 6px 9px !important;
+  font-size: 12px !important;
+  line-height: 1.4 !important;
+  border-radius: 7px !important;
+}
+.sos-component-receive-compact-695 .sos-component-receive-grid-695 textarea {
+  box-sizing: border-box !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  min-height: 55px !important;
+  padding: 7px 9px !important;
+  font-size: 12px !important;
+  line-height: 1.4 !important;
+  border-radius: 7px !important;
+}
+@media (max-width: 1100px) {
+  .sos-component-receive-compact-695 .sos-component-receive-grid-695 {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  }
+}
+@media (max-width: 760px) {
+  .sos-component-receive-compact-695 .sos-component-receive-grid-695 {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+}
+@media (max-width: 480px) {
+  .sos-component-receive-compact-695 .sos-component-receive-grid-695 {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+}

@@ -9,6 +9,8 @@ import { currentLanguage } from '../i18n/servicingLanguage.js'
 const props = defineProps({ initialKind: {type:String, default:'retail'}, initialJob: {type:String, default:''} })
 const emit = defineEmits(['saved'])
 const bn = computed(()=>String(unref(currentLanguage)||'en').toLowerCase().startsWith('bn'))
+// SOS_SERVICE_WORKFLOW_690: lock the floating action to the exact selected Service Job.
+const sos690LockedServiceJob = computed(() => String(props.initialJob || '').trim())
 const kind = ref(['retail','used','service'].includes(props.initialKind) ? props.initialKind:'retail')
 const setup = ref(null), loading = ref(true), saving=ref(false), error=ref(''), saved=ref(null)
 const customerText=ref(''), customerId=ref(''), customerSuggestions=ref([]), customerFocus=ref(false)
@@ -153,6 +155,7 @@ onUnmounted(()=>{clearTimeout(customerTimer);clearTimeout(itemTimer);customerSeq
 async function save(){
   if(saving.value||saved.value)return
   error.value=''
+  if(sos690LockedServiceJob.value && (kind.value!=='service'||selectedJob.value!==sos690LockedServiceJob.value)){error.value='This invoice must belong to '+sos690LockedServiceJob.value;return}
   if(kind.value==='service'&&!selectedJob.value){error.value='Choose a saved Service Job.';return}
   if(kind.value!=='service'&&!customerId.value){error.value='Choose a Customer from the search suggestions.';return}
   if(rows.value.some(r=>!r.item_code||r.rate===''||r.priceLoading||r.priceError||!(Number(r.qty)>0)||Number(r.rate)<0||Number(r.discount_percentage)<0||Number(r.discount_percentage)>100)){
@@ -165,7 +168,7 @@ async function save(){
   if(rows.value.some(r=>r.item_code&&!sos672ModalWarrantyValid(r))){error.value='Enter warranty days for every item without an Item Master warranty, or select No warranty.';return}
   saving.value=true
   try{
-    const d=await api('create_unified_invoice_draft',{method:'POST',body:{invoice_kind:kind.value,customer:customerId.value,job_name:selectedJob.value,items:rows.value.map(r=>({item_code:r.item_code,qty:r.qty,rate:r.rate,discount_percentage:r.discount_percentage,serial_no:r.serial_no,warranty_choice:r.sos672WarrantySource||'',warranty_period_days:r.sos672WarrantySource==='none'?0:Number(r.sos672WarrantyDays||0)})),discount_mode:discountMode.value,discount_value:discountMode.value==='none'?0:Number(discountValue.value),remarks:remarks.value}})
+    const d=await api('create_unified_invoice_draft',{method:'POST',body:{invoice_kind:kind.value,customer:customerId.value,job_name:sos690LockedServiceJob.value||selectedJob.value,items:rows.value.map(r=>({item_code:r.item_code,qty:r.qty,rate:r.rate,discount_percentage:r.discount_percentage,serial_no:r.serial_no,warranty_choice:r.sos672WarrantySource||'',warranty_period_days:r.sos672WarrantySource==='none'?0:Number(r.sos672WarrantyDays||0)})),discount_mode:discountMode.value,discount_value:discountMode.value==='none'?0:Number(discountValue.value),remarks:remarks.value}})
     if(!d.invoice)throw new Error('Invoice was not returned by backend')
     saved.value=d;emit('saved',d);window.dispatchEvent(new CustomEvent('servicing-os-invoice-draft-created',{detail:d}))
   }catch(e){error.value=e.message||'Unable to save invoice'}finally{saving.value=false}
@@ -182,11 +185,11 @@ async function save(){
     </div>
     <form v-else @submit.prevent="save">
       <div class="sos654-kind" role="group" aria-label="Invoice type">
-        <button v-for="(name,key) in kindName" :key="key" type="button" :class="{'selected':kind===key}" @click="kind=key">{{ name }}</button>
+        <button v-for="(name,key) in kindName" :key="key" type="button" :class="{'selected':kind===key}" @click="kind=key" :disabled="!!sos690LockedServiceJob && key!=='service'">{{ name }}</button>
       </div>
       <div class="sos654-fields">
         <label v-if="kind==='service'"><span>Service Job *</span>
-          <input v-model.trim="selectedJob" list="sos654-jobs" autocomplete="off" placeholder="Select saved job" @change="selectJob" />
+          <input v-model.trim="selectedJob" list="sos654-jobs" autocomplete="off" placeholder="Select saved job" @change="selectJob" :readonly="!!sos690LockedServiceJob" />
           <datalist id="sos654-jobs"><option v-for="j in jobList" :key="j.name" :value="j.name">{{ j.customer_name }}</option></datalist>
           <small v-if="currentJob">{{ currentJob.customer_name }} · {{ currentJob.status }}</small>
         </label>
@@ -293,4 +296,8 @@ async function save(){
 .sos654-invoice .sos672-none-button{background:transparent!important;border:0!important;color:#805a3e!important;text-decoration:underline!important;font-size:10px!important;padding:2px!important;text-align:left}
 @media(max-width:1200px){.sos654-invoice .sos654-line{grid-template-columns:repeat(4,minmax(0,1fr))!important}.sos654-invoice .sos654-line>.sos654-search-field{grid-column:1/-1}.sos654-invoice .sos654-line>.sos672-modal-warranty{grid-column:1/3}.sos654-invoice .sos654-line>.sos654-lineamount{grid-column:3/4}.sos654-invoice .sos654-line>.sos654-remove{grid-column:4}}
 @media(max-width:550px){.sos654-invoice .sos654-line{grid-template-columns:repeat(2,minmax(0,1fr))!important}.sos654-invoice .sos654-line>.sos672-modal-warranty{grid-column:1/3}.sos654-invoice .sos654-line>.sos654-lineamount{grid-column:1}.sos654-invoice .sos654-line>.sos654-remove{grid-column:2}}
+</style>
+
+<style>/* SOS_SERVICE_WORKFLOW_690 */
+.sos654-kind button:disabled{opacity:.48!important;cursor:not-allowed!important}.sos654-invoice input[readonly]{color:#5a3e2c!important;background:#f4e9df!important;cursor:not-allowed}
 </style>

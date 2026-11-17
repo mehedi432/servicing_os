@@ -1,0 +1,26 @@
+{
+  "snapshot": "20261117_212555_079352",
+  "files": [
+    {
+      "rel": "apps/servicing_os/frontend/src/components/InventoryWorkspace.vue",
+      "filename": "apps__servicing_os__frontend__src__components__InventoryWorkspace.vue.bak",
+      "existed": true,
+      "before_sha": "72797c4499eafe367b91f901243cc56af60bd00abd9c73942d4e4bbbd639ddb5",
+      "after_sha": "23b9142455ca67d85697849678bda69268516a648f93ae3ee9031e164f6fef9b"
+    },
+    {
+      "rel": "apps/servicing_os/frontend/src/components/InventoryPurchaseOrderStudio.vue",
+      "filename": "apps__servicing_os__frontend__src__components__InventoryPurchaseOrderStudio.vue.bak",
+      "existed": false,
+      "before_sha": null,
+      "after_sha": "f27ffcfcd5cd8efce7c01cbd3315a0d7d3cc26e2f313358f5f37739aec3ebb3e"
+    },
+    {
+      "rel": "apps/servicing_os/servicing_os/api/inventory_purchase_order.py",
+      "filename": "apps__servicing_os__servicing_os__api__inventory_purchase_order.py.bak",
+      "existed": false,
+      "before_sha": null,
+      "after_sha": "0a59d8d090091a91fc575de8c63493122ae812a3ce130fc9dc0c1173df0d7a5f"
+    }
+  ]
+}

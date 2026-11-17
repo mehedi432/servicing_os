@@ -895,3 +895,126 @@ function closeOnOverlay(e) { if (e.target === e.currentTarget) emit('close') }
 }
 /* SOS_QR_RECENT_V16_STYLE_END */
 </style>
+
+<style>
+/* SOS_PRINT_ALIGNMENT_V19_QR_BEGIN
+   Screen control alignment only: does not affect QR image, sticker or print popup. */
+@media screen {
+  .sos629-sticker-overlay .sos629-lookup {
+    --sos-v19-qr-h: 46px;
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) minmax(130px, 168px) !important;
+    align-items: end !important;
+    gap: 12px !important;
+  }
+  .sos629-sticker-overlay .sos629-lookup > .sos16-search-field {
+    min-width: 0 !important;
+    width: 100% !important;
+  }
+  .sos629-sticker-overlay .sos629-lookup > button {
+    box-sizing: border-box !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    min-height: var(--sos-v19-qr-h) !important;
+    height: var(--sos-v19-qr-h) !important;
+    border-radius: 12px !important;
+    line-height: 1.3 !important;
+    white-space: normal !important;
+  }
+  .sos629-sticker-overlay .sos629-options {
+    --sos-v19-qr-h: 46px;
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 13px 16px !important;
+    align-items: start !important;
+  }
+  .sos629-sticker-overlay .sos629-options > label {
+    min-width: 0 !important;
+    width: 100% !important;
+    margin: 0 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 7px !important;
+    justify-content: flex-end !important;
+    font-size: 12px !important;
+    font-weight: 800 !important;
+    line-height: 1.45 !important;
+    color: #765940 !important;
+  }
+  .sos629-sticker-overlay .sos629-options > label.sos16-url-field,
+  .sos629-sticker-overlay .sos629-options > .sos13-custom-sizes {
+    grid-column: 1 / -1 !important;
+  }
+  .sos629-sticker-overlay .sos629-options > .sos13-custom-sizes {
+    width: 100% !important;
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 13px 16px !important;
+  }
+  .sos629-sticker-overlay .sos13-custom-sizes > label {
+    display: flex !important;
+    flex-direction: column !important;
+    min-width: 0 !important;
+    gap: 7px !important;
+    margin: 0 !important;
+    font-size: 12px !important;
+    font-weight: 800 !important;
+    line-height: 1.45 !important;
+    color: #765940 !important;
+  }
+  .sos629-sticker-overlay .sos629-options :is(select,input),
+  .sos629-sticker-overlay .sos629-lookup input {
+    box-sizing: border-box !important;
+    width: 100% !important;
+    max-width: none !important;
+    min-width: 0 !important;
+    height: var(--sos-v19-qr-h, 46px) !important;
+    min-height: var(--sos-v19-qr-h, 46px) !important;
+    max-height: var(--sos-v19-qr-h, 46px) !important;
+    padding: 0 14px !important;
+    margin: 0 !important;
+    background-color: #fffdf9 !important;
+    border: 1px solid #d7c4b0 !important;
+    border-radius: 12px !important;
+    color: #3c3026 !important;
+    font-size: 13px !important;
+    font-weight: 700 !important;
+    line-height: normal !important;
+  }
+  .sos629-sticker-overlay .sos629-options select {
+    -webkit-appearance: none !important;
+    appearance: none !important;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none'%3E%3Cpath d='m5.5 7.5 4.5 5 4.5-5' stroke='%23795842' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") !important;
+    background-repeat: no-repeat !important;
+    background-position: right 13px center !important;
+    background-size: 18px 18px !important;
+    padding-right: 39px !important;
+    cursor: pointer !important;
+  }
+  .sos629-sticker-overlay .sos629-options :is(select,input):focus-visible,
+  .sos629-sticker-overlay .sos629-lookup input:focus-visible {
+    outline: none !important;
+    border-color: #946a49 !important;
+    box-shadow: 0 0 0 3px rgba(148,106,73,.16) !important;
+  }
+  .sos629-sticker-overlay .sos629-options > .sos629-advice {
+    grid-column: 1 / -1 !important;
+  }
+}
+@media screen and (max-width: 680px) {
+  .sos629-sticker-overlay .sos629-lookup {
+    grid-template-columns: minmax(0, 1fr) !important;
+    gap: 10px !important;
+  }
+  .sos629-sticker-overlay .sos629-lookup > button { width: 100% !important; }
+  .sos629-sticker-overlay .sos629-options { grid-template-columns: minmax(0, 1fr) !important; }
+  .sos629-sticker-overlay .sos629-options > label.sos16-url-field,
+  .sos629-sticker-overlay .sos629-options > .sos13-custom-sizes { grid-column: 1 !important; }
+  .sos629-sticker-overlay .sos629-options > .sos13-custom-sizes { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+}
+@media screen and (max-width: 390px) {
+  .sos629-sticker-overlay .sos629-options > .sos13-custom-sizes { grid-template-columns: minmax(0, 1fr) !important; }
+}
+/* SOS_PRINT_ALIGNMENT_V19_QR_END */
+</style>

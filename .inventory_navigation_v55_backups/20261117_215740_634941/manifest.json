@@ -1,0 +1,24 @@
+{
+  "created": "20261117_215740_634941",
+  "variant": "v52",
+  "files": [
+    {
+      "dest": "apps/servicing_os/frontend/src/components/InventoryWorkspace.vue",
+      "backup": "00.bak",
+      "old_sha": "26d3dadd3c9c5a08a3b04cb026ffc1177a8b930dbacdce6e264b9aab60e577e5",
+      "new_sha": "3db2ce64d4c37595c1f17419a1a92d955cba2b63f7b16f00abf679b26a211a99"
+    },
+    {
+      "dest": "apps/servicing_os/frontend/src/components/InventoryPurchaseOrdersDesk.vue",
+      "backup": "01.bak",
+      "old_sha": "bed4752be2461181ab582804e73fffe57c230ef834237a0b264f36238ad35e05",
+      "new_sha": "f67f345f9215f9d6f9523e887e84f5fa8f1e6f36ae5d40029a90ac13e7ad7ac1"
+    },
+    {
+      "dest": "apps/servicing_os/frontend/src/components/InventoryPurchaseOrderStudio.vue",
+      "backup": "02.bak",
+      "old_sha": "cb1feb20f8220b1311cda4ddce5f997b3f27285793ac77ce8ee0ce023e059552",
+      "new_sha": "42331199049d4380ee0f042221eedb50a78f4a812a266ecc78f7a2973633e1ec"
+    }
+  ]
+}

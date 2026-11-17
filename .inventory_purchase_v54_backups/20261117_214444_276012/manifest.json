@@ -1,0 +1,34 @@
+{
+  "variant": "v52",
+  "created": "20261117_214444_276012",
+  "files": [
+    {
+      "rel": "apps/servicing_os/frontend/src/components/InventoryWorkspace.vue",
+      "filename": "00.bak",
+      "before_sha": "23b9142455ca67d85697849678bda69268516a648f93ae3ee9031e164f6fef9b",
+      "after_sha": "26d3dadd3c9c5a08a3b04cb026ffc1177a8b930dbacdce6e264b9aab60e577e5",
+      "existed": true
+    },
+    {
+      "rel": "apps/servicing_os/frontend/src/components/InventoryPurchaseOrderStudio.vue",
+      "filename": "01.bak",
+      "before_sha": "f27ffcfcd5cd8efce7c01cbd3315a0d7d3cc26e2f313358f5f37739aec3ebb3e",
+      "after_sha": "cb1feb20f8220b1311cda4ddce5f997b3f27285793ac77ce8ee0ce023e059552",
+      "existed": true
+    },
+    {
+      "rel": "apps/servicing_os/frontend/src/components/InventoryPurchaseOrdersDesk.vue",
+      "filename": "02.bak",
+      "before_sha": null,
+      "after_sha": "bed4752be2461181ab582804e73fffe57c230ef834237a0b264f36238ad35e05",
+      "existed": false
+    },
+    {
+      "rel": "apps/servicing_os/servicing_os/api/inventory_purchase_order.py",
+      "filename": "03.bak",
+      "before_sha": "0a59d8d090091a91fc575de8c63493122ae812a3ce130fc9dc0c1173df0d7a5f",
+      "after_sha": "3dc616a695933f5b0a22175f1fd00c9895599fc23e2ffdbd4d23ae7684b822c8",
+      "existed": true
+    }
+  ]
+}

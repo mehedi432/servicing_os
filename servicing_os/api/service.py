@@ -124,6 +124,10 @@ def receive_service_job(data=None):
     # SOS_RECEIVE_INLINE_TECH_HISTORY_682: same transaction as intake; validates active Employee.
     from servicing_os.api.counter_receive_682 import assign_technician_on_create
     assign_technician_on_create(job, data.get("assigned_technician"))
+    # SOS_DEVICE_COMPONENTS_694: record customer property in the same Service Job transaction.
+    from servicing_os.api.received_components_694 import apply_to_job
+    if 'received_components' in data:
+        apply_to_job(job, data['received_components'])
     job.insert()
 
     return {

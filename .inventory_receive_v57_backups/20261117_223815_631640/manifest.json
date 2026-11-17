@@ -1,0 +1,28 @@
+{
+  "version": "v5.7",
+  "variant": "v55_v52",
+  "created": "20261117_223815_631640",
+  "files": [
+    {
+      "path": "apps/servicing_os/frontend/src/components/InventoryWorkspace.vue",
+      "existed": true,
+      "backup": "00.bak",
+      "old_sha": "c3231acdecdde366123c0c721353df13f2c7ae4e76cb1616a3ca2e2e106cd45d",
+      "new_sha": "4f4acd818b05502adb5e5569266a3f546bdb2179ca539352237118b62d58e723"
+    },
+    {
+      "path": "apps/servicing_os/frontend/src/components/InventoryReceiveStudio.vue",
+      "existed": false,
+      "backup": "01.bak",
+      "old_sha": null,
+      "new_sha": "66e433287a6c9953fe022a8d1f08ab151e2843090c11903328a317ba0cbd908b"
+    },
+    {
+      "path": "apps/servicing_os/servicing_os/api/inventory_receiving.py",
+      "existed": false,
+      "backup": "02.bak",
+      "old_sha": null,
+      "new_sha": "1a8a2ea1854dd92d0f70485350da50ecc5029b5e5610bc22dffae736937e6505"
+    }
+  ]
+}

@@ -15,6 +15,7 @@ const props = defineProps({
   error: { type: String, default: '' },
   searchValue: { type: String, default: '' },
   billingMode: { type: String, default: 'Service Delivery' },
+  selectedServiceJob: {type:String, default:''},
 })
 const emit = defineEmits(['select', 'settings', 'open-menu', 'navigate', 'update:searchValue', 'billing-mode'])
 const brandLetters = computed(() => {
@@ -38,6 +39,16 @@ function sos661ReceiveInvoiceRequest(event) {
 }
 onMounted(() => window.addEventListener('servicing-os-create-service-invoice', sos661ReceiveInvoiceRequest))
 onUnmounted(() => window.removeEventListener('servicing-os-create-service-invoice', sos661ReceiveInvoiceRequest))
+// SOS_SERVICE_WORKFLOW_690: floating invoice may only target selected Service Receive.
+const sos690InvoiceMessage = ref('')
+function sos690CreateSelectedInvoice() {
+  const name = String(props.selectedServiceJob || '').trim()
+  if (!name) {sos690InvoiceMessage.value = 'Select a Service Job in Customer History or receive a device first.';return}
+  if (!/^[A-Za-z0-9._-]{1,140}$/.test(name)) {sos690InvoiceMessage.value = 'Invalid Service Job reference';return}
+  sos690InvoiceMessage.value = ''
+  sos661StartInvoice(name)
+}
+
 const billingTab = ref('invoices')
 function openInvoice() { sos661StartInvoice('') }
 const profileOpen = ref(false)
@@ -255,11 +266,13 @@ function sos676TabKeydown(event, currentKey) {
         <!-- SERVICING_OS_COUNTER_658: real invoice history beneath live workspaces -->
         <InvoiceHistory658 v-if="active === 'sale' || active === 'used'" :scope="active" />
       </div>
-      <div class="sos653-invoice-action">
-        <button type="button" class="sos653-floating-invoice" @click="sos661StartInvoice('')" :title="bn ? 'নতুন বিক্রয় বা সার্ভিস ইনভয়েস তৈরি' : 'Create Retail, Used Laptop or Service Invoice'">
+      <div v-if="active === 'receive'" class="sos653-invoice-action sos690-invoice-action">
+        <button type="button" class="sos653-floating-invoice" :disabled="!selectedServiceJob" @click="sos690CreateSelectedInvoice" :title="bn ? 'নতুন বিক্রয় বা সার্ভিস ইনভয়েস তৈরি' : 'Create Retail, Used Laptop or Service Invoice'">
           <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M5 3h14v18l-3-2-4 2-4-2-3 2V3Z"/><path d="M9 9h6M9 13h6"/></svg>
-          {{ bn ? 'ইনভয়েস তৈরি করুন' : 'Create Invoice' }}
+          {{ selectedServiceJob ? (bn ? 'নির্বাচিত কাজের ইনভয়েস' : 'Invoice Selected Service Job') : (bn ? 'প্রথমে সার্ভিস জব নির্বাচন করুন' : 'Select Service Job to Invoice') }}
         </button>
+        <small class="sos690-selection">{{ selectedServiceJob || 'Select a saved service receive to enable invoicing' }}</small>
+        <p v-if="sos690InvoiceMessage" class="sos690-error" role="alert">{{ sos690InvoiceMessage }}</p>
       </div>
     </section>
     <Teleport to="body">
@@ -589,4 +602,8 @@ function sos676TabKeydown(event, currentKey) {
 @media (prefers-reduced-motion: reduce) {
   .sos652-shell nav.sos676-tabrail > button.sos676-tab { transition: none !important; }
 }
+</style>
+
+<style>/* SOS_SERVICE_WORKFLOW_690 */
+.sos690-invoice-action{display:flex;flex-direction:column;align-items:center;gap:6px}.sos690-invoice-action button:disabled{opacity:.5;cursor:not-allowed}.sos690-selection{color:#81634f;font-size:11px;overflow-wrap:anywhere;text-align:center}.sos690-error{color:#983e2c;font-size:11px}
 </style>

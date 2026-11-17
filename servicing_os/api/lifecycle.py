@@ -45,6 +45,16 @@ TRANSITIONS = {
     "Cancelled": (),
 }
 
+# SOS_SERVICE_WORKFLOW_690 — complete the missing Repairing -> Completed stage.
+# Keep all existing transitions. Native repair_progress uses this shared dict.
+if "Completed" not in TRANSITIONS.get("Repairing", ()):
+    TRANSITIONS["Repairing"] = tuple(TRANSITIONS["Repairing"]) + ("Completed",)
+if "Completed" not in TRANSITIONS:
+    TRANSITIONS["Completed"] = ("Ready to Deliver", "Repairing")
+if "Completed" not in STATUSES:
+    _completed_position_690 = STATUSES.index("Ready to Deliver") if "Ready to Deliver" in STATUSES else len(STATUSES)
+    STATUSES = STATUSES[:_completed_position_690] + ("Completed",) + STATUSES[_completed_position_690:]
+
 EDITABLE_FIELDS = (
     "technician",
     "diagnosis",

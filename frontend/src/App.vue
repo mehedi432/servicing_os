@@ -1,4 +1,10 @@
 <script setup>
+// SOS_DEVICE_COMPONENTS_694 — Frappe child table, customer-owned device contents.
+import ReceivedDeviceComponents694 from './components/ReceivedDeviceComponents694.vue'
+const sos694Received = ref([])
+
+import CounterServiceSteps690 from "./components/CounterServiceSteps690.vue"
+import CounterPartsInline689 from "./components/CounterPartsInline689.vue"
 import SalesCenter from './components/SalesCenter.vue'
 import InventoryWorkspace from './components/InventoryWorkspace.vue' // SOS_INVENTORY_V1
 
@@ -482,6 +488,7 @@ function resetServiceForm() {
   serialNumber.value = "";
   problem.value = "";
   accessories.value = "";
+    sos694Received.value = [];
   priority.value = "Normal";
   estimatedCost.value = "";
   message.value = "";
@@ -544,7 +551,7 @@ async function openExistingJobInForm(jobNumber, existingData = null) {
     cancelCustomerSearch();
     selectingCustomer = true;
 
-    selectedCustomerId.value = "";
+    selectedCustomerId.value = job.customer || "";
     customer.value = job.customer_name || "";
     mobile.value = job.mobile || "";
 
@@ -554,8 +561,10 @@ async function openExistingJobInForm(jobNumber, existingData = null) {
     serialNumber.value = job.serial_number || "";
     problem.value = job.reported_problem || "";
     accessories.value = job.accessories_received || "";
+    sos694Received.value = Array.isArray(job.custom_received_components) ? job.custom_received_components.map(part => ({ ...part })) : [];
     priority.value = job.priority || "Normal";
     estimatedCost.value = String(job.estimated_cost ?? "");
+    sos682Technician.value = job.technician || "";
 
     viewedServiceJob.value = job;
     viewingServiceJob.value = true;
@@ -593,6 +602,13 @@ async function openExistingJobInForm(jobNumber, existingData = null) {
 }
 
 function startNewServiceReceive() {
+  sos690RecentlyCreatedJob.value = ''
+  sos690RecentStatus.value = 'Received'
+  sos686Editing.value = false;
+  sos686CanDelete.value = false;
+  sos686DeleteReason.value = '';
+  sos686SelectedModified.value = '';
+  sos686DeleteOpen.value = false;
   viewingServiceJob.value = false;
   viewedServiceJob.value = null;
   existingJobError.value = "";
@@ -613,8 +629,8 @@ const savingJob = ref(false);
 
 async function submitDemo() {
   if (viewingServiceJob.value) {
-    message.value =
-      "This is an existing Service Job. Select New Service Receive to create another job.";
+    if (sos686Editing.value) await sos686SaveExisting();
+    else message.value = 'This Service Job is view-only. Select New Service Receive to make another job.';
     return;
   }
 
@@ -655,6 +671,7 @@ async function submitDemo() {
       serial_number: serialNumber.value.trim(),
       reported_problem: problem.value.trim(),
       accessories_received: accessories.value.trim(),
+      received_components: sos694Received.value.map(part => ({ ...part })),
       priority: priority.value,
       assigned_technician: sos682Technician.value || null,
       estimated_cost: Number(estimatedCost.value || 0)
@@ -662,6 +679,7 @@ async function submitDemo() {
 
     message.value = "Service Job " + result.service_job + " saved successfully!";
     receiptJobNumber.value = result.service_job;
+    sos690RecentlyCreatedJob.value = String(result.service_job || '')
     await openServiceReceipt(result.service_job);
     s44AfterCounterSaved(result.service_job); // S44_NATIVE_COUNTER_RECEIVE
     if (receiptError.value) message.value += " Receipt: " + receiptError.value;
@@ -678,6 +696,7 @@ async function submitDemo() {
     serialNumber.value = "";
     problem.value = "";
     accessories.value = "";
+    sos694Received.value = [];
     priority.value = "Normal";
     estimatedCost.value = "";
     sos682Technician.value = "";
@@ -819,10 +838,7 @@ function sos682GoPage(next) {
   sos682LoadHistory()
 }
 function sos682ChooseJob(job) {
-  if (!job?.name) return
-  sos682SelectedJob.value = job.name
-  receiptJobNumber.value = job.name
-  sos682HistoryError.value = ''
+  if (job?.name) sos686LoadExisting(job.name)
 }
 function sos682PrintId() {
   const input = sos682Search.value.trim()
@@ -845,6 +861,196 @@ function sos682PrintSticker(jobName = '') {
 }
 onMounted(() => { sos682LoadTechnicians(); sos682LoadHistory() })
 onUnmounted(() => { if (sos682Timer) clearTimeout(sos682Timer); ++sos682Seq })
+
+// SOS_COUNTER_RECEIVE_EDITOR_686 — same-form edit/delete with optimistic locking.
+const sos686Editing = ref(false)
+const sos686CanDelete = ref(false)
+const sos686DeleteReason = ref('')
+const sos686SelectedModified = ref('')
+const sos686Busy = ref(false)
+const sos686DeleteOpen = ref(false)
+const sos686DeleteConfirm = ref('')
+const sos686Message = ref('')
+async function sos686Request(method, payload = null) {
+  const base = '/api/method/servicing_os.api.counter_editor_686.' + method
+  const url = payload === null ? base : base
+  const options = { credentials: 'same-origin', cache: 'no-store', headers: { Accept: 'application/json' } }
+  if (payload === null) { options.method = 'GET' }
+  else {
+    options.method = 'POST'
+    options.headers['Content-Type'] = 'application/json'
+    options.headers['X-Frappe-CSRF-Token'] = window.csrf_token || window.frappe?.csrf_token || ''
+    options.body = JSON.stringify(payload)
+  }
+  const response = await fetch(url, options)
+  const result = await response.json().catch(() => ({}))
+  if (!response.ok || result.exc || result.exception || result.exc_type) {
+    let detail = result.message && typeof result.message === 'string' ? result.message : `Service Job API error (HTTP ${response.status})`
+    try {
+      const messages = JSON.parse(result._server_messages || '[]')
+      if (messages.length) detail = JSON.parse(messages[messages.length - 1]).message || detail
+    } catch {}
+    throw new Error(detail)
+  }
+  return result.message || {}
+}
+async function sos686LoadExisting(name) {
+  if (!name || sos686Busy.value) return
+  sos686Busy.value = true
+  sos686Message.value = ''
+  sos682HistoryError.value = ''
+  try {
+    const url = new URL('/api/method/servicing_os.api.counter_editor_686.get_job', window.location.origin)
+    url.searchParams.set('name', name)
+    const response = await fetch(url, { credentials: 'same-origin', cache: 'no-store', headers: { Accept: 'application/json' } })
+    const payload = await response.json().catch(() => ({}))
+    if (!response.ok || payload.exc || payload.exception || !payload.message?.job) {
+      let detail = `Cannot open job (HTTP ${response.status})`
+      try { const msgs = JSON.parse(payload._server_messages || '[]'); if (msgs.length) detail = JSON.parse(msgs[msgs.length - 1]).message || detail } catch {}
+      throw new Error(detail)
+    }
+    const result = payload.message
+    await openExistingJobInForm(name, result)
+    if (!viewingServiceJob.value || viewedServiceJob.value?.name !== name) {
+      throw new Error(existingJobError.value || 'Could not populate Service Receive form')
+    }
+    sos686Editing.value = !!result.can_edit
+    sos686CanDelete.value = !!result.can_delete
+    sos686DeleteReason.value = result.delete_reason || ''
+    sos686SelectedModified.value = String(result.job.modified || '')
+    sos682SelectedJob.value = name
+    sos683TechnicianSearch.value = ''
+    sos686Message.value = result.can_edit ? 'Editing existing Service Job. Save Changes to update it.' : 'This job is view-only.'
+  } catch (error) { sos682HistoryError.value = error.message || 'Unable to open job.' }
+  finally { sos686Busy.value = false }
+}
+async function sos686SaveExisting() {
+  if (!viewedServiceJob.value?.name || sos686Busy.value) return
+  if (!sos686Editing.value) { message.value = 'This Service Job is read-only.'; return }
+  sos686Busy.value = true
+  savingJob.value = true
+  message.value = 'Saving changes…'
+  try {
+    const payload = {
+      customer: selectedCustomerId.value || '',
+      customer_name: customer.value.trim(),
+      mobile: mobile.value.trim(),
+      device_type: deviceType.value,
+      brand: brand.value.trim(),
+      device_model: model.value.trim(),
+      serial_number: serialNumber.value.trim(),
+      reported_problem: problem.value.trim(),
+      accessories_received: accessories.value.trim(),
+      received_components: sos694Received.value.map(part => ({ ...part })),
+      priority: priority.value,
+      estimated_cost: Number(estimatedCost.value || 0),
+      technician: sos682Technician.value || ''
+    }
+    const result = await sos686Request('save_job', {
+      name: viewedServiceJob.value.name,
+      data: payload,
+      expected_modified: sos686SelectedModified.value,
+    })
+    sos686SelectedModified.value = String(result.job?.modified || '')
+    viewedServiceJob.value = { ...viewedServiceJob.value, ...(result.job || {}) }
+    sos686CanDelete.value = !!result.can_delete
+    message.value = 'Service Job ' + viewedServiceJob.value.name + ' updated successfully.'
+    sos686Message.value = message.value
+    await sos682LoadHistory()
+    await refreshDashboard()
+  } catch (error) { message.value = error.message || 'Unable to update Service Job.' }
+  finally { sos686Busy.value = false; savingJob.value = false }
+}
+async function sos686ReloadSelected() {
+  if (viewedServiceJob.value?.name) await sos686LoadExisting(viewedServiceJob.value.name)
+}
+function sos686AskDelete() {
+  if (!sos686CanDelete.value || !viewedServiceJob.value?.name) return
+  sos686DeleteConfirm.value = ''
+  sos686Message.value = ''
+  sos686DeleteOpen.value = true
+}
+async function sos686DeleteSelected() {
+  const name = viewedServiceJob.value?.name || ''
+  if (!name || !sos686CanDelete.value || sos686DeleteConfirm.value !== name || sos686Busy.value) return
+  sos686Busy.value = true
+  try {
+    const result = await sos686Request('delete_job', { name, confirm: name, expected_modified: sos686SelectedModified.value })
+    if (!result.deleted) throw new Error('Deletion was not confirmed by server')
+    sos686DeleteOpen.value = false
+    startNewServiceReceive()
+    sos682SelectedJob.value = ''
+    sos686Message.value = 'Deleted Service Job ' + name
+    await sos682LoadHistory()
+    await refreshDashboard()
+  } catch (error) { sos686Message.value = error.message || 'Cannot delete Service Job.' }
+  finally { sos686Busy.value = false }
+}
+
+// SOS_COUNTER_RECEIVE_UX_687: history-card actions, permission-aware deletion.
+async function sos687EditHistoryJob(job) {
+  if (!job?.name || sos686Busy.value) return
+  await sos686LoadExisting(job.name)
+  if (viewedServiceJob.value?.name === job.name && sos682SelectedJob.value === job.name) {
+    await nextTick()
+    document.querySelector('.sos682-receive-form')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+}
+async function sos687DeleteHistoryJob(job) {
+  if (!job?.name || sos686Busy.value) return
+  sos682HistoryError.value = ''
+  // A completed/processed job is retained for its repair/payment audit trail.
+  if (job.status && job.status !== 'Received') {
+    sos682HistoryError.value = `${job.name} is ${job.status}. Permanent deletion is allowed only for unprocessed Received jobs; this record is protected.`
+    return
+  }
+  // Recheck permissions, invoice links and modified timestamp on the server.
+  sos686CanDelete.value = false
+  await sos686LoadExisting(job.name)
+  if (sos682SelectedJob.value !== job.name || viewedServiceJob.value?.name !== job.name) return
+  if (!sos686CanDelete.value) {
+    sos682HistoryError.value = sos686DeleteReason.value || 'Delete denied. Check Service Job Delete permission, linked invoices, and repair activity.'
+    return
+  }
+  sos686Message.value = ''
+  sos686AskDelete()
+}
+
+// SOS_COUNTER_RECEIVE_REPAIR_689 — visible results for existing Edit/Delete buttons.
+// SOS_SERVICE_WORKFLOW_690: one selected job drives repair steps, parts and invoice.
+const sos690RecentlyCreatedJob = ref('')
+const sos690RecentStatus = ref('Received')
+const sos690CurrentJob = computed(() => (
+  viewingServiceJob.value && viewedServiceJob.value?.name
+    ? (sos682SelectedJob.value === viewedServiceJob.value.name ? String(viewedServiceJob.value.name) : '')
+    : String(sos690RecentlyCreatedJob.value || '')
+))
+const sos690InvoiceJob = computed(() => (
+  sos686Busy.value || savingJob.value ? '' : sos690CurrentJob.value
+))
+async function sos690RepairStepUpdated(detail) {
+  if (!detail?.name || detail.name !== sos690CurrentJob.value) return
+  if (!viewingServiceJob.value && sos690RecentlyCreatedJob.value === detail.name) sos690RecentStatus.value = detail.status || sos690RecentStatus.value
+  await sos682LoadHistory()
+  await refreshDashboard()
+  if (viewingServiceJob.value && viewedServiceJob.value?.name === detail.name) {
+    await sos686LoadExisting(detail.name)
+  }
+}
+
+const sos689ActionFeedback = ref('')
+async function sos689EditHistory(job) {
+  sos689ActionFeedback.value = ''
+  await sos687EditHistoryJob(job)
+  if (sos682HistoryError.value) sos689ActionFeedback.value = sos682HistoryError.value
+  else if (viewedServiceJob.value?.name === job.name && !sos686Editing.value)
+    sos689ActionFeedback.value = `Service Job ${job.name} cannot be edited in its current state or with your permissions.`
+}
+async function sos689DeleteHistory(job) {
+  sos689ActionFeedback.value = ''
+  await sos687DeleteHistoryJob(job)
+  if (sos682HistoryError.value) sos689ActionFeedback.value = sos682HistoryError.value
+}
 
 const recentServiceJobs = computed(
   () => dashboardData.value?.recent_jobs || []
@@ -1152,8 +1358,7 @@ const sosSalesAllowed = [
   @billing-mode="activeOperation = $event"
   @select="counter649Select"
   @settings="selectNavigation('Settings')"
-  @open-menu="mobileMenuOpen = true"
->
+  @open-menu="mobileMenuOpen = true" :selected-service-job="sos690InvoiceJob">
   <template #workspace>
     <div v-if="counter649Selection === 'receive' || counter649Selection === 'billing'" class="sos649-original-workspace">
 
@@ -1208,21 +1413,20 @@ const sosSalesAllowed = [
         </div>
         <button type="button" class="s44-receive-close" aria-label="Close" :disabled="savingJob" @click="s44CloseNativeReceive">×</button>
       </header>
-      <form :class="{ 'existing-job-view': viewingServiceJob }"
+      <form :class="{ 'existing-job-view': viewingServiceJob && !sos686Editing }"
 								@submit.prevent="submitDemo"
 								class="space-y-4 sos682-receive-form"
 							>
 
 <div
   v-if="viewingServiceJob && viewedServiceJob"
-  class="rounded-xl border border-blue-200
-         bg-blue-50 p-4 sm:p-5 space-y-4"
+  class="sos686-existing-head space-y-3"
 >
   <div class="flex flex-col sm:flex-row
               sm:items-center sm:justify-between gap-3">
     <div>
       <p class="text-xs font-bold uppercase text-blue-700">
-        Existing Service Job — View Only
+        {{ sos686Editing ? 'Editing Service Job' : 'Existing Service Job — View Only' }}
       </p>
 
       <h3 class="mt-1 break-all text-xl font-bold text-slate-900">
@@ -1235,7 +1439,8 @@ const sosSalesAllowed = [
       </p>
     </div>
 
-    <div class="flex flex-wrap gap-2">
+    <div class="sos686-action-row">
+      
       <button
         type="button"
         @click="printViewedServiceJob"
@@ -1298,7 +1503,7 @@ const sosSalesAllowed = [
 
 <!-- 6.82 receipt controls moved to right-hand history -->
 
-								<div class="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+								<div class="sos694-four grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
 									<label class="text-sm">
 										Customer Name
 										<input
@@ -1322,15 +1527,7 @@ const sosSalesAllowed = [
 
 <div class="sm:col-span-2 min-w-0">
   <div
-    v-if="selectedCustomerId"
-    class="rounded-lg border border-green-200 bg-green-50 px-3 py-3 text-sm text-green-800"
-  >
-    Existing Customer selected:
-    <strong>{{ customer }}</strong>
-  </div>
-
-  <div
-    v-else-if="customerSearchOpen && customerSearchTerm.length >= 2"
+    v-if="!selectedCustomerId && customerSearchOpen && customerSearchTerm.length >= 2"
     class="rounded-xl border bg-white shadow-sm overflow-hidden"
   >
     <div class="flex items-center justify-between gap-3 bg-slate-50 px-3 py-2">
@@ -1427,18 +1624,14 @@ const sosSalesAllowed = [
 										</select>
 									</label>
 									<!-- SOS_RECEIVE_INLINE_TECH_HISTORY_682: choose before saving Service Job -->
+<!-- SOS_COUNTER_RECEIVE_EDITOR_686: exactly ONE bilingual technician field -->
 <label class="text-sm sos682-tech-field">
-  <span class="sos682-tech-label">Assigned Technician <small>· টেকনিশিয়ান</small></span>
-  <input v-model="sos683TechnicianSearch" type="search" class="field sos683-tech-search" autocomplete="off" placeholder="Search technician name or user ID" :disabled="savingJob || viewingServiceJob" />
-  <select v-model="sos682Technician" class="field" @focus="!sos682Technicians.length && sos682LoadTechnicians()" :disabled="savingJob || sos682TechnicianLoading || viewingServiceJob">
+  <span class="sos682-tech-label">Assigned Technician · টেকনিশিয়ান</span>
+  <select v-model="sos682Technician" class="field sos686-technician-select" :disabled="savingJob || sos682TechnicianLoading || (viewingServiceJob && !sos686Editing)" @focus="!sos682Technicians.length && sos682LoadTechnicians()">
     <option value="">{{ sos682TechnicianLoading ? 'Loading technicians…' : 'Unassigned / Select technician' }}</option>
-    <option v-for="person in sos683TechnicianOptions" :key="person.value" :value="person.value">{{ person.label }}</option>
+    <option v-for="person in sos682Technicians" :key="person.value" :value="person.value">{{ person.label }}</option>
   </select>
-  <div class="sos683-technician-feedback">
-    <small v-if="sos682TechnicianError" class="sos682-warning" role="alert">{{ sos682TechnicianError }}</small>
-    <small v-else>{{ sos682Technicians.length }} available technicians</small>
-    <button type="button" @click="sos682LoadTechnicians()" :disabled="sos682TechnicianLoading || savingJob" class="sos683-tech-retry">{{ sos682TechnicianLoading ? 'Loading…' : 'Refresh' }}</button>
-  </div>
+  <small v-if="sos682TechnicianError" class="sos682-warning" role="alert">{{ sos682TechnicianError }}</small>
 </label>
 <label class="text-sm">
 										Estimated Cost (BDT)
@@ -1471,19 +1664,22 @@ const sosSalesAllowed = [
 										placeholder="Charger, bag, cable..."
 									></textarea>
 								</label>
+<!-- SOS_DEVICE_COMPONENTS_694 — components at intake, full-width below Accessories Received -->
+<ReceivedDeviceComponents694 v-model="sos694Received" :disabled="savingJob || (viewingServiceJob && !sos686Editing)" />
 
 								<div class="flex flex-wrap justify-end gap-3 pt-3">
 									<button
-										type="button" @click="resetServiceForm"
-										class="px-5 py-3 rounded-lg border text-slate-600"
+										type="button" @click="viewingServiceJob ? sos686ReloadSelected() : resetServiceForm()"
+										class="sos687-secondary"
 									>
-										Reset
+										{{ viewingServiceJob ? 'Discard Changes' : 'Reset' }}
 									</button>
 									<button
 										type="submit"
-										class="px-5 py-3 rounded-lg bg-blue-600 text-white font-medium"
-									>
-										Receive Job
+										class="sos687-primary-save"
+									 :disabled="savingJob || sos686Busy || (viewingServiceJob && !sos686Editing)"
+              >
+										{{ savingJob || sos686Busy ? 'Saving…' : (viewingServiceJob ? 'Update Service Job' : 'Receive Device') }}
 									</button>
 								</div>
 
@@ -1494,6 +1690,14 @@ const sosSalesAllowed = [
 									{{ message }}
 								</p>
 							</form>
+<!-- SOS_COUNTER_RECEIVE_REPAIR_689: parts management for currently selected job -->
+<!-- SOS_SERVICE_WORKFLOW_690: Counter supports parts immediately after intake and during editing. -->
+<div v-if="sos690CurrentJob" class="sos689-parts-wrap sos690-jobs">
+  <CounterServiceSteps690 :key="sos690CurrentJob" :job-name="sos690CurrentJob" @updated="sos690RepairStepUpdated" />
+  <CounterPartsInline689 :key="sos690CurrentJob" :job-name="sos690CurrentJob" :job-status="viewingServiceJob && viewedServiceJob?.name === sos690CurrentJob ? (viewedServiceJob.status || '') : sos690RecentStatus" />
+</div>
+<p v-else class="sos690-parts-prompt">Save the Service Receive first. Then use Service Steps and Add Required Parts below without leaving Counter.</p>
+
     </div>
   </div>
 </Teleport>
@@ -1515,21 +1719,64 @@ const sosSalesAllowed = [
     placeholder="Job No. / customer / mobile / serial" class="sos682-lookup"
     @keydown.enter.prevent="sos682History.length === 1 ? sos682ChooseJob(sos682History[0]) : null" />
   <div v-if="sos682HistoryError" role="alert" class="sos682-error">{{ sos682HistoryError }}</div>
+  <p v-if="sos689ActionFeedback" class="sos689-history-alert" role="alert">{{ sos689ActionFeedback }}</p>
+  <p class="sos687-history-note">Use the pencil to edit or the bin to request deletion. Processed or invoiced jobs cannot be permanently deleted.</p>
   <div class="sos682-list-head"><strong>{{ sos682Search ? 'Search results' : 'Recent service jobs' }}</strong><span>5 per page</span></div>
   <div v-if="sos682HistoryLoading && !sos682History.length" class="sos682-empty">Loading records…</div>
   <div v-else-if="!sos682History.length" class="sos682-empty">No service jobs found.</div>
   <div v-else class="sos682-job-list">
-    <button v-for="job in sos682History" :key="job.name" type="button" class="sos682-job"
-      :class="{ chosen: sos682SelectedJob === job.name }" @click="sos682ChooseJob(job)">
-      <span class="sos682-job-main"><strong>{{ job.name }}</strong><small>{{ job.customer_name || 'Customer' }} · {{ job.mobile || 'No mobile' }}</small><small>{{ [job.brand,job.device_model].filter(Boolean).join(' ') || job.device_type || 'Device' }}</small></span>
-      <span class="sos682-status">{{ job.status || 'Received' }}</span>
-    </button>
+<!-- SOS_HISTORY_CARDS_688: compact cards designed for the narrow history sidebar -->
+    <article v-for="job in sos682History" :key="job.name" class="sos688-job-card"
+      :class="{ 'is-selected': sos682SelectedJob === job.name }">
+      <button type="button" class="sos688-card-details" :disabled="sos686Busy"
+        :title="job.name" :aria-label="`Edit service job ${job.name}`"
+        @click="sos689EditHistory(job)">
+        <strong class="sos688-job-number">{{ job.name }}</strong>
+        <span class="sos688-customer" :title="[job.customer_name || 'Customer', job.mobile || ''].filter(Boolean).join(' · ')">
+          {{ job.customer_name || 'Customer' }}<template v-if="job.mobile"> · {{ job.mobile }}</template>
+        </span>
+        <span class="sos688-device" :title="[job.brand, job.device_model].filter(Boolean).join(' ') || job.device_type || 'Device'">
+          {{ [job.brand, job.device_model].filter(Boolean).join(' ') || job.device_type || 'Device' }}
+        </span>
+      </button>
+      <div class="sos688-card-bottom">
+        <span class="sos688-status" :title="job.status || 'Received'">{{ job.status || 'Received' }}</span>
+        <div class="sos688-actions" aria-label="Service Job actions">
+          <button type="button" class="sos688-action sos688-edit" title="Edit Service Job"
+            :aria-label="`Edit ${job.name}`" :disabled="sos686Busy" @click.stop="sos689EditHistory(job)">
+            <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 20h9"/><path d="M16 4a2.1 2.1 0 0 1 3 3L9.2 16.8 5 18l1.2-4.2L16 4Z"/>
+            </svg>
+          </button>
+          <button type="button" class="sos688-action sos688-delete" title="Delete Service Job (if eligible)"
+            :aria-label="`Delete ${job.name}`" :disabled="sos686Busy" @click.stop="sos689DeleteHistory(job)">
+            <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M3 6h18M8 6V4h8v2M5 6l1 14h12l1-14M10 10v6M14 10v6"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+    
+      <!-- SOS_RECENT_PRINT_V23: use the SAME receipt popup, no immediate printing -->
+      <button type="button" class="sos23-recent-print"
+        :disabled="receiptLoading"
+        :aria-label="`Print receipt for ${job.name}`"
+        :title="`Print / Reprint Receipt · ${job.name}`"
+        @click.stop="sos682PrintReceipt(job.name)">
+        <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor"
+             stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M6 9V3h12v6M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/>
+          <path d="M6 14h12v7H6z"/><path d="M18 12h.01"/>
+        </svg>
+      </button>
+    </article>
   </div>
   <div class="sos682-pagination">
     <button type="button" :disabled="sos682HistoryPage <= 1 || sos682HistoryLoading" @click="sos682GoPage(-1)">← Previous</button>
     <span>Page {{ sos682HistoryPage }}</span>
     <button type="button" :disabled="!sos682HistoryNext || sos682HistoryLoading" @click="sos682GoPage(1)">Next →</button>
   </div>
+  <p class="sos686-history-hint">Select any job to load and edit its original Service Receive form. Delete is available only for eligible jobs.</p>
   <div class="sos682-printbox">
     <div class="sos682-print-title"><strong>Service Receipt Printing</strong><small>Choose a saved job above to reprint</small></div>
     <p class="sos682-current">{{ sos682PrintId() || 'No Service Job selected' }}</p>
@@ -1577,7 +1824,7 @@ const sosSalesAllowed = [
     <ServiceJobsWorkspace @receive="sosReceiveFromJobs624B" @manage="sosManageFromJobs624B" />
   </template>
   <!-- SERVICING_COUNTER_PATCH_652: real ERPNext draft invoice workflow -->
-  <template #invoice="{ initialKind, initialJob }"><CounterInvoiceModal654 :initial-job="initialJob || (viewedServiceJob?.name || '')"  :initial-kind="initialKind" /></template>
+  <template #invoice="{ initialKind, initialJob }"><CounterInvoiceModal654 :initial-job="initialJob"  :initial-kind="initialKind" /></template>
 
   <!-- SERVICING_COUNTER_PATCH_653: actual source feature components, never placeholders -->
   <template #sale>
@@ -1597,7 +1844,8 @@ const sosSalesAllowed = [
   </template>
   <template #stock>
     <div class="sos653-embedded-module">
-      <StockManagement v-if="counter649Selection === 'stock' && !repairManagementOpen" />
+      <!-- SOS_COUNTER_INVENTORY_696: share the full live Inventory Command Center -->
+       <InventoryWorkspace v-if="counter649Selection === 'stock' && !repairManagementOpen" />
     </div>
   </template>
   <template #delivery>
@@ -1624,6 +1872,25 @@ const sosSalesAllowed = [
 		</div>
 </main>
 	</div>
+
+<!-- SOS_COUNTER_RECEIVE_EDITOR_686: confirmation, no silent deletion -->
+<Teleport to="body">
+  <div v-if="sos686DeleteOpen" class="sos686-overlay" @click.self="!sos686Busy && (sos686DeleteOpen = false)">
+    <section class="sos686-modal" role="dialog" aria-modal="true" aria-label="Delete Service Job">
+      <h2>Delete Service Job</h2>
+      <p>You are about to permanently delete <strong>{{ viewedServiceJob?.name }}</strong>. This action cannot be undone.</p>
+      <p>Only newly received, unprocessed and uninvoiced jobs may be deleted.</p>
+      <label>Type the exact Service Job number to confirm
+        <input v-model.trim="sos686DeleteConfirm" class="sos686-confirm-field" autocomplete="off" :placeholder="viewedServiceJob?.name || ''" />
+      </label>
+      <div v-if="sos686Message" role="alert" class="sos686-error">{{ sos686Message }}</div>
+      <div class="sos686-modal-actions">
+        <button type="button" @click="sos686DeleteOpen = false" :disabled="sos686Busy">Cancel</button>
+        <button type="button" class="danger" :disabled="sos686Busy || sos686DeleteConfirm !== viewedServiceJob?.name" @click="sos686DeleteSelected">{{ sos686Busy ? 'Deleting…' : 'Delete Permanently' }}</button>
+      </div>
+    </section>
+  </div>
+</Teleport>
 
 <ServiceReceipt v-if="receiptOpen && receiptData" :data="receiptData" @close="receiptOpen = false" />
 
@@ -2652,4 +2919,192 @@ main>.sos-fin-reports{display:block!important;width:100%;min-width:0}
 .sos683-technician-feedback{display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:space-between;color:#927862;font-size:10px;margin-top:3px}
 .sos683-technician-feedback .sos683-tech-retry{background:#f4e8dc!important;border:1px solid #dfc9b3!important;color:#6f4e35!important;border-radius:7px!important;padding:4px 9px!important;min-height:24px!important;font-size:10px!important}
 .sos683-technician-feedback .sos683-tech-retry:disabled{opacity:.5}
+</style>
+
+
+<style>
+/* SOS_COUNTER_RECEIVE_EDITOR_686 — scoped to Counter Service Receive UI */
+.sos686-existing-head{border:1px solid #e3d2c1!important;background:#fbf6ee!important;border-radius:12px!important;padding:12px!important}
+.sos686-existing-head .sos686-action-row{display:flex;flex-wrap:wrap;gap:7px;align-items:center}
+.sos686-action-row button,.sos686-existing-head button{min-height:34px;padding:7px 12px!important;border-radius:9px!important;font-size:12px!important;font-weight:650!important}
+.sos686-edit-action{color:#fffaf5!important;background:#805a3e!important;border:1px solid #805a3e!important}
+.sos686-delete-action{color:#a0362a!important;background:#fff7f2!important;border:1px solid #e7b9a9!important}
+.sos686-delete-action:disabled{opacity:.45;cursor:not-allowed}
+.sos686-technician-select{width:100%!important;min-height:36px!important;background:#fffdf9!important;color:#3f3026!important}
+.sos686-history-hint{font-size:11px!important;color:#84654e!important;line-height:1.5}
+.sos686-form-message{padding:8px 12px;border:1px solid #e4d2bf;border-radius:8px;background:#fff9f0;color:#634c3b;font-size:11px}
+.sos686-overlay{position:fixed;inset:0;z-index:2147483000;background:rgba(32,22,17,.50);display:flex;align-items:center;justify-content:center;padding:14px;box-sizing:border-box}
+.sos686-modal{background:#fffaf4;color:#3b2b23;border:1px solid #dcc7b4;border-radius:16px;padding:23px;width:100%;max-width:440px;box-shadow:0 22px 65px #25150947;display:flex;flex-direction:column;gap:12px;box-sizing:border-box}
+.sos686-modal h2{font-size:18px;font-weight:800;margin:0}.sos686-modal p{font-size:12px;line-height:1.6;margin:0;color:#78604d}
+.sos686-modal label{font-size:12px;font-weight:650;display:flex;flex-direction:column;gap:7px}
+.sos686-confirm-field{background:#fff;border:1px solid #d8c2ae;border-radius:9px;padding:10px;font-size:12px;width:100%;box-sizing:border-box;color:#3b2b23}
+.sos686-error{color:#a02e27;font-size:12px}.sos686-modal-actions{display:flex;gap:8px;justify-content:flex-end}
+.sos686-modal-actions button{min-height:36px;border:1px solid #d5bba8;border-radius:9px;padding:8px 13px;font-size:12px;font-weight:700;background:#fffaf4;color:#77563d}
+.sos686-modal-actions .danger{background:#a2392d;border-color:#a2392d;color:white}.sos686-modal-actions button:disabled{opacity:.45;cursor:not-allowed}
+</style>
+
+
+<style>
+/* SOS_COUNTER_RECEIVE_UX_687 — list-card controls and ivory edit action */
+.sos682-job-list .sos687-job-card{display:flex;align-items:stretch;min-width:0;gap:6px;margin:0 0 7px;padding:6px;border:1px solid #e6d7c9;background:#fffdf9;border-radius:12px;transition:border-color .15s,box-shadow .15s}
+.sos682-job-list .sos687-job-card.is-selected{border-color:#b28b6a;box-shadow:0 0 0 2px #b28b6a21}
+.sos687-job-main{min-width:0;flex:1;display:flex;align-items:center;gap:8px;padding:6px 7px;text-align:left;background:transparent;border:0;color:#3e2d22;cursor:pointer}
+.sos687-job-content{display:flex;flex:1;flex-direction:column;gap:3px;min-width:0}
+.sos687-job-content strong{font-size:12px;font-weight:800;overflow-wrap:anywhere;color:#493221}
+.sos687-job-content small{font-size:10px;color:#917762;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sos687-job-main .sos682-status{flex-shrink:0;font-size:10px}
+.sos687-job-actions{display:flex;flex-shrink:0;align-items:center;gap:5px;padding-left:6px;border-left:1px solid #e9dccf}
+.sos687-icon-btn{width:34px;height:34px;display:grid;place-items:center;flex-shrink:0;border-radius:9px!important;padding:7px!important;border:1px solid #e4d3c2;background:#fbf1e7;color:#725034;cursor:pointer;transition:background .15s,border-color .15s,transform .15s}
+.sos687-icon-btn svg{display:block;width:17px;height:17px}
+.sos687-icon-btn:hover{background:#f1e0cd;border-color:#bf997a;transform:translateY(-1px)}
+.sos687-icon-btn:focus-visible{outline:3px solid #aa805e;outline-offset:2px}
+.sos687-icon-delete{background:#fff6f1;border-color:#efd6cc;color:#a34839}
+.sos687-icon-delete:hover{background:#fae9e3;border-color:#d9a99e}
+.sos687-icon-btn:disabled,.sos687-job-main:disabled{opacity:.55;cursor:wait}
+.sos687-primary-save{display:inline-flex!important;align-items:center;justify-content:center;gap:9px;min-height:40px!important;min-width:164px;border-radius:10px!important;border:1px solid #74543b!important;background:#79583f!important;color:#fffaf6!important;font-size:13px!important;font-weight:750!important;padding:9px 18px!important;box-shadow:0 4px 12px #67422818;transition:background .15s,transform .15s}
+.sos687-primary-save:not(:disabled):hover{background:#5d4030!important;transform:translateY(-1px)}
+.sos687-primary-save:disabled{opacity:.55;cursor:not-allowed}
+.sos687-secondary{min-height:40px!important;border:1px solid #dac8b7!important;background:#fffaf4!important;color:#725741!important;border-radius:10px!important;padding:9px 14px!important;font-size:12px!important;font-weight:650!important}
+.sos687-secondary:hover{background:#f5e8dc!important}
+.sos687-edit-note{font-size:11px;color:#70523d;background:#f8eee3;border:1px solid #e6d5c3;border-radius:9px;padding:9px 11px;line-height:1.5}
+.sos687-history-note{font-size:10px;color:#917560;line-height:1.45;margin-top:5px}
+@media(max-width:540px){.sos687-job-main .sos682-status{display:none}.sos687-job-actions{gap:3px}.sos687-icon-btn{width:32px;height:32px}}
+</style>
+
+
+<style>
+/* SOS_HISTORY_CARDS_688: sidebar-first layout; no vertical text or tall cards. */
+.sos682-job-list{min-width:0!important;width:100%!important;max-width:100%!important;box-sizing:border-box!important}
+.sos682-job-list .sos688-job-card{display:block!important;position:relative;box-sizing:border-box!important;width:100%!important;min-width:0!important;max-width:100%!important;height:auto!important;min-height:0!important;margin:0 0 8px!important;padding:10px 11px!important;background:#fffdf9!important;border:1px solid #e6d7c9!important;border-radius:12px!important;overflow:hidden!important;box-shadow:none;transition:background .15s,border-color .15s,box-shadow .15s}
+.sos682-job-list .sos688-job-card.is-selected{border-color:#b28b6a!important;box-shadow:0 0 0 2px #b28b6a22!important}
+.sos688-card-details{display:flex!important;flex-direction:column!important;align-items:stretch!important;text-align:left!important;gap:4px!important;width:100%!important;min-width:0!important;max-width:100%!important;height:auto!important;border:0!important;background:none!important;padding:0!important;margin:0!important;cursor:pointer!important;box-shadow:none!important;color:#493221!important}
+.sos688-job-number{display:block!important;width:100%!important;min-width:0!important;max-width:100%!important;font-size:12px!important;font-weight:800!important;line-height:1.35!important;letter-spacing:.01em!important;white-space:nowrap!important;word-break:normal!important;overflow-wrap:normal!important;overflow:hidden!important;text-overflow:ellipsis!important;color:#493221!important}
+.sos688-customer,.sos688-device{display:block!important;max-width:100%!important;min-width:0!important;overflow:hidden!important;text-overflow:ellipsis!important;white-space:nowrap!important;word-break:normal!important;overflow-wrap:normal!important;font-size:11px!important;line-height:1.35!important;color:#8c735d!important}
+.sos688-card-bottom{display:flex!important;justify-content:space-between!important;align-items:center!important;flex-wrap:wrap!important;gap:7px!important;width:100%!important;min-width:0!important;margin-top:9px!important;padding-top:8px!important;border-top:1px solid #f0e5da!important;box-sizing:border-box!important}
+.sos688-status{display:inline-block!important;min-width:0!important;max-width:100%!important;flex:0 1 auto!important;font-size:10px!important;line-height:1.3!important;font-weight:700!important;color:#79563c!important;background:#f5eadf!important;border-radius:6px!important;padding:4px 7px!important;text-align:left!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important}
+.sos688-actions{display:flex!important;flex:0 0 auto!important;align-items:center!important;gap:6px!important;margin-left:auto!important;padding:0!important;border:0!important}
+.sos688-action{display:grid!important;place-items:center!important;flex:0 0 30px!important;width:30px!important;height:30px!important;min-width:30px!important;min-height:30px!important;padding:5px!important;border:1px solid #e3cebb!important;border-radius:8px!important;background:#fbf0e6!important;color:#78553c!important;line-height:1!important;cursor:pointer!important;box-shadow:none!important;transition:background .15s,border-color .15s}
+.sos688-action svg{display:block!important;width:16px!important;height:16px!important;max-width:16px!important;max-height:16px!important}
+.sos688-action:hover{background:#f2e1d1!important;border-color:#c4a286!important}
+.sos688-action:focus-visible,.sos688-card-details:focus-visible{outline:2px solid #a37c5d!important;outline-offset:2px!important}
+.sos688-delete{background:#fff6f2!important;border-color:#edd3ca!important;color:#ab4b3b!important}
+.sos688-delete:hover{background:#fceae3!important;border-color:#d9aaa0!important}
+.sos688-action:disabled,.sos688-card-details:disabled{opacity:.5!important;cursor:wait!important}
+@media (max-width:360px){.sos688-job-number{font-size:11px!important}.sos688-card-bottom{gap:5px!important}.sos688-status{font-size:9px!important}}
+</style>
+
+<style>/* SOS_COUNTER_RECEIVE_REPAIR_689 */
+.sos689-history-alert{border:1px solid #edc8bf;background:#fff4f0;color:#9d372a;border-radius:9px;padding:9px;font-size:11px;line-height:1.5;margin:9px 0;overflow-wrap:anywhere}
+.sos689-parts-wrap{width:100%;min-width:0;max-width:100%}
+</style>
+
+<style>/* SOS_SERVICE_WORKFLOW_690 */
+.sos690-jobs{display:grid;gap:12px}.sos690-parts-prompt{background:#fff8ef;border:1px dashed #dfc6af;color:#806149;padding:10px 12px;border-radius:10px;font-size:11px;margin:11px 0}
+</style>
+
+<style>
+/* SOS_COUNTER_SPACING_693 — visual spacing only; no event or data changes. */
+.sos649-original-workspace .sos682-receive-form,
+.sos682-receive-form {min-width:0;max-width:100%;box-sizing:border-box}
+
+/* Keep Discard Changes + Update Service Job together with consistent separation
+   from the last field (normally Accessories Received). */
+.sos682-receive-form :is(div,footer):has(> .sos687-primary-save){
+  display:flex!important;align-items:center!important;justify-content:flex-end!important;
+  flex-wrap:wrap!important;column-gap:12px!important;row-gap:10px!important;
+  width:100%;margin-block:18px 0!important;padding:16px 0 0!important;
+  border-top:1px solid #e6d7c8;box-sizing:border-box;
+}
+.sos682-receive-form :is(div,footer):has(> .sos687-primary-save) > :is(button,.sos687-primary-save,.sos687-secondary){
+  margin:0!important;min-height:40px!important;
+}
+
+/* Exactly one aligned edge for Repair Progress and Parts Required. */
+.sos649-original-workspace .sos690-jobs,
+.sos690-jobs{display:grid!important;grid-template-columns:minmax(0,1fr)!important;
+  gap:16px!important;width:100%;min-width:0;max-width:100%;
+  margin:18px 0 0!important;padding:18px 0 0!important;
+  border-top:1px solid #e6d7c8;box-sizing:border-box;
+}
+.sos690-jobs > :is(.sos690-steps,.sos689-parts){
+  width:100%!important;min-width:0;max-width:100%;margin:0!important;
+  box-sizing:border-box;
+}
+.sos690-jobs > .sos690-steps{padding:clamp(14px,2vw,18px)!important;container-type:inline-size}
+.sos690-jobs .sos690-header{display:flex;align-items:flex-start!important;
+  justify-content:space-between;gap:14px!important;margin:0 0 14px!important}
+.sos690-jobs .sos690-header > div{min-width:0;flex:1}
+.sos690-jobs .sos690-header h3{margin:4px 0 5px!important;line-height:1.25}
+.sos690-jobs .sos690-header p{margin:0!important;max-width:55ch}
+.sos690-jobs .sos690-current{margin:0 0 14px!important;padding:12px 14px!important;
+  display:flex;align-items:center;gap:12px}
+.sos690-jobs .sos690-stage-grid{display:grid!important;
+  grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:10px!important}
+.sos690-jobs .sos690-stage{min-height:70px!important;min-width:0;
+  padding:11px 12px!important;justify-content:space-between;align-content:space-between}
+.sos690-jobs .sos690-stage strong{line-height:1.4;overflow-wrap:normal;word-break:normal}
+.sos690-jobs .sos690-action{display:grid!important;
+  grid-template-columns:minmax(0,1fr) auto!important;align-items:center!important;
+  column-gap:14px!important;row-gap:10px!important;
+  margin-top:16px!important;padding-top:16px!important}
+.sos690-jobs .sos690-action > span{min-width:0;line-height:1.5}
+.sos690-jobs .sos690-action > button{min-height:40px;white-space:nowrap;margin:0!important}
+.sos690-jobs .sos690-help{margin:14px 0 0!important;line-height:1.6}
+
+@container (max-width:560px){
+  .sos690-jobs .sos690-stage-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important}
+}
+@container (max-width:370px){
+  .sos690-jobs .sos690-action{grid-template-columns:minmax(0,1fr)!important}
+  .sos690-jobs .sos690-action > button{width:100%}
+  .sos690-jobs .sos690-header{flex-wrap:wrap}
+}
+@media(max-width:540px){
+  .sos682-receive-form :is(div,footer):has(> .sos687-primary-save) > button{
+    flex:1 1 145px;min-width:0}
+}
+</style>
+
+<style>
+/* SOS_DEVICE_COMPONENTS_694 — make the actual receive grid four equal columns when its container has room. */
+.sos682-receive-form{container-type:inline-size;container-name:sos694-form}
+.sos682-receive-form .sos694-four{display:grid!important;grid-template-columns:minmax(0,1fr)!important;gap:11px!important;align-items:start}
+.sos682-receive-form .sos694-four > *{min-width:0}
+.sos682-receive-form .sos694-four > .sm\:col-span-2{grid-column:1/-1!important}
+@container sos694-form (min-width:530px){.sos682-receive-form .sos694-four{grid-template-columns:repeat(2,minmax(0,1fr))!important}}
+@container sos694-form (min-width:770px){.sos682-receive-form .sos694-four{grid-template-columns:repeat(4,minmax(0,1fr))!important}}
+.sos682-receive-form .sos694-four :is(label, input, select){max-width:100%;min-width:0}
+</style>
+
+<!-- SOS_RECENT_PRINT_V23: screen-only styling, never changes printed receipt -->
+<style>
+.sos688-job-card { position:relative; }
+.sos688-job-card > .sos688-card-details {
+  box-sizing:border-box;
+  padding-right:max(52px, 2.9rem) !important;
+}
+.sos688-job-card > .sos23-recent-print {
+  display:inline-flex !important;
+  align-items:center;
+  justify-content:center;
+  position:absolute;
+  right:10px;
+  top:12px;
+  width:38px;
+  height:38px;
+  min-width:38px;
+  padding:0;
+  border-radius:11px;
+  border:1px solid #ddcbb7;
+  background:#f5e8d7;
+  color:#67482e;
+  box-shadow:0 2px 5px rgba(65,45,27,.06);
+  cursor:pointer;
+  z-index:2;
+  transition:background .15s, border-color .15s, transform .15s;
+}
+.sos688-job-card > .sos23-recent-print:hover { background:#ead5bb; border-color:#b9916a; transform:translateY(-1px); }
+.sos688-job-card > .sos23-recent-print:focus-visible { outline:3px solid #c49b73; outline-offset:2px; }
+.sos688-job-card > .sos23-recent-print:disabled { opacity:.5; cursor:wait; transform:none; }
+@media print { .sos688-job-card > .sos23-recent-print { display:none !important; } }
 </style>

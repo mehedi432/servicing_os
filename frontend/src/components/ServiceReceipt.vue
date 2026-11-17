@@ -297,6 +297,31 @@ async function printReceipt() {
       </header>
       <!-- SOS_RECEIVE_PRINT_STUDIO_683: brand-matched print options -->
       <nav class="sr-toolbar sr-actions sos683-actions" aria-label="Receipt paper and print options">
+        <!-- SOS_PRINT_PRESETS_V18_BEGIN: permanent quick formats; existing select remains below -->
+        <div class="sos684-presets" data-sos-print-presets="SOS_PRINT_PRESETS_V18" role="group" aria-label="Common paper sizes">
+          <div class="sos684-presets-intro">
+            <strong>QUICK PAPER FORMATS</strong>
+            <span>Choose a format, then select Print / Reprint Receipt</span>
+          </div>
+          <div class="sos684-presets-grid">
+            <button type="button" class="sos684-preset" :class="{ 'sos684-preset--active': format === 'thermal' }" :aria-pressed="format === 'thermal'" @click="format = 'thermal'">
+              <span class="sos684-preset-title">80 mm Thermal</span><small>POS receipt</small>
+            </button>
+            <button type="button" class="sos684-preset" :class="{ 'sos684-preset--active': format === 'sticker' }" :aria-pressed="format === 'sticker'" @click="format = 'sticker'">
+              <span class="sos684-preset-title">50 × 30 mm</span><small>QR device sticker</small>
+            </button>
+            <button type="button" class="sos684-preset" :class="{ 'sos684-preset--active': format === 'a4' }" :aria-pressed="format === 'a4'" @click="format = 'a4'">
+              <span class="sos684-preset-title">A4</span><small>210 × 297 mm</small>
+            </button>
+            <button type="button" class="sos684-preset" :class="{ 'sos684-preset--active': format === 'a5' }" :aria-pressed="format === 'a5'" @click="format = 'a5'">
+              <span class="sos684-preset-title">A5</span><small>148 × 210 mm</small>
+            </button>
+            <button type="button" class="sos684-preset" :class="{ 'sos684-preset--active': format === 'letter' }" :aria-pressed="format === 'letter'" @click="format = 'letter'">
+              <span class="sos684-preset-title">Letter</span><small>216 × 279 mm</small>
+            </button>
+          </div>
+        </div>
+        <!-- SOS_PRINT_PRESETS_V18_END -->
         <label class="sos683-paper-control" for="sos683-format-select">
           <span>PRINT LAYOUT / PAPER SIZE</span>
           <select id="sos683-format-select" v-model="format" aria-label="Print layout and paper size">
@@ -803,4 +828,250 @@ async function printReceipt() {
   body:has(.sr-overlay.sos683-overlay) .sr-dialog.sos683-dialog .sr-paper.sos683-paper{width:var(--sos683-width)!important;max-width:none!important;min-height:var(--sos683-min-height)!important;padding:var(--sos683-pad)!important;position:absolute!important;top:0!important;left:0!important;margin:0!important;box-shadow:none!important;background:#fff!important;color:#121212!important;overflow:visible!important}
 }
 
+</style>
+
+<style>
+/* SOS_PRINT_PRESETS_V18_CSS_BEGIN — screen-only modal controls, never print styling. */
+@media screen {
+  .sr-dialog.sos683-dialog .sos684-presets {
+    width: 100%; flex: 0 0 100%; box-sizing: border-box;
+    margin: 0 0 3px; padding: 0 0 13px;
+    border-bottom: 1px solid #e7d9c9; color: #463428;
+  }
+  .sr-dialog.sos683-dialog .sos684-presets-intro {
+    display: flex; align-items: baseline; justify-content: space-between;
+    gap: 8px 14px; flex-wrap: wrap; margin-bottom: 9px;
+  }
+  .sr-dialog.sos683-dialog .sos684-presets-intro strong {
+    font-size: 10px !important; color: #805d43 !important;
+    font-weight: 800; letter-spacing: .095em;
+  }
+  .sr-dialog.sos683-dialog .sos684-presets-intro span {
+    font-size: 10px; color: #9a806b;
+  }
+  .sr-dialog.sos683-dialog .sos684-presets-grid {
+    display: grid; width: 100%; grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 8px; align-items: stretch;
+  }
+  .sr-dialog.sos683-dialog .sr-toolbar button.sos684-preset {
+    display: flex !important; min-width: 0; min-height: 57px;
+    padding: 9px 10px !important; flex-direction: column; align-items: flex-start;
+    justify-content: center; gap: 3px; text-align: left;
+    border: 1px solid #ddcab7 !important; border-radius: 11px !important;
+    background: #fffaf3 !important; color: #4a3526 !important;
+    box-shadow: inset 0 1px 0 #fff, 0 1px 2px rgba(63,39,23,.035);
+    cursor: pointer; transition: border-color .12s, background .12s;
+  }
+  .sr-dialog.sos683-dialog .sr-toolbar button.sos684-preset:hover {
+    background: #f5e8d9 !important; border-color: #b99573 !important;
+  }
+  .sr-dialog.sos683-dialog .sr-toolbar button.sos684-preset--active,
+  .sr-dialog.sos683-dialog .sr-toolbar button.sos684-preset[aria-pressed="true"] {
+    color: #fffaf3 !important; background: #805a3e !important;
+    border-color: #805a3e !important;
+    box-shadow: 0 0 0 2px rgba(128,90,62,.11);
+  }
+  .sr-dialog.sos683-dialog .sos684-preset-title {
+    font-size: 12px !important; font-weight: 800; line-height: 1.15;
+    letter-spacing: -.01em; white-space: normal;
+  }
+  .sr-dialog.sos683-dialog .sr-toolbar .sos684-preset small {
+    font-size: 10px; opacity: .82; line-height: 1.15; white-space: normal;
+  }
+  .sr-dialog.sos683-dialog .sos684-preset:focus-visible {
+    outline: 3px solid #cfaa80 !important; outline-offset: 2px;
+  }
+  .sr-dialog.sos683-dialog .sr-toolbar.sos683-actions {
+    flex: 0 0 auto; overflow-y: auto;
+    max-height: min(50dvh, 330px);
+  }
+  @media (max-width: 790px) {
+    .sr-dialog.sos683-dialog .sos684-presets-grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+  }
+  @media (max-width: 470px) {
+    .sr-dialog.sos683-dialog .sos684-presets-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px;
+    }
+    .sr-dialog.sos683-dialog .sr-toolbar button.sos684-preset {
+      min-height: 50px; padding: 7px 9px !important;
+    }
+    .sr-dialog.sos683-dialog .sos684-presets-intro span {display: none}
+    .sr-dialog.sos683-dialog .sr-toolbar.sos683-actions {max-height: min(55dvh, 375px)}
+  }
+}
+/* SOS_PRINT_PRESETS_V18_CSS_END */
+</style>
+
+<style>
+/* SOS_PRINT_ALIGNMENT_V19_RECEIPT_BEGIN
+   Controls only. Printed output and print handler remain unchanged. */
+@media screen {
+  .sr-dialog.sos683-dialog .sr-toolbar.sos683-actions {
+    --sos-v19-receipt-h: 46px;
+    display: grid !important;
+    grid-template-columns: repeat(12, minmax(0, 1fr)) !important;
+    align-items: end !important;
+    justify-items: stretch !important;
+    gap: 11px 12px !important;
+    padding: 14px 18px !important;
+    box-sizing: border-box !important;
+  }
+  .sr-dialog.sos683-dialog .sos683-actions > .sos684-presets {
+    grid-column: 1 / -1 !important;
+    flex: initial !important;
+    width: 100% !important;
+    margin: 0 0 1px !important;
+    min-width: 0;
+  }
+  .sr-dialog.sos683-dialog .sos684-presets-grid {
+    display: grid !important;
+    grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
+    align-items: stretch !important;
+    gap: 9px !important;
+  }
+  .sr-dialog.sos683-dialog .sos683-actions > label {
+    margin: 0 !important;
+    min-width: 0 !important;
+    width: 100% !important;
+    flex: none !important;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: stretch !important;
+    align-self: stretch !important;
+    justify-content: end !important;
+    gap: 7px !important;
+    box-sizing: border-box !important;
+  }
+  .sr-dialog.sos683-dialog .sos683-actions > label > span {
+    display: block !important;
+    min-height: 14px !important;
+    line-height: 14px !important;
+    margin: 0 !important;
+    font-size: 10px !important;
+    font-weight: 800 !important;
+    letter-spacing: .055em !important;
+    color: #80634d !important;
+    white-space: normal;
+  }
+  .sr-dialog.sos683-dialog .sos683-actions > .sos683-paper-control {
+    grid-column: 1 / -1 !important;
+  }
+  .sr-dialog.sos683-dialog .sos683-actions:has(> .sos683-number-control) > .sos683-paper-control {
+    grid-column: span 8 !important;
+  }
+  .sr-dialog.sos683-dialog .sos683-actions > .sos683-number-control {
+    grid-column: span 4 !important;
+  }
+  .sr-dialog.sos683-dialog .sos683-actions:has(> .sos683-number-control + .sos683-number-control) > .sos683-paper-control {
+    grid-column: span 6 !important;
+  }
+  .sr-dialog.sos683-dialog .sos683-actions:has(> .sos683-number-control + .sos683-number-control) > .sos683-number-control {
+    grid-column: span 3 !important;
+  }
+  .sr-dialog.sos683-dialog .sos683-actions :is(select, input) {
+    display: block !important;
+    box-sizing: border-box !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    height: var(--sos-v19-receipt-h) !important;
+    min-height: var(--sos-v19-receipt-h) !important;
+    max-height: var(--sos-v19-receipt-h) !important;
+    padding: 0 14px !important;
+    margin: 0 !important;
+    border: 1px solid #d7c4b0 !important;
+    border-radius: 12px !important;
+    background-color: #fffcf7 !important;
+    color: #3c3026 !important;
+    font-size: 13px !important;
+    font-weight: 700 !important;
+    line-height: normal !important;
+  }
+  .sr-dialog.sos683-dialog .sos683-actions select {
+    -webkit-appearance: none !important;
+    appearance: none !important;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none'%3E%3Cpath d='m5.5 7.5 4.5 5 4.5-5' stroke='%23795842' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") !important;
+    background-repeat: no-repeat !important;
+    background-position: right 13px center !important;
+    background-size: 18px 18px !important;
+    padding-right: 39px !important;
+    cursor: pointer !important;
+  }
+  .sr-dialog.sos683-dialog .sos683-actions :is(select, input):focus-visible {
+    outline: none !important;
+    border-color: #946a49 !important;
+    box-shadow: 0 0 0 3px rgba(148,106,73,.16) !important;
+  }
+  .sr-dialog.sos683-dialog .sos683-actions > .sos683-paper-note {
+    grid-column: span 8 !important;
+    display: block !important;
+    min-width: 0 !important;
+    width: 100% !important;
+    margin: 0 !important;
+    flex: none !important;
+    align-self: center !important;
+    font-size: 11px !important;
+    line-height: 1.5 !important;
+    color: #856d59 !important;
+    overflow-wrap: anywhere;
+  }
+  .sr-dialog.sos683-dialog .sos683-actions > .sos683-paper-note strong {
+    font-size: inherit !important;
+    font-weight: 800 !important;
+  }
+  .sr-dialog.sos683-dialog .sos683-actions > button.sos683-print {
+    grid-column: span 4 !important;
+    justify-self: stretch !important;
+    align-self: center !important;
+    display: flex !important;
+    justify-content: center !important;
+    align-items: center !important;
+    box-sizing: border-box !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    min-height: var(--sos-v19-receipt-h) !important;
+    margin: 0 !important;
+    padding: 10px 12px !important;
+    border-radius: 12px !important;
+    line-height: 1.3 !important;
+    white-space: normal !important;
+    text-align: center !important;
+  }
+  .sr-dialog.sos683-dialog .sos683-actions .sos684-preset {
+    box-sizing: border-box !important;
+    width: 100% !important;
+    height: 100%;
+    min-width: 0 !important;
+    border-radius: 12px !important;
+  }
+}
+@media screen and (max-width: 800px) {
+  .sr-dialog.sos683-dialog .sos684-presets-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  }
+}
+@media screen and (max-width: 680px) {
+  .sr-dialog.sos683-dialog .sr-toolbar.sos683-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 10px !important;
+    padding: 13px 12px !important;
+  }
+  .sr-dialog.sos683-dialog .sos683-actions > .sos684-presets,
+  .sr-dialog.sos683-dialog .sos683-actions > .sos683-paper-control,
+  .sr-dialog.sos683-dialog .sos683-actions:has(> .sos683-number-control) > .sos683-paper-control,
+  .sr-dialog.sos683-dialog .sos683-actions:has(> .sos683-number-control + .sos683-number-control) > .sos683-paper-control,
+  .sr-dialog.sos683-dialog .sos683-actions > .sos683-paper-note,
+  .sr-dialog.sos683-dialog .sos683-actions > button.sos683-print {
+    grid-column: 1 / -1 !important;
+  }
+  .sr-dialog.sos683-dialog .sos683-actions > .sos683-number-control,
+  .sr-dialog.sos683-dialog .sos683-actions:has(> .sos683-number-control + .sos683-number-control) > .sos683-number-control {
+    grid-column: span 1 !important;
+  }
+  .sr-dialog.sos683-dialog .sos684-presets-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+}
+/* SOS_PRINT_ALIGNMENT_V19_RECEIPT_END */
 </style>
