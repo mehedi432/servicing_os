@@ -57,47 +57,76 @@ def _must_login():
 
 
 def assign_technician_on_create(job, employee_name):
-    """Use inside receive_service_job, BEFORE job.insert(), in its transaction."""
-    name = str(employee_name or '').strip()
-    if not name:
+    """Set the Service Job technician before job.insert() in the receive transaction.
+
+    A Service Job Link/User stores the User.name directly; no Employee record needed.
+    Existing Link/Employee sites remain supported without modifying their schema.
+    """
+    # SOS_TECHNICIAN_LINK_USER_685
+    selected = str(employee_name or '').strip()
+    if not selected:
         return
-    if len(name) > 140:
-        frappe.throw(_('Invalid employee identifier'))
+    if len(selected) > 140:
+        frappe.throw(_('Invalid technician identifier'))
     field = _technician_field()
     if not field:
-        frappe.throw(_('Technician field is not configured; ask administrator to run setup'))
-    # Service Job.create permission is checked by the caller.
-    employee = frappe.db.get_value('Employee', name, ['status', 'user_id'], as_dict=True)
-    if not employee or employee.status != 'Active':
-        frappe.throw(_('Choose an active technician'))
-    value = name if field.options == 'Employee' else employee.user_id
-    if not value:
-        frappe.throw(_('This technician has no linked User account'))
-    job.set(field.fieldname, value)
+        frappe.throw(_('Technician field is not configured'))
+    if field.options == 'User':
+        if selected in ('Guest', 'Administrator'):
+            frappe.throw(_('Select an enabled technician account'))
+        user = frappe.db.get_value('User', selected, ['enabled', 'user_type'], as_dict=True)
+        if not user or not user.enabled or user.user_type != 'System User':
+            frappe.throw(_('Selected technician is not an enabled System User'))
+        job.set(field.fieldname, selected)
+        return
+    if field.options == 'Employee':
+        employee = frappe.db.get_value('Employee', selected, 'status')
+        if employee != 'Active':
+            frappe.throw(_('Select an active Employee'))
+        job.set(field.fieldname, selected)
+        return
+    frappe.throw(_('Unsupported technician field type'))
+
 
 
 @frappe.whitelist(methods=['GET'])
 def get_receive_technicians():
+    """Minimal technicians directory for staff authorized to receive service jobs."""
+    # SOS_TECHNICIAN_LINK_USER_685
     _must_login()
     if not frappe.has_permission('Service Job', 'create'):
         frappe.throw(_('Service Job create permission required'), frappe.PermissionError)
     field = _technician_field()
     if not field:
         return {'technicians': [], 'setup_needed': True, 'field': None}
-    # SOS_RECEIVE_PRINT_STUDIO_683: a minimal technician chooser for POS staff.
-    # Service Job Create is the authorization gate above. Do not expose HR data,
-    # payroll, mobile, addresses, DOB, or other Employee fields. Name and Employee ID
-    # are the minimum information needed to select an assignee. Frappe's get_all
-    # is deliberate here because counter users often lack HR/Employee Read access.
-    fields = ['name', 'employee_name', 'user_id']
-    workers = frappe.get_all('Employee', filters={'status': 'Active'}, fields=fields,
-                              order_by='employee_name asc', limit_page_length=400)
-    people = []
-    for person in workers:
-        if field.options == 'User' and not person.user_id:
-            continue
-        people.append({'value': person.name, 'label': '{} · {}'.format(person.employee_name or person.name, person.name)})
-    return {'technicians': people, 'setup_needed': False, 'field': field.fieldname}
+    if field.options == 'User':
+        # This shop's Service Job.technician links User, not Employee.
+        # Return only enabled System User identity fields; no emails, phone,
+        # roles, HR data or other sensitive profile values.
+        users = frappe.get_all('User',
+            filters={'enabled': 1, 'user_type': 'System User'},
+            fields=['name', 'full_name'], order_by='full_name asc',
+            limit_page_length=400)
+        people = [
+            {'value': user.name, 'label': user.full_name or user.name}
+            for user in users
+            if user.name not in ('Guest', 'Administrator')
+        ]
+    elif field.options == 'Employee':
+        # Backwards compatibility for sites that genuinely use Link/Employee.
+        workers = frappe.get_all('Employee', filters={'status': 'Active'},
+            fields=['name', 'employee_name'], order_by='employee_name asc',
+            limit_page_length=400)
+        people = [
+            {'value': person.name, 'label': person.employee_name or person.name}
+            for person in workers
+        ]
+    else:
+        frappe.throw(_('Unsupported technician field configuration'))
+    return {'technicians': people, 'setup_needed': False,
+            'field': field.fieldname, 'source_doctype': field.options,
+            'count': len(people)}
+
 
 
 @frappe.whitelist(methods=['GET'])

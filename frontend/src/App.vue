@@ -1429,14 +1429,14 @@ const sosSalesAllowed = [
 									<!-- SOS_RECEIVE_INLINE_TECH_HISTORY_682: choose before saving Service Job -->
 <label class="text-sm sos682-tech-field">
   <span class="sos682-tech-label">Assigned Technician <small>· টেকনিশিয়ান</small></span>
-  <input v-model="sos683TechnicianSearch" type="search" class="field sos683-tech-search" autocomplete="off" placeholder="Search technician name or employee ID" :disabled="savingJob || viewingServiceJob" />
+  <input v-model="sos683TechnicianSearch" type="search" class="field sos683-tech-search" autocomplete="off" placeholder="Search technician name or user ID" :disabled="savingJob || viewingServiceJob" />
   <select v-model="sos682Technician" class="field" @focus="!sos682Technicians.length && sos682LoadTechnicians()" :disabled="savingJob || sos682TechnicianLoading || viewingServiceJob">
     <option value="">{{ sos682TechnicianLoading ? 'Loading technicians…' : 'Unassigned / Select technician' }}</option>
     <option v-for="person in sos683TechnicianOptions" :key="person.value" :value="person.value">{{ person.label }}</option>
   </select>
   <div class="sos683-technician-feedback">
     <small v-if="sos682TechnicianError" class="sos682-warning" role="alert">{{ sos682TechnicianError }}</small>
-    <small v-else>{{ sos682Technicians.length }} active employees available</small>
+    <small v-else>{{ sos682Technicians.length }} available technicians</small>
     <button type="button" @click="sos682LoadTechnicians()" :disabled="sos682TechnicianLoading || savingJob" class="sos683-tech-retry">{{ sos682TechnicianLoading ? 'Loading…' : 'Refresh' }}</button>
   </div>
 </label>
