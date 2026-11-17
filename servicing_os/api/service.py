@@ -121,6 +121,9 @@ def receive_service_job(data=None):
         "remarks": clean(data.get("remarks")),
     })
 
+    # SOS_RECEIVE_INLINE_TECH_HISTORY_682: same transaction as intake; validates active Employee.
+    from servicing_os.api.counter_receive_682 import assign_technician_on_create
+    assign_technician_on_create(job, data.get("assigned_technician"))
     job.insert()
 
     return {

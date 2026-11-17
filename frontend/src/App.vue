@@ -485,6 +485,7 @@ function resetServiceForm() {
   priority.value = "Normal";
   estimatedCost.value = "";
   message.value = "";
+  sos682Technician.value = "";
 }
 
 
@@ -655,6 +656,7 @@ async function submitDemo() {
       reported_problem: problem.value.trim(),
       accessories_received: accessories.value.trim(),
       priority: priority.value,
+      assigned_technician: sos682Technician.value || null,
       estimated_cost: Number(estimatedCost.value || 0)
     });
 
@@ -665,6 +667,8 @@ async function submitDemo() {
     if (receiptError.value) message.value += " Receipt: " + receiptError.value;
 
     await refreshDashboard();
+    sos682SelectedJob.value = result.service_job;
+    sos682LoadHistory();
 
     resetCustomerSearch();
 
@@ -676,6 +680,7 @@ async function submitDemo() {
     accessories.value = "";
     priority.value = "Normal";
     estimatedCost.value = "";
+    sos682Technician.value = "";
 
   } catch (error) {
     message.value = error.message || "Failed to save service job.";
@@ -739,6 +744,107 @@ const dashboardCards = computed(() => [
   ["Pending Jobs", String(dashboardData.value?.pending_jobs ?? 0)]
 ]);
 
+
+// SOS_RECEIVE_INLINE_TECH_HISTORY_682: receive-time technician & printable paginated history.
+const sos683TechnicianSearch = ref('')
+const sos683TechnicianOptions = computed(() => {
+  const query = sos683TechnicianSearch.value.trim().toLowerCase()
+  const items = sos682Technicians.value || []
+  return query ? items.filter(x => String(x.label || x.value || '').toLowerCase().includes(query) || x.value === sos682Technician.value) : items
+})
+const sos682Technician = ref('')
+const sos682Technicians = ref([])
+const sos682TechnicianError = ref('')
+const sos682TechnicianLoading = ref(false)
+const sos682History = ref([])
+const sos682HistoryPage = ref(1)
+const sos682HistoryNext = ref(false)
+const sos682HistoryLoading = ref(false)
+const sos682HistoryError = ref('')
+const sos682Search = ref('')
+const sos682SelectedJob = ref('')
+const sos682HistoryScope = computed(() => selectedCustomerId.value || '')
+let sos682Timer = null
+let sos682Seq = 0
+async function sos682Api(method, params = {}) {
+  const url = new URL('/api/method/servicing_os.api.counter_receive_682.' + method, window.location.origin)
+  for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== null && v !== '') url.searchParams.set(k, String(v))
+  const response = await fetch(url, { credentials: 'same-origin', cache: 'no-store', headers: { Accept: 'application/json' } })
+  const data = await response.json().catch(() => ({}))
+  if (!response.ok || data.exc_type || data.exception || data.exc) {
+    let message = `Unable to load data (HTTP ${response.status})`
+    try { const messages = JSON.parse(data._server_messages || '[]'); if (messages.length) message = JSON.parse(messages[messages.length - 1]).message || message } catch {}
+    throw new Error(message)
+  }
+  return data.message || {}
+}
+async function sos682LoadTechnicians() {
+  sos682TechnicianLoading.value = true; sos682TechnicianError.value = ''
+  try {
+    const data = await sos682Api('get_receive_technicians')
+    sos682Technicians.value = data.technicians || []
+    if (data.setup_needed) sos682TechnicianError.value = 'Technician field setup required. Contact System Manager.'
+  } catch (error) { sos682TechnicianError.value = error.message || 'Unable to load technicians.' }
+  finally { sos682TechnicianLoading.value = false }
+}
+async function sos682LoadHistory() {
+  const seq = ++sos682Seq
+  sos682HistoryLoading.value = true; sos682HistoryError.value = ''
+  try {
+    const data = await sos682Api('get_receive_history', {
+      q: sos682Search.value.trim(),
+      customer: sos682Search.value.trim() ? '' : sos682HistoryScope.value,
+      page: sos682HistoryPage.value,
+    })
+    if (seq !== sos682Seq) return
+    sos682History.value = data.jobs || []
+    sos682HistoryNext.value = !!data.has_next
+  } catch (error) {
+    if (seq !== sos682Seq) return
+    sos682History.value = []
+    sos682HistoryNext.value = false
+    sos682HistoryError.value = error.message || 'Unable to load service jobs.'
+  } finally { if (seq === sos682Seq) sos682HistoryLoading.value = false }
+}
+function sos682QueueHistory() {
+  if (sos682Timer) clearTimeout(sos682Timer)
+  sos682Timer = setTimeout(sos682LoadHistory, 250)
+}
+watch(sos682Search, () => { sos682SelectedJob.value = ''; sos682HistoryPage.value = 1; sos682QueueHistory() })
+watch(sos682HistoryScope, () => { if (!sos682Search.value.trim()) { sos682HistoryPage.value = 1; sos682QueueHistory() } })
+function sos682GoPage(next) {
+  const page = sos682HistoryPage.value + next
+  if (page < 1 || (next > 0 && !sos682HistoryNext.value)) return
+  sos682HistoryPage.value = page
+  sos682LoadHistory()
+}
+function sos682ChooseJob(job) {
+  if (!job?.name) return
+  sos682SelectedJob.value = job.name
+  receiptJobNumber.value = job.name
+  sos682HistoryError.value = ''
+}
+function sos682PrintId() {
+  const input = sos682Search.value.trim()
+  if (sos682SelectedJob.value) return sos682SelectedJob.value
+  if (/^SRV-[A-Z0-9._-]+$/i.test(input) && input.length <= 140) return input
+  return ''
+}
+async function sos682PrintReceipt(jobName = '') {
+  const id = jobName || sos682PrintId()
+  if (!id) { sos682HistoryError.value = 'Select a Service Job or enter its exact SRV number.'; return }
+  receiptJobNumber.value = id
+  await openServiceReceipt(id)
+  if (receiptError.value) sos682HistoryError.value = receiptError.value
+}
+function sos682PrintSticker(jobName = '') {
+  const id = jobName || sos682PrintId()
+  if (!id) { sos682HistoryError.value = 'Select a Service Job or enter its exact SRV number.'; return }
+  receiptJobNumber.value = id
+  sos632PrintQrSticker()
+}
+onMounted(() => { sos682LoadTechnicians(); sos682LoadHistory() })
+onUnmounted(() => { if (sos682Timer) clearTimeout(sos682Timer); ++sos682Seq })
 
 const recentServiceJobs = computed(
   () => dashboardData.value?.recent_jobs || []
@@ -1104,7 +1210,7 @@ const sosSalesAllowed = [
       </header>
       <form :class="{ 'existing-job-view': viewingServiceJob }"
 								@submit.prevent="submitDemo"
-								class="space-y-4"
+								class="space-y-4 sos682-receive-form"
 							>
 
 <div
@@ -1190,22 +1296,7 @@ const sosSalesAllowed = [
 </div>
 
 
-<div class="rounded-xl border border-blue-200 bg-blue-50 p-3 sm:p-4 space-y-2">
-  <p class="text-sm font-semibold text-blue-900">Service Receipt Printing</p>
-  <div class="flex flex-col sm:flex-row gap-2">
-    <input v-model="receiptJobNumber" type="text" placeholder="Enter Service Job number"
-      aria-label="Service Job number" class="w-full min-w-0 flex-1 rounded-lg border border-slate-300 bg-white px-3 py-3 text-sm text-slate-900" />
-    <button type="button" :disabled="receiptLoading"
-      class="rounded-lg bg-blue-700 px-4 py-3 font-semibold text-white disabled:opacity-50"
-      @click="openServiceReceipt(receiptJobNumber)">
-      {{ receiptLoading ? "Loading..." : "Print / Reprint Receipt" }}
-    </button>
-    <!-- SOS_632_RECEIPT_PRINT_CENTER: sticker action in the existing print section. -->
-    <button type="button" class="sos632-sticker-action" @click="sos632PrintQrSticker">Print QR Sticker</button>
-
-  </div>
-  <p v-if="receiptError" class="text-sm text-red-700">{{ receiptError }}</p>
-</div>
+<!-- 6.82 receipt controls moved to right-hand history -->
 
 								<div class="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
 									<label class="text-sm">
@@ -1335,7 +1426,21 @@ const sosSalesAllowed = [
 											<option>High</option>
 										</select>
 									</label>
-									<label class="text-sm">
+									<!-- SOS_RECEIVE_INLINE_TECH_HISTORY_682: choose before saving Service Job -->
+<label class="text-sm sos682-tech-field">
+  <span class="sos682-tech-label">Assigned Technician <small>· টেকনিশিয়ান</small></span>
+  <input v-model="sos683TechnicianSearch" type="search" class="field sos683-tech-search" autocomplete="off" placeholder="Search technician name or employee ID" :disabled="savingJob || viewingServiceJob" />
+  <select v-model="sos682Technician" class="field" @focus="!sos682Technicians.length && sos682LoadTechnicians()" :disabled="savingJob || sos682TechnicianLoading || viewingServiceJob">
+    <option value="">{{ sos682TechnicianLoading ? 'Loading technicians…' : 'Unassigned / Select technician' }}</option>
+    <option v-for="person in sos683TechnicianOptions" :key="person.value" :value="person.value">{{ person.label }}</option>
+  </select>
+  <div class="sos683-technician-feedback">
+    <small v-if="sos682TechnicianError" class="sos682-warning" role="alert">{{ sos682TechnicianError }}</small>
+    <small v-else>{{ sos682Technicians.length }} active employees available</small>
+    <button type="button" @click="sos682LoadTechnicians()" :disabled="sos682TechnicianLoading || savingJob" class="sos683-tech-retry">{{ sos682TechnicianLoading ? 'Loading…' : 'Refresh' }}</button>
+  </div>
+</label>
+<label class="text-sm">
 										Estimated Cost (BDT)
 										<input
 											v-model="estimatedCost"
@@ -1399,94 +1504,43 @@ const sosSalesAllowed = [
 						</section>
 
 						<section class="xl:col-span-3 space-y-5">
-							<div class="bg-white border rounded-xl p-5">
-								<h2 class="font-bold text-slate-900">Customer Service History</h2>
-								<p class="text-sm text-slate-500 mt-5">
-									Select a customer to view previous repairs.
-								</p>
-							</div>
-
-							<div class="bg-white border rounded-xl p-5">
-  <div class="flex items-center justify-between gap-3">
-    <h2 class="font-bold text-slate-900">
-      Recent Service Jobs
-    </h2>
-
-    <button
-      type="button"
-      @click="refreshDashboard"
-      :disabled="dashboardLoading"
-      class="text-xs px-3 py-2 rounded-lg border hover:bg-slate-50 disabled:opacity-50"
-    >
-      {{ dashboardLoading ? "Loading..." : "Refresh" }}
+							<!-- SOS_RECEIVE_INLINE_TECH_HISTORY_682: searchable customer history + receipt/QR -->
+<div class="sos682-aside">
+  <div class="sos682-aside-header">
+    <div><span class="sos682-eyebrow">SERVICE RECEIVE</span><h2>Customer History</h2><p>{{ sos682HistoryScope && !sos682Search ? 'Jobs for selected customer' : 'Recent five service jobs · Search all records' }}</p></div>
+    <button type="button" class="sos682-refresh" :disabled="sos682HistoryLoading" @click="sos682LoadHistory" aria-label="Refresh jobs">↻</button>
+  </div>
+  <label class="sos682-search-label" for="sos682-receipt-search">Find a saved service job</label>
+  <input id="sos682-receipt-search" v-model="sos682Search" type="search" autocomplete="off"
+    placeholder="Job No. / customer / mobile / serial" class="sos682-lookup"
+    @keydown.enter.prevent="sos682History.length === 1 ? sos682ChooseJob(sos682History[0]) : null" />
+  <div v-if="sos682HistoryError" role="alert" class="sos682-error">{{ sos682HistoryError }}</div>
+  <div class="sos682-list-head"><strong>{{ sos682Search ? 'Search results' : 'Recent service jobs' }}</strong><span>5 per page</span></div>
+  <div v-if="sos682HistoryLoading && !sos682History.length" class="sos682-empty">Loading records…</div>
+  <div v-else-if="!sos682History.length" class="sos682-empty">No service jobs found.</div>
+  <div v-else class="sos682-job-list">
+    <button v-for="job in sos682History" :key="job.name" type="button" class="sos682-job"
+      :class="{ chosen: sos682SelectedJob === job.name }" @click="sos682ChooseJob(job)">
+      <span class="sos682-job-main"><strong>{{ job.name }}</strong><small>{{ job.customer_name || 'Customer' }} · {{ job.mobile || 'No mobile' }}</small><small>{{ [job.brand,job.device_model].filter(Boolean).join(' ') || job.device_type || 'Device' }}</small></span>
+      <span class="sos682-status">{{ job.status || 'Received' }}</span>
     </button>
   </div>
-
-  <p
-    v-if="dashboardError"
-    class="text-xs text-red-700 bg-red-50 p-3 rounded-lg mt-3"
-  >
-    {{ dashboardError }}
-  </p>
-
-  <div v-if="recentServiceJobs.length" class="mt-4 space-y-3">
-    <div
-       role="button"
-       tabindex="0"
-       aria-label="Open Service Job"
-       @click="openExistingJobInForm(job.name)"
-       @keydown.enter.prevent="openExistingJobInForm(job.name)"
-       @keydown.space.prevent="openExistingJobInForm(job.name)"
-      v-for="job in recentServiceJobs"
-      :key="job.name"
-      class="cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500 border rounded-lg p-3 hover:bg-slate-50"
-    >
-      <div class="flex justify-between items-start gap-3">
-        <div class="min-w-0">
-          <div class="text-sm font-bold text-blue-700">
-            {{ job.name }}
-          </div>
-
-          <div class="text-sm font-medium text-slate-800 mt-1">
-            {{ job.customer_name }}
-          </div>
-
-          <div class="text-xs text-slate-500">
-            {{ job.mobile }}
-          </div>
-
-          <div class="text-xs text-slate-600 mt-2">
-            {{ [job.brand, job.device_model].filter(Boolean).join(" ") || job.device_type }}
-          </div>
-        </div>
-
-        <div class="text-right shrink-0">
-          <span
-            class="inline-block text-xs px-2 py-1 rounded-full font-medium"
-            :class="serviceJobStatusClass(job.status)"
-          >
-            {{ job.status }}
-          </span>
-
-          <div class="text-xs text-slate-500 mt-2">
-            {{ job.priority }}
-          </div>
-        </div>
-      </div>
-    </div>
+  <div class="sos682-pagination">
+    <button type="button" :disabled="sos682HistoryPage <= 1 || sos682HistoryLoading" @click="sos682GoPage(-1)">← Previous</button>
+    <span>Page {{ sos682HistoryPage }}</span>
+    <button type="button" :disabled="!sos682HistoryNext || sos682HistoryLoading" @click="sos682GoPage(1)">Next →</button>
   </div>
-
-  <p
-    v-else
-    class="text-sm text-slate-500 mt-5"
-  >
-    {{
-      dashboardLoading
-        ? "Loading service jobs..."
-        : "No service jobs found."
-    }}
-  </p>
+  <div class="sos682-printbox">
+    <div class="sos682-print-title"><strong>Service Receipt Printing</strong><small>Choose a saved job above to reprint</small></div>
+    <p class="sos682-current">{{ sos682PrintId() || 'No Service Job selected' }}</p>
+    <div class="sos682-print-actions">
+      <button type="button" :disabled="receiptLoading || !sos682PrintId()" @click="sos682PrintReceipt()">{{ receiptLoading ? 'Loading…' : 'Print / Reprint Receipt' }}</button>
+      <button type="button" :disabled="!sos682PrintId()" @click="sos682PrintSticker()">Print QR Sticker</button>
+    </div>
+    <small v-if="receiptError" class="sos682-warning">{{ receiptError }}</small>
+  </div>
 </div>
+
 						</section>
 
 						<!-- SERVICING_COUNTER_GUIDANCE_620G -->
@@ -2543,4 +2597,59 @@ main>.sos-fin-reports{display:block!important;width:100%;min-width:0}
 .sos652-shell .sos652-workbody label,.sos649-original-workspace label{min-width:0}
 .sos652-shell .sos652-workbody :is(select,input,textarea):focus-visible {outline:2px solid #bd9274;outline-offset:1px}
 /* Embedded native POS remains unmodified. New counter uses a focused product grid. */
+</style>
+
+
+<style>
+/* SOS_RECEIVE_INLINE_TECH_HISTORY_682 — compact ivory form + right history. */
+.sos682-aside,.sos682-aside *{box-sizing:border-box}
+.sos682-aside{background:#fffcf7;border:1px solid #e6d7c8;border-radius:13px;padding:14px;color:#3c2c25;display:flex;flex-direction:column;gap:10px;min-width:0}
+.sos682-aside-header{display:flex;align-items:start;justify-content:space-between;gap:8px}
+.sos682-aside-header h2{font-weight:780;font-size:14px;margin:1px 0;color:#3c2c25}
+.sos682-aside-header p{color:#8d735e;font-size:10px;line-height:1.4;margin:2px 0}
+.sos682-eyebrow{font-size:9px;letter-spacing:.12em;font-weight:800;color:#987356}
+.sos682-refresh{flex:0 0 30px;height:30px;border:1px solid #d9c1ab;border-radius:8px;background:#f6eadc;color:#754c36;font-size:18px}
+.sos682-search-label{font-size:10px;font-weight:760;color:#7c604b}
+.sos682-lookup{width:100%;max-width:none;min-width:0;height:37px;border:1px solid #d9c4b1;border-radius:9px;background:#fffdfa;padding:7px 10px;font-size:12px;color:#3c2c25}
+.sos682-lookup:focus-visible{outline:2px solid #ac825d;outline-offset:1px}
+.sos682-list-head{display:flex;justify-content:space-between;align-items:center;gap:8px;border-top:1px solid #ebdfd2;padding-top:9px;font-size:10px;color:#765b46}
+.sos682-list-head span{font-weight:600;color:#998371}
+.sos682-job-list{display:flex;flex-direction:column;gap:5px;min-width:0}
+.sos682-job{display:flex;align-items:start;justify-content:space-between;gap:6px;padding:9px 8px;text-align:left;width:100%;border:1px solid #ece0d4;border-radius:9px;background:#fffaf4;color:#3c2c25;min-width:0}
+.sos682-job:hover,.sos682-job.chosen{background:#f3e5d6;border-color:#b99474}
+.sos682-job-main{min-width:0;display:flex;flex-direction:column;gap:2px}
+.sos682-job-main strong{font-size:11px;white-space:normal;overflow-wrap:anywhere}
+.sos682-job-main small{font-size:10px;color:#8d735e;overflow-wrap:anywhere;line-height:1.35}
+.sos682-status{font-size:9px;font-weight:700;color:#70513d;background:#f1e4d7;padding:4px 5px;border-radius:6px;max-width:93px;flex:0 0 auto;line-height:1.2;text-align:center}
+.sos682-pagination{display:flex;align-items:center;justify-content:space-between;gap:5px}
+.sos682-pagination button{padding:6px 8px;border:1px solid #dfcbb9;border-radius:7px;background:#fffbf6;font-size:10px;color:#755239}
+.sos682-pagination button:disabled{opacity:.42;cursor:not-allowed}
+.sos682-pagination span{font-size:10px;color:#8d735e}
+.sos682-printbox{margin-top:4px;background:#f7ede2;border:1px solid #e5d3c0;border-radius:11px;padding:11px;display:flex;flex-direction:column;gap:8px}
+.sos682-print-title{display:flex;flex-direction:column;gap:3px}
+.sos682-print-title strong{font-size:12px;color:#3d3027}
+.sos682-print-title small{color:#8d735e;font-size:10px}
+.sos682-current{font-size:11px;font-weight:750;color:#7a563e;overflow-wrap:anywhere;margin:0}
+.sos682-print-actions{display:grid;grid-template-columns:minmax(0,1fr);gap:6px}
+.sos682-print-actions button{min-height:35px;padding:8px 10px!important;border:1px solid #78543a;border-radius:8px;background:#805a3e!important;color:#fffaf5!important;font-size:11px;font-weight:750;line-height:1.2}
+.sos682-print-actions button:nth-child(2){background:#fffaf3!important;color:#72513b!important;border-color:#d8bda8}
+.sos682-print-actions button:disabled{opacity:.5;cursor:not-allowed}
+.sos682-warning,.sos682-error{font-size:10px;color:#a44234;line-height:1.35}
+.sos682-empty{color:#87715f;text-align:center;padding:12px 3px;font-size:11px}
+.sos682-tech-field{display:flex!important;flex-direction:column;gap:2px;min-width:0}
+.sos682-tech-label{font-size:11px;font-weight:650;color:#614b3b}
+.sos682-tech-label small{font-size:10px;font-weight:400;color:#977e6c}
+.sos649-original-workspace .sos682-receive-form{gap:9px!important}
+.sos649-original-workspace .sos682-receive-form .grid{gap:9px!important}
+.sos649-original-workspace .sos682-receive-form .field{margin-top:4px!important;min-height:35px!important;padding:7px 10px!important;font-size:12px!important;line-height:1.25!important;border-radius:8px!important}
+.sos649-original-workspace .sos682-receive-form textarea.field{min-height:52px!important;resize:vertical}
+.sos649-original-workspace .sos682-receive-form label{font-size:11px!important}
+.sos649-original-workspace .sos682-receive-form :is(button[type=submit],button[type=button]){min-height:35px!important;padding:7px 12px!important;font-size:11px!important;border-radius:8px!important}
+@media(max-width:800px){.sos682-aside{padding:11px}}
+</style>
+
+<style>/* SOS_RECEIVE_PRINT_STUDIO_683: compact technician refresh line. */
+.sos683-technician-feedback{display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:space-between;color:#927862;font-size:10px;margin-top:3px}
+.sos683-technician-feedback .sos683-tech-retry{background:#f4e8dc!important;border:1px solid #dfc9b3!important;color:#6f4e35!important;border-radius:7px!important;padding:4px 9px!important;min-height:24px!important;font-size:10px!important}
+.sos683-technician-feedback .sos683-tech-retry:disabled{opacity:.5}
 </style>

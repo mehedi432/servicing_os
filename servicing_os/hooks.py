@@ -267,7 +267,8 @@ app_license = "mit"
 
 # S645_SERVICING_AUTH_IVORY
 homepage = 'servicing-login'
-get_website_user_home_page = 'servicing_os.login_routes645.home_page'
+# SERVICING_OS_AUTH_GUARD_679: Guest => login; authenticated users delegate to original servicing_os.login_routes645.home_page
+get_website_user_home_page = "servicing_os.auth_guard_679.get_home_page"
 website_path_resolver = 'servicing_os.login_routes645.resolve'
 
 # SERVICING_OS_COUNTER_657 — automated customer delivery status AFTER native invoice submission.

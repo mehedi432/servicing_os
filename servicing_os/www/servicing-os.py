@@ -5,6 +5,9 @@ import frappe
 
 
 def get_context(context):
+    # SERVICING_OS_AUTH_GUARD_679: server-side access guard
+    from servicing_os.auth_guard_679 import require_login
+    require_login()
     if frappe.session.user == "Guest":
         frappe.local.flags.redirect_location = (
             "/login?redirect-to=/servicing-os"
@@ -54,3 +57,6 @@ def get_context(context):
             ),
         ]
     )
+
+# SERVICING_OS_AUTH_GUARD_679: never cache authenticated workspace page
+no_cache = True

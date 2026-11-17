@@ -1,4 +1,5 @@
 <script setup>
+import CounterTechnician681 from './CounterTechnician681.vue'
 import InvoiceHistory658 from './InvoiceHistory658.vue'
 // SERVICING_COUNTER_EXACT_654: screenshot-accurate, with real parent actions.
 import { computed, nextTick, onMounted, onUnmounted, ref, unref } from 'vue'
@@ -129,6 +130,26 @@ async function logout() {
   }
 }
 
+
+// SOS_COUNTER_TABS_676: arrow/Home/End keys operate the existing Counter actions.
+function sos676TabKeydown(event, currentKey) {
+  const pressed = event.key
+  if (!['ArrowRight', 'ArrowLeft', 'Home', 'End'].includes(pressed)) return
+  const current = actions.findIndex((item) => item.key === currentKey)
+  if (current === -1) return
+  event.preventDefault()
+  let next = current
+  if (pressed === 'ArrowRight') next = (current + 1) % actions.length
+  else if (pressed === 'ArrowLeft') next = (current - 1 + actions.length) % actions.length
+  else if (pressed === 'Home') next = 0
+  else if (pressed === 'End') next = actions.length - 1
+  doSelect(actions[next].key)
+  nextTick(() => {
+    const tabs = document.querySelectorAll('.sos652-shell nav.sos676-tabrail button[role="tab"]')
+    tabs[next]?.focus()
+  })
+}
+
 </script>
 
 <template>
@@ -186,15 +207,15 @@ async function logout() {
       <div class="sos676-foot"><span>{{ heroError ? (bn ? 'তথ্য লোড করা যায়নি' : 'Metrics unavailable: '+heroError) : heroUpdated ? (bn ? 'সর্বশেষ আপডেট ' : 'Updated ') + heroUpdated : (bn ? 'তথ্য লোড হচ্ছে' : 'Waiting for live data') }}</span><span v-if="hero?.warnings?.length" :title="hero.warnings.join(' • ')">{{ bn ? 'কিছু তথ্য সীমিত' : 'Some figures restricted' }} · {{ hero.warnings.length }}</span><span v-else>{{ bn ? 'লাইভ ইআরপি তথ্য' : 'ERPNext · live data' }}</span></div>
     </section>
 
-    <nav class="sos652-grid" :aria-label="bn ? 'কাউন্টার কাজ' : 'Counter operations'">
-      <button v-for="a in actions" :key="a.key" type="button" class="sos652-tile" :class="{'sos652-selected':active===a.key}" :aria-pressed="active===a.key" @click="doSelect(a.key)">
+    <nav class="sos652-grid sos676-tabrail" role="tablist" :aria-label="bn ? 'কাউন্টার কাজ' : 'Counter operations'">
+      <button v-for="a in actions" :key="a.key" type="button" role="tab" class="sos652-tile sos676-tab" :class="{'sos652-selected':active===a.key}" :aria-selected="active===a.key" :tabindex="active===a.key || !active ? 0 : -1" aria-controls="sos676-active-workspace" @keydown="sos676TabKeydown($event, a.key)" @click="doSelect(a.key)">
         <span class="sos652-cardtop"><span class="sos652-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path v-for="(path,i) in a.paths" :key="i" :d="path"/></svg></span><svg class="sos652-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M8 16 16 8M9 8h7v7"/></svg></span>
         <span class="sos652-label">{{ bn ? a.bn : a.en }}</span>
         <span class="sos652-sub">{{ bn ? a.helpBn : a.help }}</span>
       </button>
     </nav>
 
-    <section class="sos652-workspace" aria-label="Active workspace">
+    <section id="sos676-active-workspace" class="sos652-workspace" role="tabpanel" aria-label="Active workspace" tabindex="0">
       <div class="sos652-workbar">
         <strong>{{ bn ? 'সক্রিয় ওয়ার্কস্পেস' : 'Active workspace' }}</strong>
         <div class="sos652-searchwrap">
@@ -212,7 +233,13 @@ async function logout() {
           <span>{{ bn ? 'নির্বাচিত কাজ' : 'Selected task' }}: <strong>{{ bn ? actions.find(a=>a.key===active)?.bn : actions.find(a=>a.key===active)?.en }}</strong></span>
           <button v-if="active==='repair' || active==='billing'" type="button" class="sos652-new-job" @click="doSelect('receive')">+ {{ bn ? 'নতুন সার্ভিস জব' : 'New Service Job' }}</button>
         </div>
-        <template v-if="active === 'receive'"><slot name="workspace" /></template>
+        <!-- SOS_COUNTER_TECHNICIAN_681: existing intake form remains intact -->
+        <template v-if="active === 'receive'">
+          <div class="sos681-receive-content">
+            <!-- SOS_RECEIVE_INLINE_TECH_HISTORY_682: technician selected inside intake form -->
+            <slot name="workspace" />
+          </div>
+        </template>
         <template v-else-if="active === 'sale'"><slot name="sale" /></template>
         <template v-else-if="active === 'repair'"><slot name="repair" /></template>
         <template v-else-if="active === 'used'"><slot name="used" /></template>
@@ -407,3 +434,159 @@ async function logout() {
 </style>
 
 <!-- SERVICING_OS_COUNTER_658 -->
+<style>
+/* SOS_COUNTER_TABS_676: compact, accessible navigation; original actions untouched. */
+.sos652-shell nav.sos652-grid.sos676-tabrail {
+  display: flex !important;
+  grid-template-columns: none !important;
+  align-items: stretch !important;
+  gap: 4px !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+  padding: 5px 6px 0 !important;
+  margin: 1px 0 0 !important;
+  overflow-x: auto !important;
+  overflow-y: hidden !important;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+  scrollbar-color: #d9bfa7 transparent;
+  border: 1px solid #e7d6c5 !important;
+  border-bottom: 0 !important;
+  border-radius: 14px 14px 0 0 !important;
+  background: #f4ebe0 !important;
+  box-shadow: inset 0 1px 1px #ffffff80 !important;
+}
+.sos652-shell nav.sos676-tabrail > button.sos652-tile.sos676-tab {
+  display: grid !important;
+  grid-template-columns: 30px minmax(0, 1fr) !important;
+  grid-template-rows: 20px 17px !important;
+  column-gap: 8px !important;
+  align-content: center !important;
+  align-items: center !important;
+  justify-content: start !important;
+  flex: 1 0 157px !important;
+  min-width: 157px !important;
+  width: auto !important;
+  max-width: none !important;
+  min-height: 61px !important;
+  height: 61px !important;
+  padding: 9px 10px !important;
+  margin: 0 !important;
+  text-align: left !important;
+  border: 1px solid transparent !important;
+  border-bottom: 3px solid transparent !important;
+  border-radius: 10px 10px 0 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: #3c2c25 !important;
+  cursor: pointer !important;
+  appearance: none !important;
+  transition: background 150ms ease, border-color 150ms ease, color 150ms ease;
+  white-space: normal !important;
+}
+.sos652-shell nav.sos676-tabrail > button.sos676-tab:hover {
+  background: #fffbf6 !important;
+  border-color: #e7d6c5 !important;
+  border-bottom-color: #dac0a8 !important;
+  box-shadow: none !important;
+}
+.sos652-shell nav.sos676-tabrail > button.sos676-tab.sos652-selected,
+.sos652-shell nav.sos676-tabrail > button.sos676-tab[aria-selected="true"] {
+  background: #fffcf7 !important;
+  border-color: #e7d6c5 !important;
+  border-bottom-color: #805a3e !important;
+  box-shadow: none !important;
+}
+.sos652-shell nav.sos676-tabrail > button.sos676-tab .sos652-cardtop {
+  display: flex !important;
+  grid-column: 1 !important;
+  grid-row: 1 / span 2 !important;
+  justify-content: center !important;
+  align-items: center !important;
+  width: 30px !important;
+  height: 30px !important;
+  margin: 0 !important;
+}
+.sos652-shell nav.sos676-tabrail > button.sos676-tab .sos652-icon {
+  display: grid !important;
+  place-items: center !important;
+  width: 29px !important;
+  height: 29px !important;
+  min-width: 29px !important;
+  border-radius: 9px !important;
+  background: #ead8c7 !important;
+  color: #78553d !important;
+}
+.sos652-shell nav.sos676-tabrail > button.sos676-tab.sos652-selected .sos652-icon {
+  background: #e6cbb3 !important;
+}
+.sos652-shell nav.sos676-tabrail > button.sos676-tab .sos652-icon svg {
+  display: block;
+  width: 17px !important;
+  height: 17px !important;
+  stroke: #78553d !important;
+}
+.sos652-shell nav.sos676-tabrail > button.sos676-tab .sos652-arrow {
+  display: none !important;
+}
+.sos652-shell nav.sos676-tabrail > button.sos676-tab .sos652-label {
+  display: block !important;
+  grid-column: 2 !important;
+  grid-row: 1 !important;
+  align-self: end !important;
+  margin: 0 !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+  color: #402e24 !important;
+  font-size: 11.6px !important;
+  font-weight: 750 !important;
+  line-height: 17px !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+  overflow-wrap: normal !important;
+}
+.sos652-shell nav.sos676-tabrail > button.sos676-tab .sos652-sub {
+  display: block !important;
+  grid-column: 2 !important;
+  grid-row: 2 !important;
+  align-self: start !important;
+  margin: 0 !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+  color: #907661 !important;
+  font-size: 9.3px !important;
+  font-weight: 400 !important;
+  line-height: 15px !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+  overflow-wrap: normal !important;
+}
+.sos652-shell nav.sos676-tabrail > button.sos676-tab:focus-visible {
+  outline: 2px solid #966a46 !important;
+  outline-offset: -3px !important;
+}
+/* Tabs connect visually with the existing workspace below. */
+.sos652-shell nav.sos676-tabrail + section.sos652-workspace {
+  border-top-left-radius: 0 !important;
+  border-top-right-radius: 0 !important;
+  border-top-color: #e7d6c5 !important;
+}
+@media (max-width: 680px) {
+  .sos652-shell nav.sos652-grid.sos676-tabrail {
+    display: flex !important;
+    grid-template-columns: none !important;
+    padding-left: 4px !important;
+    padding-right: 4px !important;
+  }
+  .sos652-shell nav.sos676-tabrail > button.sos676-tab {
+    flex: 0 0 147px !important;
+    min-width: 147px !important;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sos652-shell nav.sos676-tabrail > button.sos676-tab { transition: none !important; }
+}
+</style>

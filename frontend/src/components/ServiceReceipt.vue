@@ -1,4 +1,49 @@
 <script setup>
+import { ref as sos683EarlyRef } from "vue"
+const format = sos683EarlyRef("thermal")
+// SOS_RECEIVE_PRINT_STUDIO_683: multiple print paper formats without changing receipt data.
+const sos683RollLength = ref(220)
+const sos683CustomWidth = ref(105)
+const sos683CustomHeight = ref(148)
+const sos683PrintFormats = [
+  { key: 'a4', label: 'A4 · 210 × 297 mm', width: 210, height: 297, padding: 14 },
+  { key: 'a5', label: 'A5 · 148 × 210 mm', width: 148, height: 210, padding: 10 },
+  { key: 'letter', label: 'US Letter · 216 × 279 mm', width: 216, height: 279, padding: 14 },
+  { key: 'b5', label: 'B5 · 176 × 250 mm', width: 176, height: 250, padding: 12 },
+  { key: 'thermal58', label: 'POS Thermal · 58 mm', width: 58, height: 220, padding: 2.5 },
+  { key: 'thermal76', label: 'POS Thermal · 76 mm', width: 76, height: 220, padding: 3 },
+  { key: 'thermal', label: 'POS Thermal · 80 mm', width: 80, height: 220, padding: 3 },
+  { key: 'thermal100', label: 'POS Roll · 100 mm', width: 100, height: 220, padding: 4 },
+]
+const sos683IsRoll = computed(() => ['thermal58','thermal76','thermal','thermal100'].includes(format.value))
+function sos683Clamp(n, low, high, fallback) {
+  const value = Number(n)
+  return Number.isFinite(value) ? Math.max(low, Math.min(high, value)) : fallback
+}
+const sos683Paper = computed(() => {
+  if (format.value === 'custom') return {
+    width: sos683Clamp(sos683CustomWidth.value, 40, 216, 105),
+    height: sos683Clamp(sos683CustomHeight.value, 60, 420, 148),
+    padding: 5,
+    isRoll: false,
+  }
+  const item = sos683PrintFormats.find(x => x.key === format.value) || sos683PrintFormats[6]
+  return {
+    width: item.width,
+    height: sos683IsRoll.value ? sos683Clamp(sos683RollLength.value, 80, 420, 220) : item.height,
+    padding: item.padding,
+    isRoll: sos683IsRoll.value,
+  }
+})
+const sos683PaperStyle = computed(() => ({
+  '--sos683-width': `${sos683Paper.value.width}mm`,
+  '--sos683-height': `${sos683Paper.value.height}mm`,
+  '--sos683-pad': `${sos683Paper.value.padding}mm`,
+  '--sos683-font': sos683Paper.value.width <= 58 ? '9px' : sos683Paper.value.width <= 100 ? '11px' : '12px',
+  '--sos683-min-height': sos683Paper.value.isRoll ? '0mm' : `${sos683Paper.value.height}mm`,
+}))
+function sos683RemovePageRule() { document.getElementById('sos683-receipt-page')?.remove() }
+
 
 // SOS_635_QR_INSIDE_RECEIPT_MODAL — QR and barcode sticker in existing receipt modal.
 import { ref as sos35Ref, watch as sos35Watch, nextTick as sos35NextTick } from 'vue'
@@ -163,7 +208,7 @@ import QRCode from "qrcode";
 
 const props = defineProps({ data: { type: Object, required: true } });
 const emit = defineEmits(["close"]);
-const format = ref("thermal");
+// Print format initialized at the top of the script (6.83).
 const qr = ref("");
 
 const serviceBarcodeSrc = computed(() => {
@@ -221,44 +266,70 @@ watch(() => job.value.name, async (name) => {
 }, { immediate: true });
 
 async function printReceipt() {
-  await nextTick();
-  if (document.fonts?.ready) await document.fonts.ready;
-  window.print();
+  if (format.value === 'sticker') { await sos35Print(); return }
+  const paper = sos683Paper.value
+  // Sanitized numeric dimensions only. Never put user strings in @page CSS.
+  sos683RemovePageRule()
+  const page = document.createElement('style')
+  page.id = 'sos683-receipt-page'
+  page.textContent = `@media print { @page { size: ${paper.width}mm ${paper.height}mm; margin: 0; } }`
+  document.head.appendChild(page)
+  try {
+    await nextTick()
+    if (document.fonts?.ready) await document.fonts.ready
+    window.addEventListener('afterprint', sos683RemovePageRule, { once: true })
+    window.print()
+    // Browser print drivers differ in afterprint handling; do not leak page rules.
+    window.setTimeout(sos683RemovePageRule, 60000)
+  } catch (error) {
+    sos683RemovePageRule()
+    throw error
+  }
 }
 </script>
 
 <template>
-  <div class="sr-overlay" @click.capture="sos35ClickCapture" role="dialog" aria-modal="true" aria-label="Service receipt preview">
-    <div class="sr-dialog">
-      <header class="sr-toolbar">
+  <div class="sr-overlay sos683-overlay" @click.capture="sos35ClickCapture" role="dialog" aria-modal="true" aria-label="Service receipt preview">
+    <div class="sr-dialog sos683-dialog">
+      <header class="sr-toolbar sos683-header">
         <div><strong>Service Receipt Preview</strong><div class="sr-muted">{{ job.name }}</div></div>
         <button type="button" @click="emit('close')">Close</button>
       </header>
-      <nav class="sr-toolbar sr-actions">
-                <button type="button"
-                :class="{ selected: format === 'a4' }"
-                @click="format = 'a4'">
-          A4 Receipt
-        </button>
-        <button type="button"
-                :class="{ selected: format === 'a5' }"
-                @click="format = 'a5'">
-          A5 Receipt
-        </button>
-        <button type="button"
-                :class="{ selected: format === 'thermal' }"
-                @click="format = 'thermal'">
-          80mm Thermal
-        </button>
-        <button type="button"
-                :class="{ selected: format === 'sticker' }"
-                @click="format = 'sticker'" data-sos-sticker-tab="1">
-          Device Sticker 50 × 30mm
-        </button>
-        <button type="button"
-                class="sr-print"
-                @click="printReceipt" data-sos-sticker-print="1">
-          {{ format === 'sticker' ? 'Print Sticker' : 'Print Receipt' }}
+      <!-- SOS_RECEIVE_PRINT_STUDIO_683: brand-matched print options -->
+      <nav class="sr-toolbar sr-actions sos683-actions" aria-label="Receipt paper and print options">
+        <label class="sos683-paper-control" for="sos683-format-select">
+          <span>PRINT LAYOUT / PAPER SIZE</span>
+          <select id="sos683-format-select" v-model="format" aria-label="Print layout and paper size">
+            <optgroup label="Full page / Standard">
+              <option value="a4">A4 · 210 × 297 mm</option>
+              <option value="a5">A5 · 148 × 210 mm</option>
+              <option value="letter">US Letter · 216 × 279 mm</option>
+              <option value="b5">B5 · 176 × 250 mm</option>
+            </optgroup>
+            <optgroup label="Thermal receipt / POS rolls">
+              <option value="thermal58">58 mm thermal</option>
+              <option value="thermal76">76 mm thermal</option>
+              <option value="thermal">80 mm thermal</option>
+              <option value="thermal100">100 mm POS roll</option>
+            </optgroup>
+            <optgroup label="Custom and label">
+              <option value="custom">Custom paper size (mm)</option>
+              <option value="sticker">QR Sticker · 50 × 30 mm</option>
+            </optgroup>
+          </select>
+        </label>
+        <label v-if="sos683IsRoll" class="sos683-number-control">
+          <span>ROLL LENGTH (MM)</span>
+          <input type="number" min="80" max="420" step="5" v-model.number="sos683RollLength" aria-label="Thermal roll length in millimetres" />
+        </label>
+        <template v-if="format === 'custom'">
+          <label class="sos683-number-control"><span>WIDTH (MM)</span><input type="number" min="40" max="216" v-model.number="sos683CustomWidth" /></label>
+          <label class="sos683-number-control"><span>HEIGHT (MM)</span><input type="number" min="60" max="420" v-model.number="sos683CustomHeight" /></label>
+        </template>
+        <div class="sos683-paper-note" v-if="format === 'sticker'">For other QR label sizes use the separate <strong>Print QR Sticker</strong> tool in Customer History.</div>
+        <div class="sos683-paper-note" v-else>Choose the matching paper setting in your printer dialog. Preview uses exact millimetre dimensions.</div>
+        <button type="button" class="sr-print sos683-print" @click="printReceipt" data-sos-sticker-print="1">
+          {{ format === 'sticker' ? 'Print QR Sticker' : 'Print / Reprint Receipt' }}
         </button>
       </nav>
       <!-- SOS_632_RECEIPT_DETAILS_QR: Full customer name, mobile, fault, and QR on the paper receipt. -->
@@ -299,8 +370,8 @@ async function printReceipt() {
       </section>
 
       <div class="sr-preview" v-show="!sos35Sticker">
-        <article id="servicing-receipt-paper"
-                 :class="['sr-paper', 'sr-' + format]">
+        <article id="servicing-receipt-paper" :style="sos683PaperStyle"
+                 :class="['sr-paper', 'sr-' + format, 'sos683-paper']">
           
           
 <template v-if="format === 'sticker'">
@@ -329,7 +400,7 @@ async function printReceipt() {
           <template v-else>
 <header class="sr-company">
             <h1>{{ shop.name }}</h1>
-            <p v-if="shop.address">{{ shop.address }}</p>
+            <p>{{ shop.address || 'Mawna Chowrasta, Sreepur, Gazipur, Bangladesh' }}</p>
             <p v-if="shop.phone">Phone: {{ shop.phone }}</p>
           </header>
           <h2 class="sr-heading">SERVICE RECEIVE RECEIPT</h2>
@@ -695,5 +766,41 @@ async function printReceipt() {
 .sos35-fault.sos35-compact-fault {font-size:6.7pt;line-height:1.06}
 .sos35-barcode {height:3.1mm;flex:0 0 3.1mm;object-fit:fill}
 @media print {.sos35-preview-shell {display:none!important}}
+
+</style>
+
+<style>
+
+/* SOS_RECEIVE_PRINT_STUDIO_683 — premium ivory modal and physical paper controls. */
+.sr-overlay.sos683-overlay{background:rgba(35,26,19,.64)!important;backdrop-filter:blur(5px);padding:18px;align-items:center}
+.sr-dialog.sos683-dialog{background:#f9f5ef!important;border:1px solid #dbc9b4;border-radius:18px!important;max-width:1050px!important;max-height:min(92dvh,980px)!important;box-shadow:0 30px 90px rgba(26,18,13,.3);color:#382b23}
+.sr-dialog.sos683-dialog .sr-toolbar{background:#fffcf7!important;color:#3b2d25!important;border-bottom:1px solid #e6d8c8;padding:14px 18px!important}
+.sr-dialog.sos683-dialog .sr-toolbar strong{color:#35271f;font-size:16px;letter-spacing:-.015em}
+.sr-dialog.sos683-dialog .sr-muted{color:#8b705a;font-size:11px;margin-top:4px}
+.sr-dialog.sos683-dialog .sr-toolbar button{background:#f6ebe0;color:#70533e;border:1px solid #dfccb8;min-height:37px;border-radius:9px;font-size:12px;font-weight:750}
+.sr-dialog.sos683-dialog .sr-toolbar button:hover{background:#edddcb}
+.sr-dialog.sos683-dialog .sr-toolbar .sos683-print{background:#805a3e!important;color:#fffaf6!important;border-color:#805a3e!important;padding:10px 17px!important;white-space:nowrap}
+.sr-dialog.sos683-dialog .sr-toolbar .sos683-print:hover{background:#65462f!important}
+.sr-dialog.sos683-dialog .sr-toolbar.sos683-actions{display:flex;align-items:end;gap:11px;padding:12px 18px!important;flex-wrap:wrap}
+.sos683-actions label{display:flex;flex-direction:column;gap:5px;margin:0;font-weight:700;font-size:11px;color:#705640}
+.sos683-actions label>span{font-size:10px;font-weight:760;letter-spacing:.07em;color:#8b705a}
+.sos683-paper-control{flex:1 1 260px;min-width:190px}
+.sos683-number-control{flex:0 1 114px;min-width:100px}
+.sos683-actions :is(select,input){width:100%;min-height:38px;box-sizing:border-box;border:1px solid #d8c1aa;background:#fffdfa;color:#3d3027;border-radius:9px;padding:8px 10px;font:inherit;font-size:12px;outline:none}
+.sos683-actions :is(select,input):focus-visible{box-shadow:0 0 0 3px rgba(158,119,83,.18);border-color:#a98462}
+.sos683-paper-note{font-size:10px;color:#957a63;flex:1 1 160px;line-height:1.35;align-self:center}
+.sr-dialog.sos683-dialog .sr-preview{background:#efe6db!important;padding:18px;min-height:90px;overflow:auto;display:block}
+.sr-dialog.sos683-dialog .sr-paper.sos683-paper{box-sizing:border-box;width:var(--sos683-width)!important;max-width:none!important;min-height:var(--sos683-min-height)!important;padding:var(--sos683-pad)!important;font-size:var(--sos683-font)!important;position:relative;overflow-wrap:anywhere;box-shadow:0 6px 24px rgba(45,33,23,.12)}
+.sr-dialog.sos683-dialog .sr-paper .sr-description p{max-height:none!important;overflow:visible!important;white-space:pre-wrap!important}
+.sr-dialog.sos683-dialog .sr-paper .sr-company{margin-bottom:8px}
+.sr-dialog.sos683-dialog .sr-paper .sr-company h1{letter-spacing:.012em}
+.sr-dialog.sos683-dialog .sr-paper :is(.sr-line,.sr-description){break-inside:avoid}
+.sr-dialog.sos683-dialog .sr-paper .sr-qr img{max-width:26mm;max-height:26mm}
+@media(max-width:720px){.sr-overlay.sos683-overlay{padding:7px}.sr-dialog.sos683-dialog{max-height:98dvh!important;border-radius:12px!important}.sr-dialog.sos683-dialog .sr-toolbar{padding:11px!important}.sos683-paper-control{flex-basis:100%}.sos683-paper-note{display:none}.sr-dialog.sos683-dialog .sr-preview{padding:10px}}
+@media print{
+  .sr-overlay.sos683-overlay,.sr-dialog.sos683-dialog,.sr-dialog.sos683-dialog .sr-preview{background:#fff!important;border:0!important;box-shadow:none!important;overflow:visible!important;padding:0!important;max-height:none!important}
+  .sr-dialog.sos683-dialog .sr-toolbar,.sr-dialog.sos683-dialog .sos683-actions{display:none!important}
+  body:has(.sr-overlay.sos683-overlay) .sr-dialog.sos683-dialog .sr-paper.sos683-paper{width:var(--sos683-width)!important;max-width:none!important;min-height:var(--sos683-min-height)!important;padding:var(--sos683-pad)!important;position:absolute!important;top:0!important;left:0!important;margin:0!important;box-shadow:none!important;background:#fff!important;color:#121212!important;overflow:visible!important}
+}
 
 </style>
