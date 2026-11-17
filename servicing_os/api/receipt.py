@@ -14,6 +14,12 @@ def get_service_receipt(job_name=None):
     shop = frappe.get_doc("Servicing Shop", job.shop)
     shop.check_permission("read")
 
+    # SOS_RECEIVED_COMPONENTS_PRINT_V24: permission-checked custody rows,
+    # sourced only from Service Job.custom_received_components; never shop stock.
+    # SOS_CUSTOMER_RECEIPT_COMPONENTS_V25 — customer property only; permission checked above.
+    from servicing_os.api.received_components_694 import snapshot
+    received_components = snapshot(job)
+
     return {
         "job": {
             "name": job.name,
@@ -28,6 +34,7 @@ def get_service_receipt(job_name=None):
             "serial_number": job.serial_number or "",
             "reported_problem": job.reported_problem or "",
             "accessories_received": job.accessories_received or "",
+            "received_components": received_components,
             "estimated_cost": float(job.estimated_cost or 0),
             "expected_delivery": str(job.expected_delivery or ""),
         },

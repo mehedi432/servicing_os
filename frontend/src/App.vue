@@ -11,6 +11,7 @@ import InventoryWorkspace from './components/InventoryWorkspace.vue' // SOS_INVE
 import ServiceInvoiceHub661 from './components/ServiceInvoiceHub661.vue'
 import NewSaleCounter655 from './components/NewSaleCounter655.vue'
 
+import CounterRetailTabs697 from './components/CounterRetailTabs697.vue' // SOS_COUNTER_RETAIL_TABS_697
 // SERVICING_COUNTER_EXACT_649 — route screenshot tiles into existing workspaces.
 import CounterIvory654 from './components/CounterIvory654.vue'
 import CounterInvoiceModal654 from './components/CounterInvoiceModal654.vue'
@@ -137,6 +138,7 @@ sos626Mounted(async () => {
 
 // SERVICING_SERVICE_JOBS_ITEM_FIX_624B — active workspace mounts, not old previews.
 import ServiceJobsWorkspace from './components/ServiceJobsWorkspace.vue';
+import CounterRepairTabs698 from './components/CounterRepairTabs698.vue' // SOS_COUNTER_REPAIR_TABS_698
 import StockQuickAdd from './components/StockQuickAdd.vue';
 function sosReceiveFromJobs624B() {
   if (typeof repairManagementOpen !== 'undefined') repairManagementOpen.value = false;
@@ -1748,6 +1750,16 @@ const sosSalesAllowed = [
               <path d="M12 20h9"/><path d="M16 4a2.1 2.1 0 0 1 3 3L9.2 16.8 5 18l1.2-4.2L16 4Z"/>
             </svg>
           </button>
+          <!-- SOS_RECEIVED_COMPONENTS_PRINT_V24: same receipt popup, standard-sized action icon. -->
+          <button type="button" class="sos688-action sos23-recent-print" title="Print / Reprint Receipt"
+            :disabled="receiptLoading" :aria-label="`Print receipt for ${job.name}`"
+            @click.stop="sos682PrintReceipt(job.name)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+              stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M6 9V3h12v6M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/>
+              <path d="M6 14h12v7H6z"/><path d="M18 12h.01"/>
+            </svg>
+          </button>
           <button type="button" class="sos688-action sos688-delete" title="Delete Service Job (if eligible)"
             :aria-label="`Delete ${job.name}`" :disabled="sos686Busy" @click.stop="sos689DeleteHistory(job)">
             <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
@@ -1757,18 +1769,6 @@ const sosSalesAllowed = [
         </div>
       </div>
     
-      <!-- SOS_RECENT_PRINT_V23: use the SAME receipt popup, no immediate printing -->
-      <button type="button" class="sos23-recent-print"
-        :disabled="receiptLoading"
-        :aria-label="`Print receipt for ${job.name}`"
-        :title="`Print / Reprint Receipt · ${job.name}`"
-        @click.stop="sos682PrintReceipt(job.name)">
-        <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor"
-             stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M6 9V3h12v6M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/>
-          <path d="M6 14h12v7H6z"/><path d="M18 12h.01"/>
-        </svg>
-      </button>
     </article>
   </div>
   <div class="sos682-pagination">
@@ -1820,22 +1820,22 @@ const sosSalesAllowed = [
   <!-- SERVICING_COUNTER_PATCH_651: actual ServiceJobsWorkspace, not navigation -->
   <template #repair>
     <!-- SERVICING_OS_SERVICE_INVOICE_662: live linked Service Job invoices -->
-    <ServiceInvoiceHub661 />
-    <ServiceJobsWorkspace @receive="sosReceiveFromJobs624B" @manage="sosManageFromJobs624B" />
+    <!-- SOS_COUNTER_REPAIR_TABS_698: reuse existing job and invoice flows -->
+    <CounterRepairTabs698 @receive="sosReceiveFromJobs624B" @manage="sosManageFromJobs624B" />
   </template>
   <!-- SERVICING_COUNTER_PATCH_652: real ERPNext draft invoice workflow -->
   <template #invoice="{ initialKind, initialJob }"><CounterInvoiceModal654 :initial-job="initialJob"  :initial-kind="initialKind" /></template>
 
   <!-- SERVICING_COUNTER_PATCH_653: actual source feature components, never placeholders -->
   <template #sale>
-  <NewSaleCounter655>
+  <CounterRetailTabs697>
     <template #legacy>
     <div class="sos653-embedded-module">
       <RetailSales v-if="counter649Selection === 'sale' && !repairManagementOpen" />
     </div>
   
     </template>
-  </NewSaleCounter655>
+  </CounterRetailTabs697>
 </template>
   <template #used>
     <div class="sos653-embedded-module">
@@ -3079,32 +3079,9 @@ main>.sos-fin-reports{display:block!important;width:100%;min-width:0}
 <!-- SOS_RECENT_PRINT_V23: screen-only styling, never changes printed receipt -->
 <style>
 .sos688-job-card { position:relative; }
-.sos688-job-card > .sos688-card-details {
-  box-sizing:border-box;
-  padding-right:max(52px, 2.9rem) !important;
-}
-.sos688-job-card > .sos23-recent-print {
-  display:inline-flex !important;
-  align-items:center;
-  justify-content:center;
-  position:absolute;
-  right:10px;
-  top:12px;
-  width:38px;
-  height:38px;
-  min-width:38px;
-  padding:0;
-  border-radius:11px;
-  border:1px solid #ddcbb7;
-  background:#f5e8d7;
-  color:#67482e;
-  box-shadow:0 2px 5px rgba(65,45,27,.06);
-  cursor:pointer;
-  z-index:2;
-  transition:background .15s, border-color .15s, transform .15s;
-}
-.sos688-job-card > .sos23-recent-print:hover { background:#ead5bb; border-color:#b9916a; transform:translateY(-1px); }
-.sos688-job-card > .sos23-recent-print:focus-visible { outline:3px solid #c49b73; outline-offset:2px; }
-.sos688-job-card > .sos23-recent-print:disabled { opacity:.5; cursor:wait; transform:none; }
-@media print { .sos688-job-card > .sos23-recent-print { display:none !important; } }
+.sos688-job-card > .sos688-card-details {box-sizing:border-box;padding-right:0!important;}
+/* SOS_RECEIVED_COMPONENTS_PRINT_V24: printer uses the same 30px action style as edit/delete. */
+.sos688-actions > .sos23-recent-print{flex:0 0 30px!important;width:30px!important;height:30px!important;min-width:30px!important;min-height:30px!important;padding:5px!important;border-radius:8px!important}
+.sos688-actions > .sos23-recent-print svg{width:16px!important;height:16px!important}
+@media print {.sos688-actions > .sos23-recent-print{display:none!important}}
 </style>

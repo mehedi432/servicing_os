@@ -22,6 +22,7 @@ function s44InvoiceCreated(invoice) {
 // SERVICING_SERVICE_JOBS_624B
 import { computed, ref, watch, onMounted, onBeforeUnmount } from 'vue';
 import ServiceJobSticker629 from './ServiceJobSticker629.vue'
+import ServiceJobRecordActions699 from './ServiceJobRecordActions699.vue'; // SOS_REPAIR_RECORD_ACTIONS_699
 const sos629StickerJob = ref(''); // SOS_QR_STICKER_UI_629
 const emit = defineEmits(['receive', 'manage']);
 const jobsView=ref('list'); // SOS_JOBS_GRID_625A
@@ -31,6 +32,23 @@ const error=ref(''), actionError=ref(''), notice=ref('');
 const selected=ref(null), detail=ref(null), progress=ref(null);
 const nextStatus=ref(''), stage=ref('Inspection'), note=ref(''), worklog=ref([]);
 const techs=ref([]), tech=ref('');
+
+// SOS_COUNTER_REPAIR_TABS_698: optional Counter-only scope. Standalone jobs stay unchanged.
+const props = defineProps({
+  counterScope: { type: String, default: 'all' },
+  refreshToken: { type: Number, default: 0 }
+});
+const visibleJobs = computed(() => {
+  const scope = props.counterScope;
+  const rows = jobs.value;
+  if (scope === 'active') return rows.filter(j => !['Completed', 'Ready to Deliver', 'Delivered', 'Cancelled'].includes(j.status));
+  if (scope === 'unassigned') return rows.filter(j => !j.technician);
+  if (scope === 'waiting') return rows.filter(j => j.status === 'Waiting for Parts');
+  if (scope === 'ready') return rows.filter(j => ['Completed', 'Ready to Deliver'].includes(j.status));
+  if (scope === 'delivered') return rows.filter(j => j.status === 'Delivered');
+  return rows;
+});
+
 const stats=computed(()=>({total:jobs.value.length, active:jobs.value.filter(j=>!['Delivered','Cancelled'].includes(j.status)).length, completed:jobs.value.filter(j=>['Completed','Ready to Deliver'].includes(j.status)).length, unassigned:jobs.value.filter(j=>!j.technician).length}));
 let searchDelay=null, requestVersion=0;
 function token(){return window.frappe?.csrf_token||window.csrf_token||decodeURIComponent(document.cookie.split('; ').find(s=>s.startsWith('csrf_token='))?.split('=')?.slice(1).join('=')||'');}
@@ -49,6 +67,18 @@ catch(e){if(version===requestVersion)error.value=e.message;}finally{if(version==
 watch(term,()=>{clearTimeout(searchDelay);searchDelay=setTimeout(load,250);});
 watch(filter,()=>{clearTimeout(searchDelay);load();});
 onBeforeUnmount(()=>{requestVersion++;clearTimeout(searchDelay);});
+
+// SOS_COUNTER_REPAIR_TABS_698: reuse the existing authorised search / job actions.
+// Exact statuses are queried server-side when configured; composite groups are
+// filtered inside the latest 200 accessible jobs returned by the existing API.
+watch(() => props.counterScope, scope => {
+  const exact = scope === 'waiting' ? 'Waiting for Parts' : scope === 'delivered' ? 'Delivered' : 'All';
+  const wanted = options.value.includes(exact) ? exact : 'All';
+  if (filter.value !== wanted) filter.value = wanted;
+  else load();
+});
+watch(() => props.refreshToken, () => load());
+
 function fmt(v){return v?String(v).slice(0,16).replace('T',' '):'—';}
 async function choose(job){selected.value=job;detail.value=null;progress.value=null;worklog.value=[];nextStatus.value='';actionError.value='';notice.value='';detailLoading.value=true;
   try{
@@ -77,6 +107,23 @@ async function sos629Start(){
   await choose(jobs.value.find(j => j.name === id) || {name:id});
 }
 onMounted(sos629Start);
+// SOS_REPAIR_RECORD_ACTIONS_699 — keep native job register and invoice workflows.
+async function sos699Saved() {
+  await load();
+  const latest = jobs.value.find(j => j.name === selected.value?.name);
+  if (latest) await choose(latest);
+  window.dispatchEvent(new CustomEvent('servicing-os:service-job-updated'));
+}
+async function sos699Deleted() {
+  selected.value = null;
+  detail.value = null;
+  progress.value = null;
+  worklog.value = [];
+  actionError.value = '';
+  notice.value = 'Service Job permanently deleted.';
+  await load();
+  window.dispatchEvent(new CustomEvent('servicing-os:service-job-updated'));
+}
 </script>
 <template>
 <!-- S44_SERVICE_JOBS_INVOICE: same Service Jobs screen, one invoice dialog -->
@@ -100,12 +147,12 @@ onMounted(sos629Start);
             <button type="button" title="Grid view" aria-label="Grid view" :aria-pressed="jobsView==='grid'" :class="{active:jobsView==='grid'}" @click="jobsView='grid'">Grid</button>
           </div></div>
         <div class="sj-filter"><label>Find a job, customer or device<input v-model="term" placeholder="Type name, job ID, model or serial…" autocomplete="off" /></label>
-        <label>Status<select v-model="filter"><option v-for="s in options" :key="s">{{s}}</option></select></label></div>
+        <label v-if="props.counterScope === 'all'">Status<select v-model="filter"><option v-for="s in options" :key="s">{{s}}</option></select></label></div>
         <div v-if="error" class="sj-error">{{error}}</div>
         <div v-if="loading" class="sj-muted">Loading Service Jobs…</div>
-        <div v-else-if="!jobs.length" class="sj-empty"><strong>No matching Service Jobs</strong><span>Try another search or receive a new device using the button above.</span></div>
+        <div v-else-if="!visibleJobs.length" class="sj-empty"><strong>No matching Service Jobs</strong><span>Try another search or receive a new device using the button above.</span></div>
         <div class="sj-items" :class="{'sj-grid-items':jobsView==='grid'}">
-          <button v-for="job in jobs" :key="job.name" type="button" class="sj-item" :class="{chosen:selected?.name===job.name}" @click="choose(job)">
+          <button v-for="job in visibleJobs" :key="job.name" type="button" class="sj-item" :class="{chosen:selected?.name===job.name}" @click="choose(job)">
             <div class="sj-item-top"><strong>{{job.name}}</strong><span class="sj-status">{{job.status||'Unknown'}}</span></div>
             <b>{{job.customer_name||job.customer||'Customer'}}</b>
             <span>{{[job.brand,job.device_model].filter(Boolean).join(' · ')||job.device_type||'Device'}} · {{job.technician||'Unassigned'}}</span>
@@ -115,13 +162,14 @@ onMounted(sos629Start);
         <p class="sj-foot">Showing up to 200 accessible jobs. Results update automatically while typing.</p>
       </section>
       <section class="sj-detail">
-        <div v-if="!selected" class="sj-empty sj-big"><strong>Select a Service Job</strong><span>Click any job on the left to see its details and available actions.</span></div>
+        <div v-if="!selected || (props.counterScope !== 'all' && !visibleJobs.some(j => j.name === selected.name))" class="sj-empty sj-big"><strong>Select a Service Job</strong><span>Click any job on the left to see its details and available actions.</span></div>
         <template v-else>
           <div class="sj-detail-head"><div><small>JOB DETAILS</small><h2>{{selected.name}}</h2><span class="sj-status">{{detail?.status||selected.status}}</span></div><button type="button" class="sj-outline" @click="choose(selected)">Refresh</button></div>
           <div v-if="detailLoading" class="sj-muted">Loading job details…</div>
           <div v-if="actionError" class="sj-error" role="alert">{{actionError}}</div>
           <div v-if="notice" class="sj-success" role="status">{{notice}}</div>
           <template v-if="detail">
+            <ServiceJobRecordActions699 :job-name="selected.name" @saved="sos699Saved" @deleted="sos699Deleted" />
             <div class="sj-print-sticker"><button type="button" @click="sos629StickerJob = selected.name">Print QR Device Sticker</button></div>
             <div class="sj-info">
               <div><small>Customer</small><strong>{{detail.customer_name||detail.customer||'—'}}</strong></div>

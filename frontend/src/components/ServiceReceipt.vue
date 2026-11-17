@@ -83,7 +83,7 @@ async function sos35BuildImages() {
     const url = sos35BuildUrl()
     sos35QrImage.value = await SOS35QrCode.toDataURL(url, { width: 420, margin: 2, errorCorrectionLevel: 'M' })
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
-    SOS35JsBarcode(svg, jobId, { format: 'CODE128', width: 1.05, height: 23, margin: 0, displayValue: false })
+    SOS35JsBarcode(svg, jobId, { format: 'CODE128', width: 1.8, height: 34, margin: 3, displayValue: false })
     sos35BarcodeImage.value = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg.outerHTML)
   } catch (e) {
     sos35Error.value = e?.message || 'Could not generate the QR sticker.'
@@ -143,9 +143,9 @@ function sos35Html() {
     *{box-sizing:border-box}
     html,body{width:50mm;height:30mm;margin:0;padding:0;background:#fff;color:#17120e;font-family:Arial,"Noto Sans Bengali","Hind Siliguri",sans-serif;-webkit-print-color-adjust:exact;print-color-adjust:exact}
     .label{width:50mm;height:30mm;padding:.85mm 1mm .65mm;overflow:hidden;display:flex;flex-direction:column;gap:.22mm}
-    .top{height:16.2mm;flex:0 0 16.2mm;display:flex;align-items:flex-start;gap:.9mm;overflow:hidden;min-width:0}
+    .top{height:15.4mm;flex:0 0 15.4mm;display:flex;align-items:flex-start;gap:.9mm;overflow:hidden;min-width:0}
     .qr{width:13.5mm;height:13.5mm;flex:0 0 13.5mm;object-fit:contain;image-rendering:pixelated}
-    .meta{min-width:0;flex:1;height:16.2mm;display:flex;flex-direction:column;gap:.14mm;overflow:hidden}
+    .meta{min-width:0;flex:1;height:15.4mm;display:flex;flex-direction:column;gap:.14mm;overflow:hidden}
     .brand{font-size:5.2pt;font-weight:800;line-height:1.04;overflow:hidden;max-height:3.8mm;overflow-wrap:anywhere}
     .job{font-size:6.6pt;font-weight:900;line-height:1.05;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     .customer{font-size:9.2pt;font-weight:900;line-height:1.05;white-space:normal;overflow-wrap:anywhere;overflow:hidden;max-height:6.9mm}
@@ -154,9 +154,9 @@ function sos35Html() {
     .serial{font-size:5pt;line-height:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     .meta.compact-name .customer{font-size:7.8pt;max-height:6.1mm}
     .meta.compact-name .device,.meta.compact-name .serial{display:none}
-    .fault{height:8.1mm;flex:0 0 8.1mm;margin:0;padding-top:.25mm;border-top:.15mm solid #2d251c;font-size:7.7pt;font-weight:800;line-height:1.06;overflow-wrap:anywhere;overflow:hidden;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;line-clamp:3}
+    .fault{height:7mm;flex:0 0 7mm;margin:0;padding-top:.25mm;border-top:.15mm solid #2d251c;font-size:7.7pt;font-weight:800;line-height:1.06;overflow-wrap:anywhere;overflow:hidden;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2}
     .fault.compact-fault{font-size:6.7pt;line-height:1.06}
-    .code128{width:100%;height:3.1mm;flex:0 0 3.1mm;object-fit:fill;display:block}
+    .code128{width:100%;height:5.5mm;flex:0 0 5.5mm;object-fit:fill;display:block}
     @media screen{body{width:50mm;min-height:30mm}}
   </style></head><body><div class="label" data-sos-sticker-layout="SOS_STICKER_LAYOUT_V8_20261116">
     <div class="top"><img class="qr" alt="QR for ${job}" src="${sos35QrImage.value}">
@@ -220,15 +220,13 @@ const serviceBarcodeSrc = computed(() => {
       "http://www.w3.org/2000/svg", "svg"
     );
 
+    // SOS_RECEIPT_READABILITY_V26 — print clean Code 128 bars; job ID is printed separately.
     JsBarcode(svg, value, {
       format: "CODE128",
-      displayValue: true,
-      font: "monospace",
-      fontSize: 13,
-      textMargin: 3,
-      width: 1.6,
-      height: 48,
-      margin: 3,
+      displayValue: false,
+      width: 2.2,
+      height: 62,
+      margin: 10,
       background: "#ffffff",
       lineColor: "#000000"
     });
@@ -244,10 +242,52 @@ const serviceBarcodeSrc = computed(() => {
 });
 
 const job = computed(() => props.data.job || {});
+// SOS_CUSTOMER_RECEIPT_COMPONENTS_V25: exact saved intake rows, never parts from shop stock.
+const sos25Components = computed(() => {
+  const rows = props.data?.job?.received_components;
+  return Array.isArray(rows) ? rows : [];
+});
+const sos25Wide = computed(() => sos683Paper.value.width >= 175);
+const sos25Text = (value) => String(value ?? '').trim() || '—';
+const sos25Qty = (value) => {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? String(Number(n.toFixed(3))) : '—';
+};
+
+// SOS_RECEIVED_COMPONENTS_PRINT_V24: read-only customer property; no repair parts.
+const sos24ReceivedComponents = computed(() => {
+  const rows = props.data?.job?.received_components;
+  return Array.isArray(rows) ? rows : [];
+});
+// A5/thermal remain legible as compact entries; wide pages use columns.
+const sos24WideComponents = computed(() => sos683Paper.value.width >= 175);
+function sos24Text(value) {
+  const result = String(value ?? '').trim();
+  return result || '—';
+}
+function sos24Quantity(value) {
+  const num = Number(value);
+  return Number.isFinite(num) && num > 0 ? String(parseFloat(num.toFixed(3))) : '—';
+}
+
 const shop = computed(() => props.data.shop || {});
 const amount = computed(() => new Intl.NumberFormat("en-BD", {
   minimumFractionDigits: 2, maximumFractionDigits: 2
 }).format(Number(job.value.estimated_cost || 0)));
+// SOS_RECEIPT_READABILITY_V26 — prioritize important customer details per physical paper width.
+const sos26Has = (v) => String(v ?? '').trim().length > 0;
+const sos26IsThermal = computed(() => sos683Paper.value.width <= 100);
+function sos26ScaledFont(text, width, kind) {
+  const chars = Array.from(String(text ?? '').trim()).length;
+  const base = kind === 'name'
+    ? (width <= 58 ? 13 : width <= 80 ? 16 : width <= 100 ? 18 : width <= 148 ? 21 : 24)
+    : (width <= 58 ? 12.5 : width <= 80 ? 15 : width <= 100 ? 16 : width <= 148 ? 19 : 21);
+  const factor = chars > 44 ? .70 : chars > 32 ? .80 : chars > 23 ? .90 : 1;
+  return `${Math.max(width <= 58 ? 11 : 13, Math.round(base * factor))}px`;
+}
+const sos26NameStyle = computed(() => ({fontSize: sos26ScaledFont(job.value.customer_name, sos683Paper.value.width, 'name')}));
+const sos26PhoneStyle = computed(() => ({fontSize: sos26ScaledFont(job.value.mobile, sos683Paper.value.width, 'phone')}));
+
 const deviceName = computed(() => [
   job.value.device_type, job.value.brand, job.value.device_model
 ].filter(Boolean).join(" / "));
@@ -396,7 +436,7 @@ async function printReceipt() {
 
       <div class="sr-preview" v-show="!sos35Sticker">
         <article id="servicing-receipt-paper" :style="sos683PaperStyle"
-                 :class="['sr-paper', 'sr-' + format, 'sos683-paper']">
+                 :class="['sr-paper', 'sr-' + format, 'sos683-paper', { 'sos26-roll': sos683IsRoll, 'sos26-roll58': sos683Paper.width <= 58 }]">
           
           
 <template v-if="format === 'sticker'">
@@ -434,13 +474,83 @@ async function printReceipt() {
           <div class="sr-line"><span>Status</span><span>{{ job.status }}</span></div>
           <div class="sr-line"><span>Priority</span><span>{{ job.priority }}</span></div>
           <h3>CUSTOMER DETAILS</h3>
-          <div class="sr-line"><span>Name</span><strong>{{ job.customer_name }}</strong></div>
-          <div class="sr-line"><span>Mobile</span><strong>{{ job.mobile }}</strong></div>
+          <!-- SOS_RECEIPT_READABILITY_V26: full-width priority contact on paper and screen. -->
+          <div class="sr-customer26" data-sos-receipt-version="SOS_RECEIPT_READABILITY_V26" aria-label="Customer name and mobile number">
+            <div class="sr-customer26-field sr-customer26-name">
+              <span>Customer / গ্রাহক</span><strong :style="sos26NameStyle">{{ job.customer_name || '—' }}</strong>
+            </div>
+            <div class="sr-customer26-field sr-customer26-phone">
+              <span>Mobile / মোবাইল</span><strong :style="sos26PhoneStyle">{{ job.mobile || '—' }}</strong>
+            </div>
+          </div>
           <h3>DEVICE DETAILS</h3>
           <div class="sr-line"><span>Device</span><span>{{ deviceName }}</span></div>
-          <div v-if="job.serial_number" class="sr-line"><span>Serial No.</span><span>{{ job.serial_number }}</span></div>
+          <div v-if="job.serial_number" class="sr-device-serial26"><span>Device S/N</span><strong>{{ job.serial_number }}</strong></div>
           <section class="sr-description"><strong>Reported Problem</strong><p>{{ job.reported_problem || "Not recorded" }}</p></section>
           <section class="sr-description"><strong>Accessories Received</strong><p>{{ job.accessories_received || "None recorded" }}</p></section>
+          <!-- SOS_CUSTOMER_RECEIPT_COMPONENTS_V25: part of actual customer receipt paper. -->
+          <section class="sr-custody25" data-sos-customer-receipt="SOS_CUSTOMER_RECEIPT_COMPONENTS_V25"
+            :class="sos25Wide ? 'is-wide' : sos683Paper.width <= 100 ? 'is-thermal' : 'is-small'"
+            aria-label="Device intake customer property received components">
+            <div class="sr-custody25-eyebrow">DEVICE INTAKE · CUSTOMER PROPERTY</div>
+            <h3 class="sr-custody25-title">Components Received <small>· গ্রাহকের জমা দেওয়া যন্ত্রাংশ</small></h3>
+            <p class="sr-custody25-note">Customer-owned items brought with this device · Not repair parts or shop inventory.</p>
+            <p v-if="!sos25Components.length" class="sr-custody25-empty">No individual components recorded at device intake.</p>
+            <template v-else>
+              <table v-if="sos25Wide" class="sr-custody25-table">
+                <thead><tr>
+                  <th>Component</th><th>Type</th><th>Brand</th><th>Capacity / Specification</th>
+                  <th>Quantity</th><th>Model</th><th>Serial Number</th><th>Condition at Receive</th><th>Remarks</th>
+                </tr></thead>
+                <tbody>
+                  <tr v-for="(part, index) in sos25Components" :key="index">
+                    <td>{{ index + 1 }}</td>
+                    <td>{{ sos25Text(part.component_type) }}</td>
+                    <td>{{ sos25Text(part.brand) }}</td>
+                    <td>{{ sos25Text(part.capacity) }}</td>
+                    <td>{{ sos25Qty(part.qty) }}</td>
+                    <td>{{ sos25Text(part.model) }}</td>
+                    <td>{{ sos25Text(part.serial_number) }}</td>
+                    <td>{{ sos25Text(part.condition_received) }}</td>
+                    <td>{{ sos25Text(part.remarks) }}</td>
+                  </tr>
+                </tbody>
+              </table>
+              <!-- SOS_RECEIPT_READABILITY_V26: compact, nonempty fields only on thermal rolls. -->
+              <div v-else-if="sos26IsThermal" class="sr-custody26-list">
+                <div v-for="(part, index) in sos25Components" :key="index" class="sr-custody26-row">
+                  <div class="sr-custody26-head">
+                    <strong>{{ index + 1 }}. {{ sos25Text(part.component_type) }}<template v-if="sos26Has(part.brand)"> · {{ part.brand }}</template></strong>
+                    <b v-if="sos26Has(part.qty)" class="sr-custody26-qty">×{{ sos25Qty(part.qty) }}</b>
+                  </div>
+                  <div v-if="sos26Has(part.capacity) || sos26Has(part.model)" class="sr-custody26-sub">
+                    <span v-if="sos26Has(part.capacity)"><b>SPEC</b> {{ part.capacity }}</span>
+                    <span v-if="sos26Has(part.model)"><b>MODEL</b> {{ part.model }}</span>
+                  </div>
+                  <div v-if="sos26Has(part.serial_number)" class="sr-custody26-serial"><b>S/N</b> {{ part.serial_number }}</div>
+                  <div v-if="sos26Has(part.condition_received) || sos26Has(part.remarks)" class="sr-custody26-sub">
+                    <span v-if="sos26Has(part.condition_received)"><b>CONDITION</b> {{ part.condition_received }}</span>
+                    <span v-if="sos26Has(part.remarks)"><b>NOTE</b> {{ part.remarks }}</span>
+                  </div>
+                </div>
+              </div>
+              <div v-else class="sr-custody25-list">
+                <div v-for="(part, index) in sos25Components" :key="index" class="sr-custody25-item">
+                  <div class="sr-custody25-index">Component {{ index + 1 }}</div>
+                  <div class="sr-custody25-fields">
+                    <div><b>Type</b><span>{{ sos25Text(part.component_type) }}</span></div>
+                    <div><b>Brand</b><span>{{ sos25Text(part.brand) }}</span></div>
+                    <div><b>Capacity / Specification</b><span>{{ sos25Text(part.capacity) }}</span></div>
+                    <div><b>Quantity</b><span>{{ sos25Qty(part.qty) }}</span></div>
+                    <div><b>Model</b><span>{{ sos25Text(part.model) }}</span></div>
+                    <div><b>Serial Number</b><span>{{ sos25Text(part.serial_number) }}</span></div>
+                    <div><b>Condition at Receive</b><span>{{ sos25Text(part.condition_received) }}</span></div>
+                    <div><b>Remarks</b><span>{{ sos25Text(part.remarks) }}</span></div>
+                  </div>
+                </div>
+              </div>
+            </template>
+          </section>
           <div v-if="job.expected_delivery" class="sr-line"><span>Expected Delivery</span><span>{{ job.expected_delivery }}</span></div>
           <div class="sr-total"><span>Estimated Repair Cost</span><strong>{{ shop.currency }} {{ amount }}</strong></div>
           <div class="sr-qr"><img v-if="qr" :src="qr" alt="Service Job QR code"/><strong>{{ job.name }}</strong></div>
@@ -452,6 +562,7 @@ async function printReceipt() {
     :src="serviceBarcodeSrc"
     alt="Service Job Code 128 barcode"
   />
+  <strong class="sr-barcode26-number">{{ job.name }}</strong>
   <div>Scan to find this Service Job</div>
 </div>
 <footer class="sr-signatures"><span>Received By</span><span>Customer Signature</span></footer>
@@ -1074,4 +1185,162 @@ async function printReceipt() {
   }
 }
 /* SOS_PRINT_ALIGNMENT_V19_RECEIPT_END */
+</style>
+
+<style>
+/* SOS_RECEIVED_COMPONENTS_PRINT_V24: custody rows are part of the printable paper only. */
+.sr-paper .sr-components-received{margin:10px 0 12px;color:#16110d;break-inside:auto;page-break-inside:auto}
+.sr-paper .sr-components-received h3{margin:10px 0 3px;padding-bottom:4px;border-bottom:1px solid #564a42;font-size:1em;line-height:1.24;font-weight:800}
+.sr-paper .sr-components-received h3 small{font-size:.78em;font-weight:500}
+.sr-paper .sr-components-custody{margin:3px 0 7px;font-size:.78em;color:#5d5046;line-height:1.25}
+.sr-paper .sr-components-empty{margin:4px 0 8px;font-size:.86em;color:#5d5046}
+.sr-paper .sr-components-wide{max-width:100%;overflow-x:auto}
+.sr-paper .sr-components-wide table{border-collapse:collapse;table-layout:fixed;width:100%;font-size:.74em;line-height:1.3}
+.sr-paper .sr-components-wide th,.sr-paper .sr-components-wide td{padding:4px 3px;text-align:left;vertical-align:top;border:1px solid #b9afa5;overflow-wrap:anywhere;word-break:break-word}
+.sr-paper .sr-components-wide th{background:#efebe6;color:#251e18;font-weight:800}
+.sr-paper .sr-components-wide th:first-child{width:5%}
+.sr-paper .sr-components-wide th:nth-child(2){width:11%}
+.sr-paper .sr-components-wide th:nth-child(3){width:10%}
+.sr-paper .sr-components-wide th:nth-child(4){width:14%}
+.sr-paper .sr-components-wide th:nth-child(5){width:6%}
+.sr-paper .sr-components-wide th:nth-child(6){width:11%}
+.sr-paper .sr-components-wide th:nth-child(7){width:15%}
+.sr-paper .sr-components-wide th:nth-child(8){width:13%}
+.sr-paper .sr-components-wide th:nth-child(9){width:15%}
+.sr-paper .sr-components-wide tr{break-inside:avoid;page-break-inside:avoid}
+.sr-paper .sr-components-compact{display:grid;gap:4px}
+.sr-paper .sr-component-entry{padding:4px 0;border-bottom:1px dashed #b4a9a0;break-inside:avoid;page-break-inside:avoid;font-size:.9em;line-height:1.35;overflow-wrap:anywhere}
+.sr-paper .sr-component-first{display:flex;align-items:baseline;justify-content:space-between;gap:5px}
+.sr-paper .sr-component-first strong{font-size:1em;font-weight:800;min-width:0}
+.sr-paper .sr-component-first>span{font-weight:800;white-space:nowrap}
+.sr-paper .sr-component-detail{display:flex;flex-wrap:wrap;column-gap:8px;row-gap:1px;margin-top:2px;min-width:0}
+.sr-paper .sr-component-detail b{font-weight:800}
+@media print{
+  .sr-paper .sr-components-received{color:#000!important}
+  .sr-paper .sr-components-wide{overflow:visible!important}
+  .sr-paper .sr-components-wide th{background:#eee!important;color:#000!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .sr-paper .sr-component-entry{break-inside:avoid!important;page-break-inside:avoid!important}
+}
+</style>
+
+<style>
+/* SOS_CUSTOMER_RECEIPT_COMPONENTS_V25 — scoped to receipt paper: same preview = same printed content. */
+.sr-paper .sr-custody25{display:block;margin:11px 0 13px;color:#181310;break-inside:auto;page-break-inside:auto;line-height:1.3}
+.sr-paper .sr-custody25-eyebrow{font-size:.83em;letter-spacing:.08em;font-weight:800;color:#44362b;margin-bottom:2px}
+.sr-paper .sr-custody25 h3.sr-custody25-title{font-size:1.05em!important;font-weight:800!important;margin:3px 0 4px!important;padding:0 0 5px!important;border-bottom:1px solid #776c64!important;line-height:1.28!important}
+.sr-paper .sr-custody25-title small{font-size:.82em;font-weight:600;letter-spacing:0}
+.sr-paper .sr-custody25-note{margin:2px 0 8px!important;color:#544a40;font-size:.81em;line-height:1.4}
+.sr-paper .sr-custody25-empty{font-size:.9em;margin:5px 0 10px!important}
+.sr-paper .sr-custody25-table{border-collapse:collapse;width:100%;table-layout:fixed;font-size:.72em;line-height:1.27}
+.sr-paper .sr-custody25-table :is(td,th){border:1px solid #bab2aa;padding:4px 3px;vertical-align:top;text-align:left;overflow-wrap:anywhere;word-break:break-word;white-space:normal}
+.sr-paper .sr-custody25-table th{background:#f0eee9;color:#201b17;font-weight:800}
+.sr-paper .sr-custody25-table th:nth-child(1){width:7%}
+.sr-paper .sr-custody25-table th:nth-child(2){width:9%}
+.sr-paper .sr-custody25-table th:nth-child(3){width:10%}
+.sr-paper .sr-custody25-table th:nth-child(4){width:16%}
+.sr-paper .sr-custody25-table th:nth-child(5){width:8%}
+.sr-paper .sr-custody25-table th:nth-child(6){width:10%}
+.sr-paper .sr-custody25-table th:nth-child(7){width:14%}
+.sr-paper .sr-custody25-table th:nth-child(8){width:14%}
+.sr-paper .sr-custody25-table th:nth-child(9){width:12%}
+.sr-paper .sr-custody25-table tr,.sr-paper .sr-custody25-item{break-inside:avoid!important;page-break-inside:avoid!important}
+.sr-paper .sr-custody25-list{display:grid;gap:7px;min-width:0}
+.sr-paper .sr-custody25-item{border:1px solid #d7d0c8;padding:6px 7px;min-width:0;overflow-wrap:anywhere}
+.sr-paper .sr-custody25-index{font-weight:800;border-bottom:1px solid #d7d0c8;padding-bottom:3px;margin-bottom:4px;font-size:1em}
+.sr-paper .sr-custody25-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));column-gap:8px;row-gap:4px}
+.sr-paper .sr-custody25-fields>div{min-width:0;display:flex;flex-direction:column;gap:1px}
+.sr-paper .sr-custody25-fields b{font-size:.76em;font-weight:700;line-height:1.2;color:#50463e}
+.sr-paper .sr-custody25-fields span{font-size:.93em;font-weight:600;overflow-wrap:anywhere;word-break:break-word}
+.sr-paper .sr-custody25.is-thermal .sr-custody25-fields{grid-template-columns:repeat(2,minmax(0,1fr));gap:5px 6px}
+.sr-paper .sr-custody25.is-thermal .sr-custody25-item{padding:5px}
+.sr-paper .sr-custody25.is-thermal .sr-custody25-fields b{font-size:.8em}
+.sr-paper .sr-custody25.is-thermal .sr-custody25-fields span{font-size:1em}
+@media print {
+ .sr-paper .sr-custody25{color:#000!important;visibility:visible!important;overflow:visible!important}
+ .sr-paper .sr-custody25 *{visibility:visible!important}
+ .sr-paper .sr-custody25-table th{background:#eee!important;color:#000!important;print-color-adjust:exact;-webkit-print-color-adjust:exact}
+ .sr-paper .sr-custody25-item{break-inside:avoid!important;page-break-inside:avoid!important}
+}
+</style>
+
+<style>
+/* SOS_RECEIPT_READABILITY_V26 — affects printed customer receipts and their exact on-screen previews. */
+.sr-paper.sos683-paper .sr-customer26 {
+  display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px 14px;
+  margin:4px 0 12px; padding:8px 0 10px; border-bottom:1.4px solid #161616;
+  page-break-inside:avoid;break-inside:avoid;
+}
+.sr-paper.sos683-paper .sr-customer26-field {display:flex;flex-direction:column;min-width:0;gap:2px;}
+.sr-paper.sos683-paper .sr-customer26-field>span {font-size:.86em;font-weight:700;line-height:1.1; color:#555;}
+.sr-paper.sos683-paper .sr-customer26-field>strong {
+  display:block;min-width:0;color:#000;line-height:1.14;font-weight:900;
+  overflow-wrap:anywhere;word-break:normal;letter-spacing:-.018em;
+}
+.sr-paper.sos683-paper.sos26-roll .sr-customer26 {grid-template-columns:minmax(0,1fr);gap:5px;margin:3px 0 6px;padding:3px 0 6px;}
+.sr-paper.sos683-paper.sos26-roll .sr-customer26-field {gap:1px;}
+.sr-paper.sos683-paper.sos26-roll .sr-customer26-field>span {font-size:9px;line-height:1.15;}
+.sr-paper.sos683-paper .sr-device-serial26{display:flex;justify-content:space-between;gap:8px;align-items:baseline;margin:3px 0;padding:3px 0;break-inside:avoid;}
+.sr-paper.sos683-paper .sr-device-serial26>span{flex:0 0 34%;color:#444;}
+.sr-paper.sos683-paper .sr-device-serial26>strong{min-width:0;flex:1;text-align:right;font-size:1.05em;font-weight:800;overflow-wrap:anywhere;color:#000;}
+.sr-paper.sos683-paper.sos26-roll .sr-device-serial26{display:block;margin:2px 0;padding:2px 0;}
+.sr-paper.sos683-paper.sos26-roll .sr-device-serial26>span{display:block;font-size:9px;font-weight:700;}
+.sr-paper.sos683-paper.sos26-roll .sr-device-serial26>strong{display:block;text-align:left;font-size:1.1em;line-height:1.15;}
+.sr-paper.sos683-paper.sos26-roll :is(.sr-company,.sr-heading){margin-top:4px;margin-bottom:5px;}
+.sr-paper.sos683-paper.sos26-roll .sr-heading{padding:4px 0;}
+.sr-paper.sos683-paper.sos26-roll h3{margin:8px 0 4px;padding-bottom:3px;}
+.sr-paper.sos683-paper.sos26-roll .sr-line{padding:2px 0;gap:4px;line-height:1.3;}
+.sr-paper.sos683-paper.sos26-roll .sr-description{margin-top:6px;}
+.sr-paper.sos683-paper.sos26-roll .sr-description p{margin:2px 0;}
+.sr-paper.sos683-paper.sos26-roll .sr-total{padding:5px 0;margin-top:9px;}
+.sr-paper.sos683-paper.sos26-roll .sr-qr{margin:8px 0;}
+.sr-paper.sos683-paper.sos26-roll .sr-qr img{width:22mm;height:22mm;}
+.sr-paper.sos683-paper.sos26-roll .sr-notice{padding-top:6px;font-size:.83em;}
+.sr-paper.sos683-paper.sos26-roll .sr-signatures{margin-top:20px;}
+
+/* Every nonempty intake attribute remains readable, but is not a wasteful eight-box grid. */
+.sr-paper .sr-custody25.is-thermal {margin:5px 0 7px;line-height:1.2;}
+.sr-paper .sr-custody25.is-thermal .sr-custody25-eyebrow{font-size:9px;line-height:1.08;margin:0;}
+.sr-paper .sr-custody25.is-thermal h3.sr-custody25-title{font-size:10px!important;line-height:1.16!important;margin:2px 0 4px!important;padding-bottom:3px!important;}
+.sr-paper .sr-custody25.is-thermal .sr-custody25-title small{font-size:.82em;}
+.sr-paper .sr-custody25.is-thermal .sr-custody25-note{display:none!important;}
+.sr-paper .sr-custody26-list{display:block;width:100%;}
+.sr-paper .sr-custody26-row{padding:4px 0;border-bottom:1px dashed #888;break-inside:avoid;page-break-inside:avoid;overflow-wrap:anywhere;}
+.sr-paper .sr-custody26-row:last-child{border-bottom:0;}
+.sr-paper .sr-custody26-head{display:flex;justify-content:space-between;align-items:start;gap:3px;line-height:1.17;}
+.sr-paper .sr-custody26-head>strong{font-size:1.02em;font-weight:800;flex:1;min-width:0;overflow-wrap:anywhere;}
+.sr-paper .sr-custody26-qty{font-size:1.02em;flex:0 0 auto;white-space:nowrap;}
+.sr-paper .sr-custody26-sub{display:flex;flex-wrap:wrap;gap:1px 6px;line-height:1.18;margin-top:2px;font-size:.91em;}
+.sr-paper .sr-custody26-sub>span{min-width:0;overflow-wrap:anywhere;}
+.sr-paper .sr-custody26-sub b,.sr-paper .sr-custody26-serial b{font-size:.88em;font-weight:800;}
+.sr-paper .sr-custody26-serial{margin-top:2px;font-size:.93em;line-height:1.18;overflow-wrap:anywhere;}
+
+/* Code 128 service-job barcode: maximize width and retain more vertical bar height. */
+.sr-paper.sos683-paper .sr-receipt-barcode {margin:9px auto 8px;padding:3mm 1mm 0;break-inside:avoid;page-break-inside:avoid;}
+.sr-paper.sos683-paper .sr-receipt-barcode img {
+  display:block;width:100%!important;max-width:110mm!important;
+  height:16mm!important;object-fit:fill;margin:0 auto;
+  image-rendering:auto;
+}
+.sr-paper.sos683-paper .sr-receipt-barcode .sr-barcode26-number {
+  display:block;font-family:Arial,monospace;font-size:14px;font-weight:900;line-height:1.2;
+  color:#000;letter-spacing:.035em;margin-top:2mm;white-space:nowrap;
+}
+.sr-paper.sos683-paper.sos26-roll .sr-receipt-barcode {margin:5px auto;padding:2mm 0 0;}
+.sr-paper.sos683-paper.sos26-roll .sr-receipt-barcode img {max-width:100%!important;height:13.5mm!important;}
+.sr-paper.sos683-paper.sos26-roll .sr-receipt-barcode .sr-barcode26-number {font-size:12px;margin-top:1mm;}
+.sr-paper.sos683-paper.sos26-roll.sos26-roll58 .sr-receipt-barcode img{height:12mm!important;}
+.sr-paper.sos683-paper.sos26-roll.sos26-roll58 .sr-receipt-barcode .sr-barcode26-number{font-size:11px;}
+
+/* Sticker preview mirrors the 50×30 mm isolated print document without changing paper size. */
+.sos35-label[data-sos-sticker-layout] .sos35-top{height:15.4mm;flex:0 0 15.4mm;}
+.sos35-label[data-sos-sticker-layout] .sos35-words{height:15.4mm;}
+.sos35-label[data-sos-sticker-layout] .sos35-fault{height:7mm;flex:0 0 7mm;font-size:7.4pt;-webkit-line-clamp:2;line-clamp:2;}
+.sos35-label[data-sos-sticker-layout] .sos35-fault.sos35-compact-fault{font-size:6.7pt;}
+.sos35-label[data-sos-sticker-layout] img.sos35-barcode{height:5.5mm;flex:0 0 5.5mm;object-fit:fill;}
+
+@media print {
+  .sr-paper.sos683-paper .sr-customer26-field>strong{color:#000!important;}
+  .sr-paper .sr-custody26-row{break-inside:avoid!important;page-break-inside:avoid!important;}
+  .sr-paper.sos683-paper .sr-receipt-barcode{break-inside:avoid!important;page-break-inside:avoid!important;}
+}
 </style>

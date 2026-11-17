@@ -80,15 +80,16 @@ function remove(i) {
 .sos694-add{background:#78533b;border:1px solid #78533b;color:#fffaf4;border-radius:9px;padding:9px 14px;font-size:12px;font-weight:700;white-space:nowrap;min-height:36px}
 .sos694-add:disabled,.sos694-remove:disabled{opacity:.5;cursor:not-allowed}
 .sos694-empty{background:#f6ede3;border:1px dashed #dac3b0;border-radius:10px;padding:18px;font-size:12px;color:#866a53}
-.sos694-list{display:flex;flex-direction:column;gap:10px}
-.sos694-entry{border:1px solid #eadccd;border-radius:11px;background:#fffdf9;padding:12px;min-width:0}
-.sos694-rowtop{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:9px;font-size:12px}
-.sos694-remove{color:#a43c32;background:#fff5f1;border:1px solid #e4c9be;border-radius:7px;padding:5px 9px;font-size:11px}
-.sos694-fields{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px}
-.sos694-fields label{display:flex;flex-direction:column;gap:5px;font-size:11px;font-weight:600;color:#745c49;min-width:0}
-.sos694-fields input,.sos694-fields select{width:100%;max-width:100%;min-width:0;height:35px;padding:6px 9px;background:#fff;border:1px solid #d9c7b5;border-radius:8px;color:#3c3027;font-size:12px}
+/* SOS_RECEIVED_COMPONENTS_PRINT_V24: ONE ROW per customer-owned component; scroll on narrow screens. */
+.sos694-list{display:flex;flex-direction:column;gap:9px;min-width:0;overflow-x:auto;overflow-y:hidden;padding:1px 0 9px;scrollbar-color:#c6a98e #f8eee4;scrollbar-width:thin}
+.sos694-entry{border:1px solid #eadccd;border-radius:11px;background:#fffdf9;padding:10px;min-width:1200px;width:max(100%,1200px);display:grid;grid-template-columns:70px minmax(0,1fr);gap:9px;align-items:end}
+.sos694-rowtop{display:flex;align-items:flex-start;justify-content:flex-end;flex-direction:column;gap:6px;min-width:0;margin:0;font-size:11px;min-height:62px}
+.sos694-rowtop strong{color:#62452e;white-space:nowrap}
+.sos694-remove{color:#a43c32;background:#fff5f1;border:1px solid #e4c9be;border-radius:7px;padding:5px 7px;font-size:10px;white-space:nowrap}
+.sos694-fields{display:grid;grid-template-columns:128px 115px 190px 72px 120px 142px 145px minmax(155px,1fr);gap:7px;align-items:end;min-width:0}
+.sos694-fields label{display:flex;flex-direction:column;gap:5px;font-size:10px;font-weight:700;color:#745c49;min-width:0;white-space:nowrap}
+.sos694-fields input,.sos694-fields select{width:100%;max-width:100%;min-width:0;height:36px;padding:6px 8px;background:#fff;border:1px solid #d9c7b5;border-radius:8px;color:#3c3027;font-size:11px}
 .sos694-fields :is(input,select):focus{outline:2px solid #ccb19b;outline-offset:0;border-color:#aa8b72}
 .sos694-foot{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;font-size:10px;color:#9b816c}
-@container (max-width:760px){.sos694-fields{grid-template-columns:repeat(2,minmax(0,1fr))}}
-@container (max-width:430px){.sos694-fields{grid-template-columns:minmax(0,1fr)}}
+/* Always keep the eight fields in one horizontal row. Never collapse into two/four rows. */
 </style>
