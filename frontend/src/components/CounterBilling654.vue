@@ -2,7 +2,7 @@
 import CounterCheckout670 from './CounterCheckout670.vue'
 const active670 = ref('')
 
-import InvoicePrint657 from './InvoicePrint657.vue'
+import UnifiedInvoicePrint684 from './UnifiedInvoicePrint684.vue'
 const sos657PrintName = ref('')
 const sos657PrintKind = ref('Sales Invoice')
 const sos657ManualName = ref('')
@@ -63,7 +63,7 @@ onUnmounted(()=>{window.removeEventListener('servicing-os-invoice-draft-created'
       <select v-model="sos657ManualKind" aria-label="Invoice type"><option value="POS Invoice">POS Invoice</option><option value="Sales Invoice">Sales Invoice</option></select>
       <button type="button" :disabled="!sos657ManualName.trim()" @click="sos657PrintKind=sos657ManualKind;sos657PrintName=sos657ManualName.trim()">Find &amp; Print</button>
     </div>
-    <InvoicePrint657 v-if="sos657PrintName" :invoice-name="sos657PrintName" :doctype="sos657PrintKind" @close="sos657PrintName=''" />
+    <UnifiedInvoicePrint684 v-if="sos657PrintName" :invoice-name="sos657PrintName" :doctype="sos657PrintKind" @close="sos657PrintName=''" />
 
   <!-- SERVICING_OS_670: edit and complete invoice from invoice list -->
   <CounterCheckout670 v-if="active670" :invoice-name="active670" @completed="refresh();active670=''" />

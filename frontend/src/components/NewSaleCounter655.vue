@@ -452,23 +452,28 @@ onUnmounted(()=>{clearTimeout(itemTimer);clearTimeout(customerTimer);++itemSeque
 
      </section>
      <aside class="sos655-checkout">
-       <h2>Checkout & Billing</h2>
-       <p class="sos655-muted">Invoice for multiple products</p>
+       <div class="sos677-checkout-head"><div><span class="sos677-eyebrow">COUNTER · SALES</span><h2>Checkout</h2><p class="sos655-muted">Review your order and customer</p></div><span class="sos677-count">{{ cart.length }} items</span></div>
+       <div class="sos677-step"><span>01</span><strong>Customer</strong></div>
        <div class="sos655-customer-field">
-         <CustomerQuickSearch666 :selected="selectedCustomer" label="Customer · Search name or mobile number"
+         <CustomerQuickSearch666 :selected="selectedCustomer" label="Search customer"
            @selected="sos666ChooseCounterCustomer" @clear="sos666ClearCounterCustomer" />
 </div>
+       <div class="sos677-step"><span>02</span><strong>Order summary</strong></div>
+       <div class="sos677-totals">
        <div class="sos655-summary-row"><span>Subtotal</span><strong>৳ {{ money(subtotal) }}</strong></div>
        <div class="sos655-discount-fields"><label>Overall discount<select v-model="discountMode" @change="discountValue=0"><option value="none">No discount</option><option value="percent">Percentage (%)</option><option value="amount">Fixed amount (BDT)</option></select></label><label v-if="discountMode!=='none'">Discount {{ discountMode==='percent'?'%':'BDT' }}<input v-model.number="discountValue" type="number" min="0" step="0.01" :max="discountMode==='percent'?99.99:undefined" /></label></div>
        <div class="sos655-summary-row"><span>Additional discount</span><strong>− ৳ {{ money(overall) }}</strong></div>
-       <div class="sos655-summary-row grand"><span>Before tax</span><strong>৳ {{ money(total) }}</strong></div>
-       <p class="sos655-notice">Saves an ERPNext <b>draft</b> Sales Invoice; no stock deduction or payment posting yet. Use Existing POS Checkout for your current direct checkout workflow.</p>
+       <div class="sos655-summary-row grand"><span>Payable before tax</span><strong>৳ {{ money(total) }}</strong></div>
+       </div>
+       <div class="sos677-step"><span>03</span><strong>Review &amp; checkout</strong></div>
+       <p class="sos677-hint">First review your invoice, then complete payment and stock posting.</p>
        <button type="button" class="sos655-save" :disabled="saving||!cart.length||!!saved||cart.some(row=>row.priceLoading||row.priceError||row.rate===null||row.rate===undefined)" @click="createDraft">{{ saving?'Saving…':'Review & Continue to Checkout' }}</button>
        <div v-if="saved" class="sos655-success" role="status">{{ Number(saved.docstatus)===1 ? (saved.update_stock ? 'Submitted · Stock posted' : 'Submitted') : 'Draft saved' }}: <strong>{{ saved.invoice }}</strong> · {{ saved.currency }} {{ money(saved.grand_total) }}</div>
        <p v-if="error" role="alert" class="sos655-error">{{ error }}</p><p v-else-if="info" class="sos655-info">{{ info }}</p>
      
        <!-- SERVICING_OS_670: same-screen draft edit and final checkout -->
-       <CounterCheckout670 :invoice-name="saved?.invoice || ''" @completed="on670Complete" />
+       <div v-if="saved" class="sos677-active-checkout"><CounterCheckout670 :invoice-name="saved.invoice" @completed="on670Complete" /></div>
+       <details v-else class="sos677-resume"><summary><span>Continue an existing invoice</span><span class="sos677-chevron">⌄</span></summary><CounterCheckout670 invoice-name="" @completed="on670Complete" /></details>
      </aside>
    </div>
  </div>
@@ -510,6 +515,66 @@ onUnmounted(()=>{clearTimeout(itemTimer);clearTimeout(customerTimer);++itemSeque
 @media(max-width:1160px){.sos655-sales-layout{grid-template-columns:minmax(0,2fr) minmax(260px,1fr)}.sos655-product-results{grid-template-columns:repeat(2,minmax(0,1fr))!important}.sos655-cart-line{grid-template-columns:minmax(120px,2fr) 58px 80px 74px;}.sos655-row-total{grid-column:2/4}.sos655-remove{grid-column:4}}
 @media(max-width:850px){.sos655-sales-layout{grid-template-columns:1fr}.sos655-checkout{position:static}.sos655-sales-footer{flex-direction:column;align-items:start}.sos655-sales-footer p{max-width:100%}}
 @media(max-width:540px){.sos655-product-results{grid-template-columns:repeat(2,minmax(0,1fr))!important}.sos655-cart-line{grid-template-columns:repeat(3,minmax(0,1fr))}.sos655-product-name{grid-column:1/-1}.sos655-row-total{grid-column:1/3}.sos655-remove{grid-column:3}.sos655-sales-main,.sos655-checkout{padding:11px}}
+
+/* SERVICING_OS_CHECKOUT_677 — visual-only checkout hierarchy */
+.sos655-new-sale .sos655-checkout{background:#fffcf8!important;border:1px solid #e7d8c8!important;border-radius:20px!important;padding:20px!important;box-shadow:0 12px 32px #6d4b3210!important}
+.sos677-checkout-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;padding-bottom:17px;border-bottom:1px solid #eaded0}
+.sos677-eyebrow{display:block;color:#a18468;font-size:9px;font-weight:800;letter-spacing:1.6px;margin-bottom:6px}
+.sos677-checkout-head h2{font-size:23px!important;letter-spacing:-.7px!important;margin:0 0 5px!important}
+.sos677-count{background:#efe2d3;border:1px solid #e2cbb3;border-radius:99px;padding:7px 10px;color:#634b37;font-size:11px;font-weight:750;white-space:nowrap}
+.sos677-step{display:flex;align-items:center;gap:9px;margin:18px 0 11px;color:#503b2b;font-size:12px;font-weight:750}
+.sos677-step span{width:24px;height:24px;display:grid;place-items:center;border-radius:8px;background:#eee1d2;color:#805d41;font-size:10px;font-weight:850}
+.sos655-checkout .sos655-customer-field{margin:0 0 13px!important}
+.sos677-totals{background:#f8f1e8;border:1px solid #ecdfd0;border-radius:13px;padding:4px 13px}
+.sos677-totals .sos655-summary-row{padding:10px 0!important}
+.sos677-totals .sos655-summary-row:last-child{border-bottom:0}
+.sos677-totals .sos655-discount-fields{margin:10px 0!important}
+.sos677-hint{font-size:11px;line-height:1.55;color:#876d55;margin:0 0 12px}
+.sos655-checkout .sos655-save{border-radius:12px!important;min-height:46px!important}
+.sos677-resume{margin-top:16px;border:1px solid #e7d7c6;border-radius:12px;background:#fffaf5;overflow:hidden}
+.sos677-resume>summary{list-style:none;cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:13px;color:#72553e;font-size:11px;font-weight:700}
+.sos677-resume>summary::-webkit-details-marker{display:none}
+.sos677-resume[open] .sos677-chevron{transform:rotate(180deg)}
+.sos677-resume .sos670-checkout{padding:0 12px 12px!important}
+.sos677-active-checkout{margin-top:15px;border-top:1px solid #e9dccc;padding-top:12px}
+@media(max-width:540px){.sos655-new-sale .sos655-checkout{padding:14px!important}}
+
+/* SOS_COUNTER_CUSTOMER_SINGLE_BORDER_V680 */
+
+/* Remove inherited input borders inside the customer search */
+.sos655-new-sale .sos655-checkout
+.sos669-customer .sos669-search-wrap input[type="search"] {
+    -webkit-appearance: none !important;
+    appearance: none !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    outline: 0 !important;
+    outline-offset: 0 !important;
+    box-shadow: none !important;
+    background: transparent !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    min-height: 40px !important;
+    height: 40px !important;
+    width: 100% !important;
+    min-width: 0 !important;
+}
+
+/* Keep the outer search container as the only border */
+.sos655-new-sale .sos655-checkout
+.sos669-customer .sos669-search-wrap {
+    border: 1px solid #dfcbb9 !important;
+    border-radius: 10px !important;
+    background: #fffdfa !important;
+}
+
+/* Accessible focus state */
+.sos655-new-sale .sos655-checkout
+.sos669-customer .sos669-search-wrap:focus-within {
+    border-color: #a77b59 !important;
+    box-shadow: 0 0 0 3px rgba(167,123,89,.12) !important;
+}
+
 </style>
 
 <style>

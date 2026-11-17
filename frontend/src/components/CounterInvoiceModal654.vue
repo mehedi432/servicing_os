@@ -2,7 +2,7 @@
 import CounterCheckout670 from './CounterCheckout670.vue'
 const completed670 = ref(null)
 
-import InvoicePrint657 from './InvoicePrint657.vue'
+import UnifiedInvoicePrint684 from './UnifiedInvoicePrint684.vue'
 const sos657Preview = ref('')
 import { computed, onMounted, ref, unref, watch, onUnmounted } from 'vue'
 import { currentLanguage } from '../i18n/servicingLanguage.js'
@@ -248,7 +248,7 @@ async function save(){
       <div class="sos654-footer"><button type="button" @click="load">Refresh</button><button type="submit" class="primary" :disabled="saving||loading">{{ saving?'Saving draft…':'Review & Continue to Checkout' }}</button></div>
     </form>
     <p v-if="error&&loading" class="sos654-error">{{ error }}</p>
-    <InvoicePrint657 v-if="sos657Preview" :invoice-name="sos657Preview" @close="sos657Preview=''" />
+    <UnifiedInvoicePrint684 v-if="sos657Preview" :invoice-name="sos657Preview" @close="sos657Preview=''" />
 
     <!-- SERVICING_OS_670: draft edit / payment / delivery / receipt -->
     <CounterCheckout670 v-if="saved?.invoice" :invoice-name="saved.invoice" @completed="completed670=$event" />

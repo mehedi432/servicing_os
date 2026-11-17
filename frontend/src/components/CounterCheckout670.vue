@@ -1,6 +1,6 @@
 <script setup>
 import { computed, ref, watch, onUnmounted } from 'vue'
-import InvoicePrint657 from './InvoicePrint657.vue'
+import CounterPremiumInvoice681 from './CounterPremiumInvoice681.vue'
 
 const props = defineProps({ invoiceName: {type:String,default:''} })
 const emit = defineEmits(['completed','updated'])
@@ -146,7 +146,7 @@ onUnmounted(()=>{requestSeq++})
   </template>
   <p v-if="error" class="sos670-error" role="alert">{{ error }}</p>
   <p v-if="success" class="sos670-success" role="status">{{success}}</p>
-  <InvoicePrint657 v-if="previewName" :invoice-name="previewName" doctype="Sales Invoice" @close="previewName=''" />
+  <CounterPremiumInvoice681 v-if="previewName" :invoice-name="previewName" @close="previewName=''" />
 </section>
 </template>
 

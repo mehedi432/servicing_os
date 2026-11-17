@@ -94,9 +94,7 @@ onUnmounted(() => { cancel(); clearTimeout(closer) })
   <div class="sos669-customer" @keydown.esc="open=false">
     <div class="sos669-customer-top">
       <div class="sos669-customer-identity">
-        <span class="sos669-eyebrow">CUSTOMER</span>
-        <strong>{{ label || 'Select customer' }}</strong>
-        <small>Find an existing customer or register a new one</small>
+        <strong>Customer</strong>
       </div>
       <button type="button" class="sos669-new-customer" @click="adding=true;open=false;error='';newName=!props.selected?.name ? query.trim() : '';newMessage=''">
         <span aria-hidden="true">＋</span> New Customer
@@ -113,14 +111,14 @@ onUnmounted(() => { cancel(); clearTimeout(closer) })
       <button type="button" class="sos669-change" @click="clearSelection">Change</button>
     </div>
     <div v-else class="sos669-search-area">
-      <label class="sos669-search-label" for="sos669-customer-search">Search by name or mobile number</label>
+      <label class="sos669-search-label" for="sos669-customer-search">Find customer</label>
       <div class="sos669-search-wrap">
         <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="10.7" cy="10.7" r="6.7"/><path d="m16 16 5 5"/></svg>
         <input id="sos669-customer-search" ref="box" type="search" :value="query" autocomplete="off" inputmode="search"
-          aria-label="Search existing customers by name or mobile number" placeholder="Customer name or 01XXXXXXXXX"
+          aria-label="Search existing customers by name or mobile number" placeholder="Name or mobile number"
           @focus="focus" @blur="blur" @input="query=$event.target.value;open=true;lookup()" />
       </div>
-      <p class="sos669-search-help">Choose a customer once. The selection stays with the cart.</p>
+      
     </div>
 
     <p v-if="error && !adding" class="sos669-error" role="alert">{{ error }}</p>
@@ -167,6 +165,17 @@ onUnmounted(() => { cancel(); clearTimeout(closer) })
   </div>
 </template>
 <style>
+/* Customer Picker v6.78 */
+.sos669-customer{padding:12px!important;border-radius:12px!important}
+.sos669-customer-top{align-items:center!important;flex-wrap:nowrap!important;gap:8px!important;margin-bottom:10px!important}
+.sos669-customer-identity strong{font-size:13px!important;line-height:1.3!important}
+.sos669-new-customer{min-height:34px!important;padding:7px 10px!important;font-size:11px!important;flex-shrink:0!important}
+.sos669-search-label{font-size:10px!important;margin-bottom:5px!important}
+.sos669-search-wrap{min-height:42px!important}
+.sos669-search-wrap input{min-height:40px!important;font-size:12px!important}
+.sos669-selected-customer{padding:9px!important}
+@media(max-width:620px){.sos669-customer-top{flex-wrap:wrap!important}.sos669-new-customer{width:auto!important}}
+
 /* 6.73 — compact eight-customer picker */
 .sos669-results{max-height:340px!important;overflow:auto!important;top:calc(100% - 5px)!important}
 .sos673-grid-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:9px 10px 10px}
@@ -231,4 +240,56 @@ onUnmounted(() => { cancel(); clearTimeout(closer) })
 .sos669-cancel{background:#fffefa!important;border:1px solid #e1c9b7!important;color:#75543b!important}
 .sos669-save{background:#805a3e!important;border:1px solid #805a3e!important;color:#fffefa!important}.sos669-save:hover{background:#69472f!important}.sos669-save:disabled{opacity:.5;cursor:not-allowed}
 @media(max-width:620px){.sos669-form-grid{grid-template-columns:1fr}.sos669-customer{padding:12px}.sos669-customer-top{align-items:center}.sos669-new-customer{width:100%;justify-content:center!important}.sos669-modal-header,.sos669-new-form{padding-left:15px;padding-right:15px}}
+
+/* SOS_CUSTOMER_SINGLE_BORDER_V679 */
+
+/* One border around the complete search control */
+.sos669-search-wrap {
+    display: flex !important;
+    align-items: center !important;
+    gap: 10px !important;
+    border: 1px solid #dfcbb9 !important;
+    border-radius: 11px !important;
+    background: #fffdfa !important;
+    padding: 0 12px !important;
+    min-height: 44px !important;
+    box-shadow: none !important;
+    overflow: hidden !important;
+}
+
+/* Remove all input-level borders and inherited field styling */
+.sos669-search-wrap input,
+.sos669-search-wrap input[type="search"],
+.sos669-search-wrap input:focus,
+.sos669-search-wrap input:hover {
+    appearance: none !important;
+    -webkit-appearance: none !important;
+    border: none !important;
+    border-width: 0 !important;
+    border-radius: 0 !important;
+    outline: none !important;
+    box-shadow: none !important;
+    background: transparent !important;
+    background-image: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    min-height: 40px !important;
+    height: 40px !important;
+    flex: 1 !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    font-size: 13px !important;
+    color: #3c2c25 !important;
+}
+
+.sos669-search-wrap:focus-within {
+    border-color: #a77b59 !important;
+    box-shadow: 0 0 0 3px rgba(167,123,89,.12) !important;
+}
+
+.sos669-search-wrap input::-webkit-search-decoration,
+.sos669-search-wrap input::-webkit-search-cancel-button {
+    -webkit-appearance: none !important;
+}
+
 </style>

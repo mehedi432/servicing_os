@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
-import InvoicePrint657 from './InvoicePrint657.vue'
+import UnifiedInvoicePrint684 from './UnifiedInvoicePrint684.vue'
 
 // SERVICING_OS_COUNTER_658: print existing invoices; never clone the accounting document.
 const props = defineProps({ scope: {type:String,default:'all'} })
@@ -97,7 +97,7 @@ watch(availableScope,refresh)
       </div>
       <p class="sos658-footnote">Duplicate Copy prints the same existing invoice number with a clear copy label. No new invoice, stock movement or payment is created.</p>
     </div>
-    <InvoicePrint657 v-if="preview" :key="preview.doctype+preview.name+String(preview.duplicate)" :invoice-name="preview.name" :doctype="preview.doctype" :duplicate="preview.duplicate" @close="preview=null" />
+    <UnifiedInvoicePrint684 v-if="preview" :key="preview.doctype+preview.name+String(preview.duplicate)" :invoice-name="preview.name" :doctype="preview.doctype" :duplicate="preview.duplicate" @close="preview=null" />
   </section>
 </template>
 

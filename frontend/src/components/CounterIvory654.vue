@@ -46,13 +46,50 @@ const logoutError = ref('')
 const profileWrap = ref(null)
 const searchInput = ref(null)
 const actions = [
-  {key:'receive',en:'Receive Device',bn:'ডিভাইস গ্রহণ',help:'New service intake',helpBn:'নতুন সার্ভিস গ্রহণ',paths:['M4 4h11a2 2 0 0 1 2 2v6','M6 17H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2','M10 19H8','M14 15h7v7h-7z','M17 19h1']},
+  {key:'receive',en:'Service Receive',bn:'ডিভাইস গ্রহণ',help:'New service intake',helpBn:'নতুন সার্ভিস গ্রহণ',paths:['M4 4h11a2 2 0 0 1 2 2v6','M6 17H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2','M10 19H8','M14 15h7v7h-7z','M17 19h1']},
   {key:'sale',en:'New Sale',bn:'নতুন বিক্রয়',help:'Retail counter',helpBn:'খুচরা বিক্রয়',paths:['M2 3h2l2.2 10.6a2 2 0 0 0 2 1.6H19a2 2 0 0 0 1.96-1.6L22 7H5','M9 21h.01','M19 21h.01']},
   {key:'repair',en:'Repair Jobs',bn:'মেরামতের কাজ',help:'Track and process',helpBn:'কাজের অগ্রগতি',paths:['M14.7 6.3a5 5 0 0 0-6.4 6.4L3 18l3 3 5.3-5.3a5 5 0 0 0 6.4-6.4l-3.3 2-3-3z']},
   {key:'billing',en:'Billing & Delivery',bn:'বিল ও ডেলিভারি',help:'Invoice and handover',helpBn:'বিল ও পণ্য হস্তান্তর',paths:['M6 3h12a2 2 0 0 1 2 2v16l-3-2-3 2-3-2-3 2-3-2V5a2 2 0 0 1 2-2z','M9 8h6','M9 12h6','M9 16h3']},
   {key:'used',en:'Used Laptops',bn:'পুরোনো ল্যাপটপ',help:'Trade and resale',helpBn:'ক্রয় ও পুনর্বিক্রয়',paths:['M4 5h16v12H4z','M2 21h20','M8 17l-1 4','M16 17l1 4']},
   {key:'stock',en:'Stock & Items',bn:'স্টক ও পণ্য',help:'Inventory lookup',helpBn:'ইনভেন্টরি অনুসন্ধান',paths:['M12 2 3 7l9 5 9-5-9-5z','M3 7v10l9 5 9-5V7','M12 12v10']}
 ]
+// SOS_COUNTER_HERO_676 — read-only, permission-aware operational snapshot.
+const hero = ref(null)
+const heroBusy = ref(false)
+const heroError = ref('')
+const heroUpdated = ref('')
+let heroTimer = null
+const heroCards = computed(() => [
+  { key:'sales_total', en:'Today’s Sales', bn:'আজকের বিক্রয়', money:true, note:'Submitted invoices today', noteBn:'আজকের জমা ইনভয়েস' },
+  { key:'received_today', en:'Service Received', bn:'আজ সার্ভিস গ্রহণ', note:'Devices received today', noteBn:'আজ গৃহীত ডিভাইস' },
+  { key:'open_repairs', en:'Active Service Jobs', bn:'চলমান সার্ভিস কাজ', note:'Not delivered or cancelled', noteBn:'ডেলিভারি বাকি' },
+  { key:'ready_delivery', en:'Ready for Delivery', bn:'ডেলিভারির জন্য প্রস্তুত', note:'Ready for collection', noteBn:'হস্তান্তরের অপেক্ষায়' }
+])
+function heroDisplay(card) {
+  const v = hero.value?.metrics?.[card.key]
+  if (v === null || v === undefined || v === '') return '—'
+  const n = Number(v)
+  if (!Number.isFinite(n)) return '—'
+  return card.money ? '৳ ' + n.toLocaleString('en-BD',{minimumFractionDigits:2,maximumFractionDigits:2}) : n.toLocaleString('en-BD')
+}
+async function refreshHero() {
+  if (heroBusy.value || !props.connected) return
+  heroBusy.value = true; heroError.value = ''
+  try {
+    const r = await fetch('/api/method/servicing_os.api.counter_snapshot.get_counter_snapshot', {credentials:'same-origin',cache:'no-store'})
+    if (!r.ok) throw new Error('HTTP '+r.status)
+    const data = await r.json()
+    if (data.exc || !data.message?.metrics) throw new Error('Dashboard data unavailable')
+    hero.value = data.message
+    heroUpdated.value = new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})
+  } catch (e) { heroError.value = e?.message || 'Unable to load metrics' }
+  finally { heroBusy.value = false }
+}
+onMounted(() => { refreshHero(); heroTimer = window.setInterval(refreshHero, 120000) })
+onUnmounted(() => { if (heroTimer) window.clearInterval(heroTimer) })
+// Reload when connectivity is restored without modifying any transaction.
+import { watch } from 'vue'
+watch(() => props.connected, v => { if (v) refreshHero() })
 const isEmpty = computed(() => !props.active)
 const statusLabel = computed(() => props.loading ? (bn.value ? 'সংযোগ হচ্ছে' : 'Connecting') : props.error ? (bn.value ? 'সংযোগ নেই' : 'Offline') : props.connected ? (bn.value ? 'সংযুক্ত' : 'Connected') : (bn.value ? 'সংযোগ নেই' : 'Offline'))
 async function openSearch() {
@@ -132,6 +169,22 @@ async function logout() {
       <div><h1>{{ bn ? 'কাউন্টার' : 'Counter' }}</h1><p>{{ bn ? 'বিক্রয় · সার্ভিস · ডেলিভারি · বিলিং' : 'Sales · Service · Delivery · Billing' }}</p></div>
       <span class="sos652-ops">{{ bn ? 'অপারেশন' : 'Operations' }}</span>
     </div>
+
+    <!-- SOS_COUNTER_HERO_676: read-only snapshot; no hard-coded business figures -->
+    <section class="sos676-hero" aria-label="Counter performance overview">
+      <div class="sos676-hero-head">
+        <div class="sos676-hero-title"><span class="sos676-eyebrow">{{ bn ? 'আজকের অপারেশন' : 'TODAY AT A GLANCE' }}</span><h2>{{ bn ? 'কাউন্টার পারফরম্যান্স' : 'Your counter, at a glance' }}</h2><p>{{ bn ? 'বিক্রয়, সার্ভিস ও ডেলিভারি — লাইভ তথ্য' : 'Sales, repairs and handovers · live operational figures' }}</p></div>
+        <button type="button" class="sos676-refresh" :disabled="heroBusy || !connected" @click="refreshHero" :title="bn ? 'হালনাগাদ' : 'Refresh figures'">↻ <span>{{ heroBusy ? (bn ? 'লোড হচ্ছে' : 'Loading') : (bn ? 'রিফ্রেশ' : 'Refresh') }}</span></button>
+      </div>
+      <div class="sos676-metrics">
+        <div v-for="(c,i) in heroCards" :key="c.key" class="sos676-metric">
+          <span class="sos676-metric-top"><span class="sos676-metric-label">{{ bn ? c.bn : c.en }}</span><span class="sos676-index">0{{ i+1 }}</span></span>
+          <strong class="sos676-value">{{ heroBusy && !hero ? '···' : heroDisplay(c) }}</strong>
+          <small>{{ bn ? c.noteBn : c.note }}</small>
+        </div>
+      </div>
+      <div class="sos676-foot"><span>{{ heroError ? (bn ? 'তথ্য লোড করা যায়নি' : 'Metrics unavailable: '+heroError) : heroUpdated ? (bn ? 'সর্বশেষ আপডেট ' : 'Updated ') + heroUpdated : (bn ? 'তথ্য লোড হচ্ছে' : 'Waiting for live data') }}</span><span v-if="hero?.warnings?.length" :title="hero.warnings.join(' • ')">{{ bn ? 'কিছু তথ্য সীমিত' : 'Some figures restricted' }} · {{ hero.warnings.length }}</span><span v-else>{{ bn ? 'লাইভ ইআরপি তথ্য' : 'ERPNext · live data' }}</span></div>
+    </section>
 
     <nav class="sos652-grid" :aria-label="bn ? 'কাউন্টার কাজ' : 'Counter operations'">
       <button v-for="a in actions" :key="a.key" type="button" class="sos652-tile" :class="{'sos652-selected':active===a.key}" :aria-pressed="active===a.key" @click="doSelect(a.key)">
@@ -332,6 +385,25 @@ async function logout() {
 .sos653-modal-content .sos653-invoice{border:0;border-radius:0;padding:0;background:transparent}
 @media(max-width:650px){.sos653-modal-backdrop{padding:7px;align-items:end}.sos653-modal{max-height:97vh;border-radius:15px 15px 0 0}.sos653-modal-content{padding:11px}.sos653-floating-invoice{right:12px;bottom:12px}}
 
+
+/* SOS_COUNTER_HERO_676 */
+.sos676-hero{background:linear-gradient(125deg,#efe0d0 0%,#f8f0e7 55%,#fffaf4 100%)!important;border:1px solid #e2cdb9!important;border-radius:18px!important;padding:19px!important;margin:0 0 16px!important;box-shadow:0 7px 24px #5e3f2810!important;color:#3c2c25!important}
+.sos676-hero-head{display:flex;justify-content:space-between;align-items:flex-start;gap:15px;margin-bottom:17px}
+.sos676-eyebrow{font-size:10px;letter-spacing:1.6px;color:#8d6648;font-weight:800}
+.sos676-hero-title h2{font-size:23px;line-height:1.16;letter-spacing:-.035em;font-weight:800;color:#3c2c25;margin:6px 0 5px}
+.sos676-hero-title p{font-size:11px;color:#8b725e;margin:0}
+.sos652-shell .sos676-refresh{display:inline-flex!important;align-items:center!important;gap:7px!important;border:1px solid #dac4af!important;background:#fffaf5!important;color:#6d4c37!important;border-radius:10px!important;padding:8px 11px!important;font-size:11px!important;font-weight:700!important;white-space:nowrap!important}
+.sos676-refresh:disabled{opacity:.55;cursor:wait!important}
+.sos676-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+.sos676-metric{min-width:0;display:flex;flex-direction:column;gap:9px;background:#fffcf8;border:1px solid #e8d9c9;border-radius:13px;padding:15px 14px;box-shadow:0 2px 5px #4a2b1708}
+.sos676-metric-top{display:flex;align-items:flex-start;justify-content:space-between;gap:5px}
+.sos676-metric-label{font-size:11px;font-weight:700;color:#705440}
+.sos676-index{font-size:10px;font-weight:800;color:#b9a18d}
+.sos676-value{font-size:clamp(19px,2vw,28px);font-variant-numeric:tabular-nums;line-height:1.1;letter-spacing:-.04em;color:#39271d;overflow-wrap:anywhere}
+.sos676-metric small{font-size:10px;color:#9c8570;line-height:1.3}
+.sos676-foot{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;font-size:10px;color:#8e7159;margin-top:12px}
+@media(max-width:900px){.sos676-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:470px){.sos676-hero{padding:13px!important}.sos676-hero-title h2{font-size:19px}.sos676-metric{padding:12px 10px}.sos676-value{font-size:20px}.sos676-hero-head{gap:7px}}
 </style>
 
 <!-- SERVICING_OS_COUNTER_658 -->
