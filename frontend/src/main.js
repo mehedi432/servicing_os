@@ -1,3 +1,4 @@
+import './components-child-table-701.js'; // SOS_COMPONENTS_CHILD_TABLE_701
 import './servicing-receive-compact-695.js'; // SOS_COMPONENT_RECEIVE_COMPACT_695
 import './servicingAuthRedirect645.js'; // S645_AUTH_LOGOUT
 import './i18n/servicingLanguage.js'

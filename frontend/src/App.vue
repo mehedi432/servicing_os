@@ -16,6 +16,7 @@ import CounterRetailTabs697 from './components/CounterRetailTabs697.vue' // SOS_
 import CounterIvory654 from './components/CounterIvory654.vue'
 import CounterInvoiceModal654 from './components/CounterInvoiceModal654.vue'
 import CounterBilling654 from './components/CounterBilling654.vue';
+import BillingDeliveryCommand700 from './components/BillingDeliveryCommand700.vue' // SOS_BILLING_DELIVERY_700
 const counter649Selection = ref('receive');
 // SERVICING_COUNTER_PATCH_651: select operations inside the Counter workspace.
 function counter649Select(action) {
@@ -1854,8 +1855,14 @@ const sosSalesAllowed = [
     </div>
   </template>
   <template #billing="{ openInvoice }">
+    <!-- SOS_BILLING_DELIVERY_700: original Counter billing is preserved in legacy slot -->
+    <BillingDeliveryCommand700>
+      <template #legacy>
     <CounterBilling654 @create="openInvoice" />
-  </template>
+  
+      </template>
+    </BillingDeliveryCommand700>
+    </template>
 <!-- SERVICING_COUNTER_PATCH_654 -->
 </CounterIvory654>
 </section>
