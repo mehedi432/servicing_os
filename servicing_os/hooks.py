@@ -322,3 +322,8 @@ for _sos671_dt in ('Sales Invoice', 'POS Invoice'):
     else:
         raise TypeError('Unsupported before_submit hook type: '+_sos671_dt)
 del _sos671_doc_events, _sos671_dt, _sos671_actions, _sos671_current, _sos671_target
+
+# BEGIN SOS_REMOTE_DEPLOYMENT_703
+after_install = "servicing_os.deployment.ensure_schema"
+after_migrate = "servicing_os.deployment.ensure_schema"
+# END SOS_REMOTE_DEPLOYMENT_703
