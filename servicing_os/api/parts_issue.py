@@ -1,7 +1,7 @@
 import frappe
 from frappe.utils import flt
 
-COMPANY = "AL MODINA COMPUTERS LIMITED"
+from servicing_os.api.site_company_706 import current_company, validate_job_shop
 WAREHOUSE = "Spare Parts - AMCL"
 MANAGERS = {"System Manager", "Stock Manager"}
 
@@ -19,7 +19,7 @@ def _authorize(write=False):
 def _get_mr(name):
     mr=frappe.get_doc("Material Request", name)
     mr.check_permission("read")
-    if mr.company != COMPANY or mr.material_request_type != "Material Issue":
+    if mr.company != current_company() or mr.material_request_type != "Material Issue":
         frappe.throw("Material Request company or purpose mismatch.")
     if mr.docstatus != 1 or mr.status in ("Stopped", "Cancelled"):
         frappe.throw("Only active, submitted Material Issue requests can be issued.")
@@ -28,8 +28,7 @@ def _get_mr(name):
     job=frappe.get_doc("Service Job", mr.custom_service_job)
     if job.status in ("Cancelled", "Delivered"):
         frappe.throw("Cannot issue parts for a closed Service Job.")
-    if job.get("shop") and job.shop != COMPANY:
-        frappe.throw("Service Job belongs to another company.")
+    validate_job_shop(job)
     return mr
 
 
@@ -86,7 +85,7 @@ def _get_lines(mr):
 def get_issue_candidates():
     _authorize()
     mrs=frappe.get_list("Material Request", filters={
-        "company":COMPANY,"material_request_type":"Material Issue",
+        "company":current_company(),"material_request_type":"Material Issue",
         "docstatus":1,"custom_service_job":["is","set"]},
         fields=["name","custom_service_job","status","transaction_date"],
         order_by="modified desc", limit_page_length=100)
@@ -103,7 +102,7 @@ def get_issue_candidates():
                 "status":mr.status,"lines":lines,"drafts":_drafts(mr.name)})
         except frappe.PermissionError:
             continue
-    return {"requests":entries,"warehouse":WAREHOUSE,"company":COMPANY,
+    return {"requests":entries,"warehouse":WAREHOUSE,"company":current_company(),
         "can_create": bool(frappe.has_permission("Stock Entry", "create"))}
 
 
@@ -133,16 +132,16 @@ def create_draft_issue(material_request):
         available=frappe.db.get_value("Bin",{"item_code":code,"warehouse":WAREHOUSE},"actual_qty") or 0
         if flt(available)+1e-7 < qty:
             frappe.throw("Insufficient on-hand stock for " + code + ". Available " + str(available) + ", needed " + str(qty))
-    company=frappe.get_doc("Company", COMPANY)
+    company=frappe.get_doc("Company", current_company())
     cost_center=company.default_cost_center
     expense_account=company.default_expense_account
     if not expense_account or not frappe.db.exists("Account",expense_account):
         frappe.throw("Configure Company default expense account before issuing parts.")
     wh=frappe.get_doc("Warehouse",WAREHOUSE)
-    if wh.company!=COMPANY or wh.is_group or wh.disabled:
+    if wh.company!=current_company() or wh.is_group or wh.disabled:
         frappe.throw("Spare Parts warehouse is unavailable.")
     entry=frappe.get_doc({"doctype":"Stock Entry","stock_entry_type":"Material Issue",
-        "purpose":"Material Issue","company":COMPANY,
+        "purpose":"Material Issue","company":current_company(),
         "from_warehouse":WAREHOUSE,
         "remarks":"Repair parts for " + mr.custom_service_job + " / Material Request " + mr.name,
         "items":[{

@@ -2,7 +2,7 @@
 import frappe
 from frappe.utils import nowdate, flt
 
-COMPANY = "AL MODINA COMPUTERS LIMITED"
+from servicing_os.api.site_company_706 import current_company, validate_job_shop
 WAREHOUSE = "Spare Parts - AMCL"
 ITEM_GROUP = "Computer Spare Parts"
 
@@ -31,8 +31,7 @@ def check_job_access(job_name, write=False):
 
     job = frappe.get_doc("Service Job", job_name)
 
-    if job.get("shop") and job.shop != COMPANY:
-        frappe.throw("Service Job belongs to another shop.")
+    validate_job_shop(job)
 
     if is_manager():
         return job
@@ -83,15 +82,15 @@ def check_item(item_code):
 def setup():
     """Installation only; run using bench execute."""
 
-    if not frappe.db.exists("Company", COMPANY):
-        frappe.throw("Company missing: " + COMPANY)
+    if not frappe.db.exists("Company", current_company()):
+        frappe.throw("Company missing: " + current_company())
 
     if not frappe.db.exists("Warehouse", WAREHOUSE):
         frappe.throw("Warehouse missing: " + WAREHOUSE)
 
     wh = frappe.get_doc("Warehouse", WAREHOUSE)
 
-    if wh.company != COMPANY or wh.is_group or wh.disabled:
+    if wh.company != current_company() or wh.is_group or wh.disabled:
         frappe.throw("Invalid Spare Parts warehouse.")
 
     if not frappe.db.exists("Item Group", ITEM_GROUP):
@@ -178,7 +177,7 @@ def create_parts_request(
     )
 
     if (
-        warehouse.company != COMPANY
+        warehouse.company != current_company()
         or warehouse.disabled
         or warehouse.is_group
     ):
@@ -189,7 +188,7 @@ def create_parts_request(
     mr = frappe.get_doc({
         "doctype": "Material Request",
         "material_request_type": "Material Issue",
-        "company": COMPANY,
+        "company": current_company(),
         "transaction_date": nowdate(),
         "schedule_date": nowdate(),
         "custom_service_job": job_name,
@@ -232,7 +231,7 @@ def list_parts_requests(job_name=None):
 
     filters = {
         "material_request_type": "Material Issue",
-        "company": COMPANY,
+        "company": current_company(),
         "custom_service_job": ["is", "set"],
     }
 
@@ -297,7 +296,7 @@ def approve_parts_request(material_request):
         material_request,
     )
 
-    if mr.company != COMPANY:
+    if mr.company != current_company():
         frappe.throw("Incorrect Company.")
 
     if mr.material_request_type != "Material Issue":
@@ -357,7 +356,7 @@ def create_multi_parts_request(job_name, items, remarks=None):
     if not frappe.get_meta("Material Request").has_field("custom_service_job"):
         frappe.throw("Material Request Service Job field is missing.")
     wh = frappe.get_doc("Warehouse", WAREHOUSE)
-    if wh.company != COMPANY or wh.disabled or wh.is_group:
+    if wh.company != current_company() or wh.disabled or wh.is_group:
         frappe.throw("Spare Parts warehouse is unavailable.")
 
     mr_lines = []
@@ -389,7 +388,7 @@ def create_multi_parts_request(job_name, items, remarks=None):
     mr = frappe.get_doc({
         "doctype": "Material Request",
         "material_request_type": "Material Issue",
-        "company": COMPANY,
+        "company": current_company(),
         "transaction_date": nowdate(),
         "schedule_date": nowdate(),
         "custom_service_job": job_name,

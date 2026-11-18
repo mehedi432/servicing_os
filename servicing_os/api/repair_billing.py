@@ -3,7 +3,7 @@ import frappe
 from frappe.utils import flt
 
 # SERVICING_OS_REPAIR_BILLING_616A
-COMPANY = "AL MODINA COMPUTERS LIMITED"
+from servicing_os.api.site_company_706 import current_company, validate_job_shop
 WAREHOUSE = "Spare Parts - AMCL"
 LABOR_ITEM = "AMCL-REPAIR-LABOR"
 FIELD = "custom_service_job"
@@ -28,8 +28,7 @@ def finite_nonnegative(value, label):
 
 def get_job(job_name):
     job = frappe.get_doc("Service Job", job_name)
-    if job.get("shop") and job.shop != COMPANY:
-        frappe.throw("Service Job belongs to another company")
+    validate_job_shop(job)
     if not job.get("customer") or not frappe.db.exists("Customer", job.customer):
         frappe.throw("Service Job has no valid ERPNext Customer")
     if job.status == "Cancelled":
@@ -45,14 +44,14 @@ def get_issued_rows(job_name):
     """
     mr_names = frappe.get_all(
         "Material Request",
-        filters={"company": COMPANY, "material_request_type": "Material Issue",
+        filters={"company": current_company(), "material_request_type": "Material Issue",
                  "custom_service_job": job_name, "docstatus": 1},
         pluck="name", limit_page_length=10000,
     )
     if not mr_names:
         return []
     entries = frappe.get_all("Stock Entry", filters={
-        "company": COMPANY, "purpose": "Material Issue", "docstatus": 1},
+        "company": current_company(), "purpose": "Material Issue", "docstatus": 1},
         pluck="name", limit_page_length=10000)
     if not entries:
         return []
@@ -94,7 +93,7 @@ def get_selling_rate(item_code):
 
 def existing_invoices(job_name):
     return frappe.get_all("Sales Invoice", filters={
-        FIELD: job_name, "company": COMPANY,
+        FIELD: job_name, "company": current_company(),
         "docstatus": ["!=", 2], "is_return": 0},
         fields=["name", "docstatus", "grand_total", "outstanding_amount"],
         limit_page_length=100)
@@ -169,7 +168,7 @@ def create_draft_repair_invoice(job_name, labor_rate=0, part_rates=None):
         frappe.throw("No issued parts and no labor charge; cannot make empty invoice")
 
     invoice = frappe.get_doc({
-        "doctype": "Sales Invoice", "company": COMPANY, "customer": job.customer,
+        "doctype": "Sales Invoice", "company": current_company(), "customer": job.customer,
         "update_stock": 0, "custom_service_job": job.name,
         "remarks": "Repair service: " + job.name + " (stock previously issued via Material Issue)",
         "items": rows,
@@ -191,7 +190,7 @@ def repair_contribution_report(limit=100):
     """
     require_manager()
     limit = max(1, min(int(limit), 200))
-    jobs = frappe.get_all("Service Job", filters={"shop": COMPANY},
+    jobs = frappe.get_all("Service Job", filters={"shop": current_company()},
                           fields=["name", "status", "customer", "technician"],
                           order_by="modified desc", limit_page_length=limit)
     result = []
@@ -226,18 +225,18 @@ def repair_contribution_report(limit=100):
                 round(net_sales - parts_cost, 2) if submitted and costs_known else None,
             "cost_complete": costs_known,
         })
-    return {"company": COMPANY, "currency": "BDT", "jobs": result,
+    return {"company": current_company(), "currency": "BDT", "jobs": result,
             "disclaimer": "Contribution excludes internal labor, overhead, taxes, and unrelated costs; missing valuation shows null."}
 
 
 def install():
     """Run using bench execute to create a single custom Sales Invoice Link field."""
-    company = frappe.get_doc("Company", COMPANY)
+    company = frappe.get_doc("Company", current_company())
     if company.default_currency != "BDT":
         frappe.throw("Expected BDT company")
     for account, root in (("Sales - AMCL", "Income"), ("Service - AMCL", "Income")):
         acc = frappe.get_doc("Account", account)
-        if acc.company != COMPANY or acc.root_type != root or acc.is_group:
+        if acc.company != current_company() or acc.root_type != root or acc.is_group:
             frappe.throw("Invalid income account: " + account)
     field = frappe.get_meta("Sales Invoice").get_field(FIELD)
     if field:

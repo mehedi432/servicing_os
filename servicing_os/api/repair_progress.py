@@ -6,9 +6,7 @@ from servicing_os.api.lifecycle import TRANSITIONS
 TECHNICIAN_ROLE = "Service Technician"
 MANAGER_ROLES = {"System Manager"}
 MANAGER_ONLY = {"Ready to Deliver", "Delivered", "Cancelled"}
-COMPANY = "AL MODINA COMPUTERS LIMITED"
-
-
+from servicing_os.api.site_company_706 import current_company, validate_job_shop
 def _manager():
     user = frappe.session.user
     return user == "Administrator" or bool(MANAGER_ROLES.intersection(frappe.get_roles(user)))
@@ -22,8 +20,7 @@ def _get_job(job_name):
         frappe.throw("Please log in", frappe.PermissionError)
     manager = _manager()
     doc = frappe.get_doc("Service Job", job_name)
-    if doc.get("shop") and doc.shop != COMPANY:
-        frappe.throw("This job belongs to another company", frappe.PermissionError)
+    validate_job_shop(doc)
     if manager:
         if not frappe.has_permission("Service Job", "read", doc=doc):
             frappe.throw("Cannot read Service Job", frappe.PermissionError)
