@@ -40,3 +40,11 @@ def verify():
         'existing_service_jobs': frappe.db.count('Service Job'),
         'note': 'Existing customer/job/invoice data not rewritten by deployment setup',
     }
+
+# BEGIN SOS_PARTS_REQUEST_SCHEMA_705
+_sos705_previous_ensure_schema = ensure_schema
+def ensure_schema():
+    original = _sos705_previous_ensure_schema()
+    from servicing_os.parts_request_schema_705 import ensure as _sos705_parts_ensure
+    return {"existing_schema": original, "material_request_link": _sos705_parts_ensure()}
+# END SOS_PARTS_REQUEST_SCHEMA_705
