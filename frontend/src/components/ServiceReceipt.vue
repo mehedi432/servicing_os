@@ -305,25 +305,144 @@ watch(() => job.value.name, async (name) => {
   } catch (e) { console.error("Receipt QR error:", e); }
 }, { immediate: true });
 
+// SOS_RECEIPT_ISOLATED_PRINT_V27 — print ONLY the visible receipt, never the full Vue application.
+// Current-page @media print rules hide large sections of the application; they can
+// produce empty paper in Safari. Freeze the actual preview's computed styles into
+// an independent document so app-wide print styles cannot affect the customer receipt.
+function sos27CopyRenderedStyles(source, target) {
+  const pending = [[source, target]]
+  while (pending.length) {
+    const [from, to] = pending.pop()
+    const computed = window.getComputedStyle(from)
+    const declarations = []
+    for (let i = 0; i < computed.length; i++) {
+      const name = computed[i]
+      const value = computed.getPropertyValue(name)
+      if (value) declarations.push(`${name}:${value};`)
+    }
+    // Computed styles preserve V25/V26 receipt typography, labels, barcode
+    // dimensions, received-component rows and printer-size-specific layout.
+    to.setAttribute('style', declarations.join(''))
+    for (let i = from.children.length - 1; i >= 0; i--) {
+      pending.push([from.children[i], to.children[i]])
+    }
+  }
+}
+
+async function sos27PrintWindowReady(win) {
+  const doc = win.document
+  // Data-URL QR/barcode images should be ready before the print dialog opens.
+  const images = Array.from(doc.querySelectorAll('#sos27-print-root img'))
+  await Promise.all(images.map(img => {
+    if (img.complete) return Promise.resolve()
+    return new Promise(resolve => {
+      const finish = () => resolve()
+      img.addEventListener('load', finish, { once: true })
+      img.addEventListener('error', finish, { once: true })
+      win.setTimeout(finish, 3500)
+    })
+  }))
+  try { if (doc.fonts?.ready) await doc.fonts.ready } catch (_) { /* font fallback available */ }
+  await new Promise(resolve => win.setTimeout(resolve, 250))
+}
+
 async function printReceipt() {
+  // The 50x30 sticker uses its own, already-working QR label print pipeline.
   if (format.value === 'sticker') { await sos35Print(); return }
+
+  const original = document.getElementById('servicing-receipt-paper')
+  if (!original || !original.textContent?.trim()) {
+    window.alert('Receipt content is not ready. Open the receipt preview and try again.')
+    return
+  }
+
   const paper = sos683Paper.value
-  // Sanitized numeric dimensions only. Never put user strings in @page CSS.
-  sos683RemovePageRule()
-  const page = document.createElement('style')
-  page.id = 'sos683-receipt-page'
-  page.textContent = `@media print { @page { size: ${paper.width}mm ${paper.height}mm; margin: 0; } }`
-  document.head.appendChild(page)
+  const w = Number(paper.width)
+  const h = Number(paper.height)
+  if (!Number.isFinite(w) || !Number.isFinite(h) || w < 40 || w > 216 || h < 60 || h > 420) {
+    window.alert('Invalid selected paper dimensions.')
+    return
+  }
+
+  // Open during the ORIGINAL user click, before any await, for Safari pop-up rules.
+  const win = window.open('', '_blank', 'width=900,height=780')
+  if (!win) {
+    window.alert('Safari blocked the receipt print window. Allow pop-ups for this SERVICING OS address and try again.')
+    return
+  }
+
   try {
-    await nextTick()
-    if (document.fonts?.ready) await document.fonts.ready
-    window.addEventListener('afterprint', sos683RemovePageRule, { once: true })
-    window.print()
-    // Browser print drivers differ in afterprint handling; do not leak page rules.
-    window.setTimeout(sos683RemovePageRule, 60000)
+    const copy = original.cloneNode(true)
+    sos27CopyRenderedStyles(original, copy)
+    copy.removeAttribute('id')
+    copy.setAttribute('data-sos27-print', 'SOS_RECEIPT_ISOLATED_PRINT_V27')
+    // Keep the actual paper dimensions but remove screen-only preview constraints.
+    copy.style.setProperty('box-sizing', 'border-box', 'important')
+    copy.style.setProperty('width', `${w}mm`, 'important')
+    copy.style.setProperty('max-width', 'none', 'important')
+    copy.style.setProperty('min-height', '0', 'important')
+    copy.style.setProperty('height', 'auto', 'important')
+    copy.style.setProperty('max-height', 'none', 'important')
+    copy.style.setProperty('position', 'relative', 'important')
+    copy.style.setProperty('top', 'auto', 'important')
+    copy.style.setProperty('left', 'auto', 'important')
+    copy.style.setProperty('overflow', 'visible', 'important')
+    copy.style.setProperty('box-shadow', 'none', 'important')
+    copy.style.setProperty('margin', '0', 'important')
+    copy.style.setProperty('background', '#ffffff', 'important')
+    copy.style.setProperty('color', '#111111', 'important')
+
+    const content = copy.outerHTML
+    const doc = win.document
+    doc.open()
+    doc.write(`<!doctype html><html><head><meta charset="utf-8"><title>Service Receipt</title>
+      <style>
+        @page { size: ${w}mm ${h}mm; margin: 0; }
+        html, body { box-sizing: border-box; margin: 0; padding: 0; background: white; color: #111; }
+        body { width: ${w}mm; }
+        *, *::before, *::after { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        #sos27-print-root { margin: 0; padding: 0; width: ${w}mm; }
+        #sos27-controls { display: none; }
+        @media screen {
+          html, body { width: auto; min-height: 100%; background: #eee8df; }
+          #sos27-controls { display: flex; align-items: center; justify-content: space-between;
+             gap: 12px; padding: 12px 16px; background: #fff8f0; border-bottom: 1px solid #dccab4;
+             font: 13px Arial, sans-serif; color: #483322; position: sticky; top: 0; z-index: 5; }
+          #sos27-print-now { background: #785337; color: #fff; border: 0; border-radius: 9px;
+             padding: 11px 18px; font-weight: 800; cursor: pointer; }
+          #sos27-print-root { margin: 16px auto 30px; background: #fff; box-shadow: 0 3px 18px #3332; }
+        }
+        @media print {
+          #sos27-controls { display: none !important; }
+          html, body, #sos27-print-root { margin: 0 !important; padding: 0 !important;
+             box-shadow: none !important; background: white !important; }
+          #sos27-print-root { width: ${w}mm !important; }
+        }
+      </style></head><body>
+      <div id="sos27-controls"><span>Service Receipt · ${w} × ${h} mm</span>
+      <button type="button" id="sos27-print-now">Print / Reprint Receipt</button></div>
+      <main id="sos27-print-root">${content}</main>
+      </body></html>`)
+    doc.close()
+
+    // Manual button remains available if Safari blocks automatic print()
+    // after asynchronous font/image loading.
+    doc.getElementById('sos27-print-now')?.addEventListener('click', () => {
+      win.focus()
+      win.print()
+    })
+    await sos27PrintWindowReady(win)
+    if (!win.closed) {
+      win.focus()
+      win.print()
+    }
   } catch (error) {
-    sos683RemovePageRule()
-    throw error
+    console.error('SERVICING OS V27 receipt print:', error)
+    if (!win.closed) {
+      const panel = win.document.getElementById('sos27-controls')
+      if (panel) panel.insertAdjacentText('beforeend', ' · Automatic printing failed; use Print button.')
+    }
+    window.alert('Could not start automatic printing. Use the Print button in the receipt window, or check the browser console.')
   }
 }
 </script>
