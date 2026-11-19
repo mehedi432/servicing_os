@@ -24,7 +24,7 @@ import { computed, ref, watch, onMounted, onBeforeUnmount } from 'vue';
 import ServiceJobSticker629 from './ServiceJobSticker629.vue'
 import ServiceJobRecordActions699 from './ServiceJobRecordActions699.vue'; // SOS_REPAIR_RECORD_ACTIONS_699
 const sos629StickerJob = ref(''); // SOS_QR_STICKER_UI_629
-const emit = defineEmits(['receive', 'manage']);
+const emit = defineEmits(['receive', 'manage', 'handover']);
 const jobsView=ref('list'); // SOS_JOBS_GRID_625A
 const jobs=ref([]), filter=ref('All'), term=ref(''), options=ref(['All']);
 const loading=ref(false), detailLoading=ref(false), saving=ref(false);
@@ -36,7 +36,8 @@ const techs=ref([]), tech=ref('');
 // SOS_COUNTER_REPAIR_TABS_698: optional Counter-only scope. Standalone jobs stay unchanged.
 const props = defineProps({
   counterScope: { type: String, default: 'all' },
-  refreshToken: { type: Number, default: 0 }
+  refreshToken: { type: Number, default: 0 },
+  guidedHandover: Boolean
 });
 const visibleJobs = computed(() => {
   const scope = props.counterScope;
@@ -107,6 +108,17 @@ async function sos629Start(){
   await choose(jobs.value.find(j => j.name === id) || {name:id});
 }
 onMounted(sos629Start);
+function onHandover(event) {
+  if (event.detail?.service_job === selected.value?.name) {
+    selected.value = null;
+    detail.value = null;
+  }
+  load();
+}
+onMounted(() => {
+  if (props.guidedHandover) window.addEventListener('servicing-os-job-delivered', onHandover);
+});
+onBeforeUnmount(() => window.removeEventListener('servicing-os-job-delivered', onHandover));
 // SOS_REPAIR_RECORD_ACTIONS_699 — keep native job register and invoice workflows.
 async function sos699Saved() {
   await load();
@@ -169,6 +181,9 @@ async function sos699Deleted() {
           <div v-if="actionError" class="sj-error" role="alert">{{actionError}}</div>
           <div v-if="notice" class="sj-success" role="status">{{notice}}</div>
           <template v-if="detail">
+            <button v-if="guidedHandover && ['Ready to Deliver', 'Delivered'].includes(detail.status)" type="button" class="sj-primary sj-handover" @click="emit('handover', selected.name)">
+              {{ detail.status === 'Delivered' ? 'Open delivery documents' : 'Open Delivery Desk' }}
+            </button>
             <ServiceJobRecordActions699 :job-name="selected.name" @saved="sos699Saved" @deleted="sos699Deleted" />
             <div class="sj-print-sticker"><button type="button" @click="sos629StickerJob = selected.name">Print QR Device Sticker</button></div>
             <div class="sj-info">
@@ -189,6 +204,7 @@ async function sos699Deleted() {
   <ServiceJobSticker629 v-if="sos629StickerJob" :job-name="sos629StickerJob" @close="sos629StickerJob = ''" />
 </template>
 <style scoped>
+.sj-handover{margin-bottom:12px}
 .sj-list-top{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:0 0 12px;font-size:14px;color:#634e35}
 .sj-view-switch{display:flex;gap:3px;padding:3px;border:1px solid #e7daca;border-radius:10px;background:#f7f0e7}
 .sj-view-switch button{border:0;border-radius:7px;background:transparent;color:#715a40;font-size:17px;font-weight:800;cursor:pointer;width:35px;height:33px}

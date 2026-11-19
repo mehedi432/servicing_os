@@ -2,8 +2,8 @@
 import { computed, ref, watch, onUnmounted } from 'vue'
 import CounterPremiumInvoice681 from './CounterPremiumInvoice681.vue'
 
-const props = defineProps({ invoiceName: {type:String,default:''} })
-const emit = defineEmits(['completed','updated'])
+const props = defineProps({ invoiceName: {type:String,default:''}, draftOnly: Boolean })
+const emit = defineEmits(['completed','updated','close'])
 const invoiceInput = ref(props.invoiceName || '')
 const details = ref(null)
 const loading = ref(false)
@@ -49,7 +49,13 @@ async function load(name=invoiceInput.value) {
   if(!n)return
   const seq=++requestSeq
   loading.value=true;error.value='';success.value='';details.value=null;invoiceInput.value=n
-  try{const data=await api('get_checkout',null,{invoice_name:n});if(seq===requestSeq)setDetails(data)}
+  try{
+    const data=await api('get_checkout',null,{invoice_name:n})
+    if(seq===requestSeq){
+      setDetails(data)
+      if(props.draftOnly && !isSubmitted.value) beginEdit()
+    }
+  }
   catch(e){if(seq===requestSeq)error.value=e.message}
   finally{if(seq===requestSeq)loading.value=false}
 }
@@ -64,7 +70,7 @@ async function saveEdits(){
   }catch(e){error.value=e.message}finally{working.value=false}
 }
 async function complete(){
-  if(!details.value||working.value||!canComplete.value)return
+  if(props.draftOnly||!details.value||working.value||!canComplete.value)return
   working.value=true;error.value='';success.value=''
   try{
     const result=await api('complete_sale',{invoice_name:details.value.invoice,payment_mode:paymentMode.value,cash_received:paymentMode.value==='cash'?Number(cashReceived.value):null})
@@ -87,7 +93,7 @@ onUnmounted(()=>{requestSeq++})
 
 <template>
 <section class="sos670-checkout" aria-label="Invoice checkout and draft editor">
-  <div v-if="!details" class="sos670-resume">
+  <div v-if="!details && !draftOnly" class="sos670-resume">
     <strong>Finish a saved invoice</strong>
     <p>Open an existing draft to edit or complete it without leaving Counter.</p>
     <div class="sos670-resume-row">
@@ -95,8 +101,8 @@ onUnmounted(()=>{requestSeq++})
       <button type="button" :disabled="!invoiceInput||loading" @click="load()">{{ loading?'Loading…':'Open Draft' }}</button>
     </div>
   </div>
-  <template v-else>
-    <div class="sos670-heading">
+  <template v-else-if="details">
+    <div v-if="!draftOnly" class="sos670-heading">
       <div><small>ERPNext · {{ details.invoice_kind==='service'?'Service Invoice':details.invoice_kind==='used'?'Used Laptop Sale':'Retail Sale' }}</small>
         <strong>{{ details.invoice }}</strong>
         <p>{{ details.customer }} · {{ details.currency }}</p></div>
@@ -118,9 +124,9 @@ onUnmounted(()=>{requestSeq++})
         </label>
         <label v-if="discountMode!=='none'">Discount value<input v-model.number="discountValue" type="number" min="0" step="0.01" /></label>
       </div>
-      <div class="sos670-actions"><button type="button" @click="editMode=false">Cancel editing</button><button type="button" class="sos670-primary" :disabled="working" @click="saveEdits">{{working?'Saving…':'Save Draft Changes'}}</button></div>
+      <div class="sos670-actions"><button type="button" :disabled="working" @click="draftOnly ? emit('close') : editMode=false">Cancel editing</button><button type="button" class="sos670-primary" :disabled="working" @click="saveEdits">{{working?'Saving…':'Save Draft Changes'}}</button></div>
     </div>
-    <template v-else>
+    <template v-else-if="!draftOnly">
       <div class="sos670-summary"><div><span>Invoice total</span><strong>৳ {{ money(details.grand_total) }}</strong></div>
         <div><span>Invoice items</span><strong>{{ details.items?.length||0 }}</strong></div>
         <div v-if="isSubmitted"><span>Outstanding</span><strong>৳ {{ money(details.outstanding_amount) }}</strong></div>
@@ -144,6 +150,8 @@ onUnmounted(()=>{requestSeq++})
       <p v-if="isSubmitted" class="sos670-note">Submitted invoices cannot be edited directly. Correct them through authorized Cancel & Amend or Sales Return procedures.</p>
     </template>
   </template>
+  <p v-if="draftOnly && loading" role="status">Loading invoice editor…</p>
+  <button v-if="draftOnly && !loading && !editMode" type="button" @click="emit('close')">Close editor</button>
   <p v-if="error" class="sos670-error" role="alert">{{ error }}</p>
   <p v-if="success" class="sos670-success" role="status">{{success}}</p>
   <CounterPremiumInvoice681 v-if="previewName" :invoice-name="previewName" @close="previewName=''" />

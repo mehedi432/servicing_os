@@ -2,6 +2,7 @@
 import CounterTechnician681 from './CounterTechnician681.vue'
 import InvoiceHistory658 from './InvoiceHistory658.vue'
 import UnifiedInvoicePrint684 from './UnifiedInvoicePrint684.vue'
+import DeliveryDesk from './DeliveryDesk.vue'
 // SERVICING_COUNTER_EXACT_654: screenshot-accurate, with real parent actions.
 import { computed, nextTick, onMounted, onUnmounted, ref, unref } from 'vue'
 import { currentLanguage } from '../i18n/servicingLanguage.js'
@@ -53,41 +54,8 @@ function sos690CreateSelectedInvoice() {
 // SOS_JOB_FAB_710 — share existing invoice creation and print studio.
 const fab710Busy = ref(false)
 const fab710PrintInvoice = ref('')
-const fab710DeliverOpen = ref(false)
-const fab710Confirm = ref('')
 const fab710Delivered = ref('')
-// SOS_PREMIUM_HANDOVER_711 — read-only readiness and clear audit-friendly errors.
-const fab711Status = ref(null)
-const fab711Checking = ref(false)
-const fab711Error = ref('')
-function fab711ExplainFailure(payload, fallback) {
-  try {
-    const raw = JSON.parse(payload?._server_messages || '[]')
-    for (const entry of raw) {
-      const msg = JSON.parse(entry)?.message
-      if (typeof msg === 'string' && msg.trim()) return msg.replace(/<[^>]*>/g, '').slice(0,450)
-    }
-  } catch (_) {}
-  const msg = payload?.message
-  return typeof msg === 'string' && msg.trim() ? msg.slice(0,450) : fallback
-}
-async function fab711LoadStatus(name) {
-  fab711Status.value = null
-  fab711Checking.value = true
-  fab711Error.value = ''
-  try {
-    const endpoint = new URL('/api/method/servicing_os.api.service_handover_710.get_handover_readiness', window.location.origin)
-    endpoint.searchParams.set('job_name', name)
-    const response = await fetch(endpoint, { credentials: 'same-origin', cache: 'no-store', headers: { Accept: 'application/json' } })
-    const body = await response.json()
-    if (!response.ok || body.exc || body.exception || !body.message?.service_job) throw new Error(fab711ExplainFailure(body, 'Could not check delivery requirements'))
-    fab711Status.value = body.message
-  } catch (error) { fab711Error.value = error?.message || 'Unable to check job' }
-  finally { fab711Checking.value = false }
-}
-function fab711Close() {
-  if (!fab710Busy.value) fab710DeliverOpen.value = false
-}
+const deliveryJob = ref('')
 
 function fab710CheckJob() {
   const name=String(props.selectedServiceJob||'').trim()
@@ -109,91 +77,35 @@ async function fab710Print() {
     if(invoices.length>1)throw new Error('Multiple invoices exist for this job. Resolve the duplicates before printing.')
     const existing=invoices[0]
     if(existing?.docstatus===1){fab710PrintInvoice.value=existing.name;return}
-    if(existing?.docstatus===0 && d.message.status==='Ready to Deliver') { await sos712OpenDelivery(); return }
+    if (d.message.status === 'Ready to Deliver') { sos712OpenDelivery(); return }
     sos661StartInvoice(name)
   } catch(e){sos690InvoiceMessage.value=e?.message||'Invoice operation failed'}
   finally{fab710Busy.value=false}
 }
-async function fab710AskDelivery(){
-  try {const job=fab710CheckJob();fab710Confirm.value='';fab710DeliverOpen.value=true;sos690InvoiceMessage.value='';await fab711LoadStatus(job)}
-  catch(e){sos690InvoiceMessage.value=e.message}
-}
-async function fab710Deliver(){
-  if(fab710Busy.value)return
-  fab710Busy.value=true;sos690InvoiceMessage.value=''
-  try{
-    const name=fab710CheckJob()
-    if(fab710Confirm.value.trim()!==name)throw new Error('Type the exact Service Job ID to confirm delivery.')
-    const token=window.frappe?.csrf_token||window.csrf_token||document.querySelector('meta[name="csrf-token"]')?.content||''
-    const res=await fetch('/api/method/servicing_os.api.service_handover_710.deliver_service_job',{
-      method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json',...(token?{'X-Frappe-CSRF-Token':token}:{})},
-      body:JSON.stringify({job_name:name,confirmation:name})
-    })
-    const d=await res.json()
-    if(!res.ok||d.exc||d.exception||d.message?.status!=='Delivered')throw new Error(fab711ExplainFailure(d,'Delivery could not be completed. Please check the repair and invoice requirements.'))
-    fab710Delivered.value=name
-    fab710DeliverOpen.value=false
-    window.dispatchEvent(new CustomEvent('servicing-os-job-delivered',{detail:d.message}))
-  }catch(e){fab711Error.value=e?.message||'Delivery failed';await fab711LoadStatus(fab710CheckJob());if(!fab711Error.value)fab711Error.value=e?.message||'Delivery failed'}
-  finally{fab710Busy.value=false}
-}
-function fab710OnFinalized(e){
-  const data=e?.detail||{}
-  if(data.docstatus===1&&String(data.service_job||'')===String(props.selectedServiceJob||'')){
-    invoiceMode.value=false
-    if(sos712DeliveryOpen.value && data.status==='Delivered'){sos712DeliveryOpen.value=false;fab710Delivered.value=String(data.service_job||'');window.dispatchEvent(new CustomEvent('servicing-os-job-delivered',{detail:data}))}
-    fab710PrintInvoice.value=String(data.invoice||'')
+function fab710OnFinalized(event) {
+  const data = event.detail || {}
+  if (data.docstatus === 1 && data.service_job === props.selectedServiceJob) {
+    invoiceMode.value = false
+    fab710PrintInvoice.value = String(data.invoice || '')
   }
 }
-onMounted(()=>window.addEventListener('servicing-os-invoice-finalized',fab710OnFinalized))
-onUnmounted(()=>window.removeEventListener('servicing-os-invoice-finalized',fab710OnFinalized))
+onMounted(() => window.addEventListener('servicing-os-invoice-finalized', fab710OnFinalized))
+onUnmounted(() => window.removeEventListener('servicing-os-invoice-finalized', fab710OnFinalized))
 
-
-// SOS_CHECKOUT_STOCK_COMPACT_712 — final service bill and device handover.
-const sos712DeliveryOpen=ref(false)
-const sos712Loading=ref(false)
-const sos712Busy=ref(false)
-const sos712Error=ref('')
-const sos712Context=ref(null)
-const sos712Consent=ref(false)
-async function sos712OpenDelivery(){
-  let name=''
-  try{name=fab710CheckJob()}catch(e){sos690InvoiceMessage.value=e.message;return}
-  sos712DeliveryOpen.value=true
-  sos712Loading.value=true
-  sos712Error.value=''
-  sos712Consent.value=false
-  sos712Context.value=null
-  try{
-    const url=new URL('/api/method/servicing_os.api.checkout_712.handover_context',window.location.origin)
-    url.searchParams.set('job_name',name)
-    const response=await fetch(url,{credentials:'same-origin',cache:'no-store',headers:{Accept:'application/json'}})
-    const body=await response.json()
-    if(!response.ok||body.exc||body.exception||!body.message?.service_job)throw new Error(fab711ExplainFailure(body,'Cannot inspect this Service Job'))
-    if(String(props.selectedServiceJob||'')!==name)throw new Error('Selected job changed. Reopen delivery checkout.')
-    sos712Context.value=body.message
-  }catch(e){sos712Error.value=e.message||'Cannot load delivery requirements'}
-  finally{sos712Loading.value=false}
+function sos712OpenDelivery() {
+  try { openHandover(fab710CheckJob()) }
+  catch (error) { sos690InvoiceMessage.value = error.message }
 }
-function sos712Close(){if(!sos712Busy.value){sos712DeliveryOpen.value=false;sos712Consent.value=false}}
-async function sos712FinishExisting(){
-  if(sos712Busy.value||!sos712Consent.value)return
-  const job=sos712Context.value?.service_job
-  if(!job||job!==String(props.selectedServiceJob||'')||sos712Context.value?.invoice?.docstatus!==1)return
-  sos712Busy.value=true;sos712Error.value=''
-  try{
-    const token=window.frappe?.csrf_token||window.csrf_token||decodeURIComponent(document.cookie.split('; ').find(x=>x.startsWith('csrf_token='))?.split('=').slice(1).join('=')||'')
-    const response=await fetch('/api/method/servicing_os.api.checkout_712.deliver_with_existing_invoice',{
-      method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','X-Frappe-CSRF-Token':token},
-      body:JSON.stringify({job_name:job,confirmation:job})})
-    const body=await response.json()
-    if(!response.ok||body.exc||body.exception||body.message?.status!=='Delivered')throw new Error(fab711ExplainFailure(body,'Device handover was not completed.'))
-    fab710Delivered.value=job
-    sos712DeliveryOpen.value=false;sos712Consent.value=false
-    fab710PrintInvoice.value=body.message.invoice||sos712Context.value.invoice.name
-    window.dispatchEvent(new CustomEvent('servicing-os-job-delivered',{detail:body.message}))
-  }catch(e){sos712Error.value=e.message||'Handover failed'}
-  finally{sos712Busy.value=false}
+function openHandover(name) {
+  if (/^[A-Za-z0-9._-]{1,140}$/.test(name)) {
+    sos690InvoiceMessage.value = ''
+    deliveryJob.value = name
+  }
+}
+function onDeliveryCompleted(result) {
+  fab710Delivered.value = result.service_job
+  window.dispatchEvent(new CustomEvent('servicing-os-job-delivered', {detail: result}))
+  window.dispatchEvent(new CustomEvent('servicing-os:service-job-updated', {detail: result}))
 }
 
 const billingTab = ref('invoices')
@@ -407,8 +319,8 @@ function sos676TabKeydown(event, currentKey) {
             <button type="button" role="tab" :aria-selected="billingTab === 'invoices'" :class="{'active':billingTab === 'invoices'}" @click="billingTab='invoices'">{{ bn ? 'ইনভয়েস' : 'Invoices' }}</button>
             <button type="button" role="tab" :aria-selected="billingTab === 'handover'" :class="{'active':billingTab === 'handover'}" @click="billingTab='handover'">{{ bn ? 'ডেলিভারি / হস্তান্তর' : 'Delivery & Handover' }}</button>
           </div>
-          <slot v-if="billingTab === 'invoices'" name="billing" :open-invoice="openInvoice" />
-          <slot v-else name="delivery" />
+          <slot v-if="billingTab === 'invoices'" name="billing" :open-invoice="openInvoice" :open-handover="openHandover" />
+          <slot v-else name="delivery" :open-handover="openHandover" />
         </template>
         <!-- SERVICING_OS_COUNTER_658: real invoice history beneath live workspaces -->
         <InvoiceHistory658 v-if="active === 'sale' || active === 'used'" :scope="active" />
@@ -431,37 +343,13 @@ function sos676TabKeydown(event, currentKey) {
       </div>
     </section>
     <Teleport to="body">
-      <!-- SOS_JOB_FAB_710 — deliberate delivery confirmation -->
-
-      <!-- SOS_CHECKOUT_STOCK_COMPACT_712 — unified checkout and delivery dialog -->
-      <div v-if="sos712DeliveryOpen" class="sos712-checkout-mask" @click.self="sos712Close">
-        <section class="sos712-checkout" role="dialog" aria-modal="true" aria-labelledby="sos712-title">
-          <header class="sos712-checkout-head">
-            <div><small>SERVICING OS · DELIVERY DESK</small><h2 id="sos712-title">Final invoice &amp; device handover</h2><p>Confirm charges, submit ERPNext invoice, then hand over the device</p></div>
-            <button type="button" aria-label="Close delivery checkout" :disabled="sos712Busy" @click="sos712Close">×</button>
-          </header>
-          <div class="sos712-checkout-body">
-            <div class="sos712-status-top"><div><span>SELECTED SERVICE JOB</span><strong>{{selectedServiceJob}}</strong></div><div><span>REPAIR STATUS</span><strong>{{sos712Context?.status||'Checking…'}}</strong></div><div><span>CUSTOMER</span><strong>{{sos712Context?.customer_name||sos712Context?.customer||'—'}}</strong></div></div>
-            <p v-if="sos712Loading" role="status" class="sos712-callout">Checking delivery requirements and existing Sales Invoices…</p>
-            <p v-if="sos712Error" role="alert" class="sos712-alert">{{sos712Error}} <button type="button" @click="sos712OpenDelivery">Retry</button></p>
-            <template v-if="sos712Context && !sos712Loading">
-              <p v-if="sos712Context.issue" class="sos712-alert">{{sos712Context.issue}}</p>
-              <p v-else-if="!sos712Context.can_write" class="sos712-alert">Your account needs Service Job write permission to hand over devices.</p>
-              <template v-else-if="sos712Context.already_delivered">
-                <div class="sos712-callout">This device was already delivered. No duplicate delivery or Sales Invoice will be created.</div>
-                <button v-if="sos712Context.invoice?.docstatus===1" type="button" class="sos712-main" @click="fab710PrintInvoice=sos712Context.invoice.name;sos712Close()">Print / Reprint existing invoice</button>
-              </template>
-              <template v-else>
-                <div class="sos712-trust"><span>01 · Review invoice</span><span>02 · Issue approved parts &amp; submit</span><span>03 · Deliver &amp; print</span></div>
-                <label class="sos712-agree"><input type="checkbox" v-model="sos712Consent"/><span>I have verified the invoice, device and delivery authorization. I authorize issuing the approved spare parts and handing over the device. Payment is recorded separately.</span></label>
-                <div v-if="sos712Context.invoice?.docstatus===1" class="sos712-existing"><div><small>SUBMITTED SALES INVOICE</small><strong>{{sos712Context.invoice.name}}</strong><p>BDT {{Number(sos712Context.invoice.grand_total||0).toLocaleString('en-BD',{minimumFractionDigits:2})}}</p></div><button type="button" class="sos712-main" :disabled="!sos712Consent||sos712Busy" @click="sos712FinishExisting">{{sos712Busy?'Finishing…':'Deliver Device & Print Invoice'}}</button></div>
-                <div v-else-if="sos712Consent" class="sos712-invoice-form"><div class="sos712-form-title"><b>Final Sales Invoice</b><small>{{ sos712Context.invoice?.docstatus===0 ? 'Resume the Sales Invoice already saved for this job.' : 'Review the charges, discounts, warranty and remarks before finalizing.' }}</small></div><slot name="invoice" initial-kind="service" :initial-job="sos712Context.service_job" :delivery-mode="true" :close-invoice="sos712Close" /></div>
-              </template>
-            </template>
-          </div>
-          <footer><button type="button" @click="sos712Close">Close</button><span>Native ERPNext ledger · no duplicate stock issue</span></footer>
-        </section>
-      </div>
+      <DeliveryDesk v-if="deliveryJob" :key="deliveryJob" :job-name="deliveryJob"
+        :print-open="!!fab710PrintInvoice" @close="deliveryJob=''" @delivered="onDeliveryCompleted" @print="fab710PrintInvoice=$event">
+        <template #invoice="{ jobName, onSaved, onClose }">
+          <slot name="invoice" initial-kind="service" :initial-job="jobName" :guided-draft="true"
+            :save-invoice="onSaved" :close-invoice="onClose" />
+        </template>
+      </DeliveryDesk>
 
       <UnifiedInvoicePrint684 v-if="fab710PrintInvoice" :invoice-name="fab710PrintInvoice" @close="fab710PrintInvoice=''" />
 
@@ -483,32 +371,6 @@ function sos676TabKeydown(event, currentKey) {
 /* SOS_CHECKOUT_STOCK_COMPACT_712 — clean compact service UI + modal. */
 .sos710-actions{gap:0!important;right:20px!important;bottom:20px!important}
 .sos710-actions>.sos710-job{display:none!important}
-.sos712-checkout-mask{position:fixed;inset:0;z-index:200300;background:#24150dbd;backdrop-filter:blur(5px);display:grid;place-items:center;padding:12px}
-.sos712-checkout{background:#fffcf8;color:#37271d;width:min(1040px,100%);max-height:94vh;display:flex;flex-direction:column;overflow:hidden;border:1px solid #e1ccba;border-radius:23px;box-shadow:0 35px 115px #21140b70;font:13px/1.5 Inter,system-ui,sans-serif}
-.sos712-checkout-head{display:flex;align-items:flex-start;justify-content:space-between;gap:20px;background:#f8f0e7;padding:20px 25px;border-bottom:1px solid #e6d8c9}
-.sos712-checkout-head small{font-size:9px;letter-spacing:1.5px;font-weight:850;color:#9b7b61}.sos712-checkout-head h2{font:700 27px Georgia,serif;color:#3c2d22;margin:3px 0}.sos712-checkout-head p{margin:0;color:#8b705b;font-size:11px}
-.sos712-checkout-head button{border:0;background:#eee1d2;width:34px;height:34px;border-radius:50%;font-size:23px;color:#644934;cursor:pointer}
-.sos712-checkout-body{overflow:auto;padding:20px 25px;min-height:100px}.sos712-status-top{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:15px}.sos712-status-top>div{display:grid;gap:4px;background:#f6ece1;border:1px solid #ebdbca;border-radius:11px;padding:12px;min-width:0}
-.sos712-status-top span,.sos712-existing small{font-size:9px;letter-spacing:1px;color:#92745b;font-weight:850}.sos712-status-top strong{font-size:13px;overflow-wrap:anywhere}.sos712-trust{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0}.sos712-trust span{font-weight:700;color:#74563d;background:#f1e4d7;border-radius:7px;padding:7px 9px;font-size:10px}
-.sos712-alert{border-radius:10px;border:1px solid #f0c6b7;padding:13px;background:#fff1ec;color:#8b4432}.sos712-alert a{color:#6b4631;text-decoration:underline}.sos712-alert button{margin-left:8px;text-decoration:underline}.sos712-callout{padding:13px;background:#f1e9df;color:#785942;border-radius:10px}
-.sos712-agree{display:flex;align-items:flex-start;gap:10px;border:1px solid #dcc7b4;background:#fff8f0;border-radius:11px;padding:14px;cursor:pointer;font-size:12px;font-weight:650;color:#584130}.sos712-agree input{width:18px;height:18px;flex:none;accent-color:#745039;margin-top:1px}
-.sos712-existing{display:flex;gap:15px;justify-content:space-between;align-items:center;border:1px solid #ddcbb8;border-radius:12px;margin-top:13px;padding:16px;background:#fffefa}.sos712-existing strong{display:block;font-size:17px}.sos712-existing p{margin:3px 0;font-weight:800}.sos712-main{background:#76523b;color:white;padding:12px 18px;border:0;border-radius:10px;font-size:12px;font-weight:800;cursor:pointer}.sos712-main:disabled{opacity:.45;cursor:not-allowed}
-.sos712-invoice-form{margin-top:15px}.sos712-form-title{display:flex;flex-direction:column;gap:2px;margin:0 0 14px;padding:0 0 10px;border-bottom:1px solid #e8dbc9}.sos712-form-title b{font:700 21px Georgia,serif}.sos712-form-title small{color:#8a705d;font-size:11px}
-.sos712-checkout footer{border-top:1px solid #e8d9c8;padding:12px 25px;background:#fcf7f1;display:flex;justify-content:space-between;align-items:center;gap:10px}.sos712-checkout footer button{border:1px solid #d3bda6;color:#5c422f;padding:9px 17px;background:#fff;border-radius:9px;font-weight:700}.sos712-checkout footer span{font-size:10px;color:#a18570}
-.sos712-checkout .sos654-invoice{max-width:100%!important}.sos712-checkout .sos654-line{min-width:0}
-@media(max-width:660px){.sos712-checkout-mask{padding:0}.sos712-checkout{border-radius:0;max-height:100vh;height:100%}.sos712-checkout-head,.sos712-checkout-body,.sos712-checkout footer{padding:12px}.sos712-status-top{grid-template-columns:1fr}.sos712-existing{flex-direction:column;align-items:stretch}}
-
-/* SOS_PREMIUM_HANDOVER_711 */
-.sos711-confirm{width:min(560px,calc(100vw - 24px))!important;padding:0!important;overflow:hidden;border:1px solid #d8c4af!important;border-radius:24px!important;background:#fffdf9!important;box-shadow:0 36px 110px #25140e66!important;font-family:Inter,system-ui,sans-serif;color:#36281f!important}
-.sos711-top{display:flex;align-items:center;gap:12px;padding:22px 25px 3px}.sos711-symbol{display:grid;place-items:center;width:48px;height:48px;border-radius:15px;background:#eee1d1;color:#74543f}.sos711-eyebrow{color:#9a7b60;font-size:10px;letter-spacing:1.5px;font-weight:850;flex:1}.sos711-close{font-size:24px;border:0;background:transparent;color:#876f5b;cursor:pointer;padding:4px 8px}
-.sos711-confirm h2{padding:0 25px!important;margin:12px 0 4px!important;font-size:25px!important;letter-spacing:-.8px;color:#37271d!important}.sos711-subtitle{padding:0 25px!important;color:#846e5c!important;font-size:12px!important;margin:0 0 18px!important}
-.sos711-reference{margin:0 25px 17px;padding:14px 18px;background:#f7efe5;border-radius:13px;border:1px solid #e6d9ca;display:flex;align-items:center;justify-content:space-between;gap:10px}.sos711-reference span{font-size:10px;letter-spacing:1.1px;color:#987d66;font-weight:800}.sos711-reference strong{font-size:16px;letter-spacing:.2px;color:#483020;overflow-wrap:anywhere}
-.sos711-checks{display:grid;gap:0;margin:0 25px 15px;border:1px solid #e9ded0;border-radius:13px;overflow:hidden}.sos711-check{display:flex;gap:12px;align-items:center;padding:12px 14px;border-bottom:1px solid #eee4d9}.sos711-check:last-child{border-bottom:0}.sos711-check>span{display:grid;place-items:center;border-radius:50%;width:26px;height:26px;flex:none;font-weight:900}.sos711-check>span.pass{background:#e1efe3;color:#416d4c}.sos711-check>span.fail{background:#f9e8d9;color:#a85d31}.sos711-check div{display:grid;gap:3px;min-width:0}.sos711-check strong{font-size:12px;color:#4a3527}.sos711-check small{font-size:11px;color:#8e7661;overflow-wrap:anywhere}
-.sos711-confirmation{margin:0 25px 20px}.sos711-confirmation label{display:block;font-size:11px;font-weight:800;color:#745743;margin-bottom:8px}.sos711-confirmation input{height:43px!important;width:100%;border:1px solid #c9af96;background:#fff;box-sizing:border-box;border-radius:10px;padding:10px 12px;font-size:13px;font-weight:650;letter-spacing:.5px}.sos711-confirmation small{display:block;margin:7px 0;color:#927d68;font-size:10px;line-height:1.5}
-.sos711-alert,.sos711-notice,.sos711-loading{margin:0 25px 16px!important;border-radius:11px;padding:11px 13px;font-size:12px!important;line-height:1.5}.sos711-alert{background:#fff0e9;color:#903b29!important;border:1px solid #ecc6b5}.sos711-notice{background:#eef4e9;color:#46653c!important}.sos711-loading{background:#f8efe6;color:#7d624a!important}.sos711-alert button{margin-left:7px;border:1px solid currentColor;background:transparent;border-radius:7px;padding:4px 8px;color:inherit;font-size:11px;cursor:pointer}
-.sos711-dialog-actions{display:flex;gap:10px;justify-content:flex-end;padding:17px 25px;background:#f8f1e8;border-top:1px solid #e8d9c7}.sos711-dialog-actions button{border-radius:11px;padding:12px 16px;min-height:42px;font-size:12px;font-weight:750;cursor:pointer}.sos711-cancel{background:#fff;border:1px solid #d7c5b3;color:#5e4532}.sos711-submit{border:1px solid #684731;background:#684731;color:#fffaf4;box-shadow:0 6px 17px #6847312b}.sos711-dialog-actions button:disabled{opacity:.47;cursor:not-allowed}
-@media(max-width:540px){.sos711-top{padding:17px 16px 3px}.sos711-confirm h2,.sos711-subtitle{padding-left:16px!important;padding-right:16px!important}.sos711-reference,.sos711-checks,.sos711-alert,.sos711-notice,.sos711-loading,.sos711-confirmation{margin-left:16px!important;margin-right:16px!important}.sos711-reference{flex-direction:column;align-items:flex-start}.sos711-dialog-actions{padding:13px 16px}.sos711-dialog-actions button{flex:1;padding:10px}}
-
 /* SOS_JOB_FAB_710 — accessible compact dual FABs */
 .sos710-actions{position:fixed;bottom:22px;right:24px;z-index:240;display:flex;flex-direction:column;align-items:flex-end;gap:5px;max-width:calc(100vw - 24px)}
 .sos710-fabs{display:flex;gap:9px;flex-wrap:wrap;justify-content:flex-end}

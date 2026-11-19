@@ -36,7 +36,7 @@ import { computed, onMounted, ref, unref, watch, onUnmounted } from 'vue'
 import { currentLanguage } from '../i18n/servicingLanguage.js'
 const sos712ImportBusy=ref(false)
 const sos712PartsNote=ref('')
-const props = defineProps({ initialKind: {type:String, default:'retail'}, initialJob: {type:String, default:''}, deliveryMode: {type:Boolean, default:false} })
+const props = defineProps({ initialKind: {type:String, default:'retail'}, initialJob: {type:String, default:''}, deliveryMode: {type:Boolean, default:false}, guidedDraft: Boolean })
 const emit = defineEmits(['saved', 'close'])
 const bn = computed(()=>String(unref(currentLanguage)||'en').toLowerCase().startsWith('bn'))
 // SOS_SERVICE_WORKFLOW_690: lock the floating action to the exact selected Service Job.
@@ -177,6 +177,7 @@ async function selectJob() {
     if (existing) {
       saved.value = { ...existing, invoice: existing.name, invoice_kind: 'service' }
       if (existing.docstatus === 1) completed670.value = { invoice: existing.name }
+      if (props.guidedDraft) emit('saved', saved.value)
     }
   } catch (failure) {
     if (lookup === jobLookup && selectedJob.value === id) error.value = failure.message || 'Could not load selected Service Job.'
@@ -251,8 +252,9 @@ async function sos712ImportApprovedParts(){
     if(requests.some(x=>x.docstatus===0))throw new Error('Approve all draft Material Requests before final billing.')
     const totals=new Map()
     for(const mr of requests.filter(x=>x.docstatus===1))for(const part of mr.items||[]){
-      if(!part.item_code||!(Number(part.qty)>0))continue
-      totals.set(part.item_code,(totals.get(part.item_code)||0)+Number(part.qty))
+      const quantity = Number(part.stock_qty ?? part.qty)
+      if(!part.item_code||!(quantity>0))continue
+      totals.set(part.item_code,(totals.get(part.item_code)||0)+quantity)
     }
     if(!totals.size){sos712PartsNote.value='No approved parts. Add only service/labour charges as needed.';return}
     const already=rows.value.filter(x=>x.item_code).map(x=>x.item_code)
@@ -299,7 +301,7 @@ async function save(){
     const d=await api('create_unified_invoice_draft',{method:'POST',body:{invoice_kind:kind.value,customer:customerId.value,job_name:sos690LockedServiceJob.value||selectedJob.value,items:rows.value.map(r=>({item_code:r.item_code,qty:r.qty,rate:r.rate,discount_percentage:r.discount_percentage,serial_no:r.serial_no,warranty_choice:r.sos672WarrantySource||'',warranty_period_days:r.sos672WarrantySource==='none'?0:Number(r.sos672WarrantyDays||0)})),discount_mode:discountMode.value,discount_value:discountMode.value==='none'?0:Number(discountValue.value),remarks:remarks.value}})
     if(!d.invoice)throw new Error('Invoice was not returned by backend')
     saved.value=d;emit('saved',d);window.dispatchEvent(new CustomEvent('servicing-os-invoice-draft-created',{detail:d}))
-    if(kind.value==='service') await finalize709()
+    if(kind.value==='service' && !props.guidedDraft) await finalize709()
   }catch(e){
     const message = e.message || 'Unable to save invoice'
     if (kind.value === 'service' && message.includes('invoice already exists for this Service Job')) {
@@ -313,6 +315,7 @@ async function save(){
 <template>
   <div class="sos654-invoice">
     <p v-if="loading" class="sos654-info">Loading shop, customers and invoice settings…</p>
+    <p v-else-if="saved && guidedDraft" class="sos654-info" role="status">Loading the saved invoice…</p>
     <div v-else-if="saved" class="sos654-success" role="status">
       <p v-if="error" class="sos654-error" role="alert">{{error}}</p>
       <strong>{{ completed670?.invoice===saved?.invoice ? "Invoice Submitted" : "Draft Invoice Saved" }}</strong><h2>{{ saved.invoice }}</h2>
@@ -330,10 +333,10 @@ async function save(){
       </div>
     </div>
     <form v-else @submit.prevent="save">
-      <div class="sos654-kind" role="group" aria-label="Invoice type">
+      <div v-if="!guidedDraft" class="sos654-kind" role="group" aria-label="Invoice type">
         <button v-for="(name,key) in kindName" :key="key" type="button" :class="{'selected':kind===key}" @click="kind=key" :disabled="saving || (!!sos690LockedServiceJob && key!=='service')">{{ name }}</button>
       </div>
-      <div class="sos654-fields">
+      <div v-if="!guidedDraft" class="sos654-fields">
         <label v-if="kind==='service'"><span>Service Job *</span>
           <input v-model.trim="selectedJob" list="sos654-jobs" autocomplete="off" placeholder="Select saved job" @change="selectJob" :readonly="!!sos690LockedServiceJob" :disabled="saving" />
           <datalist id="sos654-jobs"><option v-for="j in jobList" :key="j.name" :value="j.name">{{ j.customer_name }}</option></datalist>
@@ -368,15 +371,16 @@ async function save(){
          </label>
           <label><span>Disc. %</span><input v-model.number="row.discount_percentage" type="number" min="0" max="100" step="0.01" /></label>
           <label class="sos672-modal-warranty"><span>Warranty (Days)</span>
-            <input v-model.number="row.sos672WarrantyDays" type="number" min="1" max="36500" step="1"
+            <input v-model.number="row.sos672WarrantyDays" type="number" :min="row.sos672WarrantySource==='none'?0:1" max="36500" step="1"
               :readonly="row.sos672WarrantySource==='item_master'"
               :disabled="row.sos672WarrantyPending" placeholder="Enter days" @input="sos672WarrantyEdited(row)" />
             <small v-if="row.sos672WarrantySource==='item_master'">ERPNext Item Master</small>
             <small v-else-if="row.sos672WarrantyPending">Checking warranty…</small>
             <small v-else-if="row.sos672WarrantyError">{{ row.sos672WarrantyError }}</small>
+            <small v-else-if="row.sos672WarrantySource==='none'">No warranty selected</small>
             <small v-else>Manual warranty days</small>
             <button v-if="row.sos672WarrantySource!=='item_master'&&!row.sos672WarrantyPending"
-              type="button" class="sos672-none-button" @click="sos672NoWarranty(row)">No warranty</button>
+              type="button" class="sos672-none-button" :aria-pressed="row.sos672WarrantySource==='none'" @click="sos672NoWarranty(row)">No warranty</button>
           </label>
           <label v-if="kind==='used'||row.has_serial_no" class="sos654-serial"><span>Serial Number(s)</span><input v-model.trim="row.serial_no" placeholder="For serialized items, one per unit" /></label>
           <div class="sos654-lineamount"><small>Line</small><strong>৳ {{ money(lineTotal(row)) }}</strong></div>
@@ -394,9 +398,9 @@ async function save(){
           <div class="total"><span>Estimated before taxes</span><strong>৳ {{ money(estimate) }}</strong></div>
         </div>
       </div>
-      <p class="sos654-info">{{kind==='service'?'Final Service Invoice: submits the Sales Invoice and any approved, unissued parts requests. Draft parts requests require approval. No duplicate stock issue or automatic payment.':'Creates a Draft Sales Invoice; checkout handles final submission.'}}</p>
+      <p v-if="!guidedDraft" class="sos654-info">{{kind==='service'?'Final Service Invoice: submits the Sales Invoice and any approved, unissued parts requests. Draft parts requests require approval. No duplicate stock issue or automatic payment.':'Creates a Draft Sales Invoice; checkout handles final submission.'}}</p>
       <p v-if="error" class="sos654-error" role="alert">{{ error }}</p>
-      <div class="sos654-footer"><button type="button" :disabled="saving || checkingJob" @click="load">Refresh</button><button type="submit" class="primary" :disabled="saving || loading || (kind==='service' && (checkingJob || !selectedJob || checkedJob!==selectedJob))">{{ saving?'Saving…':kind==='service'?(props.deliveryMode?'Finalize · Deliver & Print':'Save Final Invoice'):'Review & Continue to Checkout' }}</button></div>
+      <div class="sos654-footer"><button v-if="!guidedDraft || !checkedJob" type="button" :disabled="saving || checkingJob" @click="load">Refresh</button><button type="submit" class="primary" :disabled="saving || loading || sos712ImportBusy || (kind==='service' && (checkingJob || !selectedJob || checkedJob!==selectedJob))">{{ saving?'Saving…':guidedDraft?'Save invoice draft':kind==='service'?(props.deliveryMode?'Finalize · Deliver & Print':'Save Final Invoice'):'Review & Continue to Checkout' }}</button></div>
     </form>
     <p v-if="error&&loading" class="sos654-error">{{ error }}</p>
     <UnifiedInvoicePrint684 v-if="sos657Preview" :invoice-name="sos657Preview" @close="sos657Preview=''" />

@@ -8,6 +8,7 @@ import ThreeLedger700 from './ThreeLedger700.vue'
 import ServiceJobsWorkspace from './ServiceJobsWorkspace.vue'
 import ServiceInvoiceHub661 from './ServiceInvoiceHub661.vue'
 
+const emit = defineEmits(['handover'])
 const bn = computed(() => String(unref(currentLanguage)||'en').toLowerCase().startsWith('bn'))
 const tab = ref('overview')
 const tabs = [
@@ -186,8 +187,8 @@ onBeforeUnmount(()=>{++requestVersion;++registerVersion;controller?.abort();regC
   </div>
 
   <div v-else-if="tab==='delivery'" class="sos700-content" role="tabpanel">
-    <div class="sos700-workhead"><div><span class="sos700-kicker">READY FOR HANDOVER</span><h3>Delivery operations</h3><p>Use your existing Service Job status transitions, notes and invoice actions. No duplicate delivery posting.</p></div><button type="button" class="sos700-button" @click="choose('service')">View linked invoices</button></div>
-    <div class="sos700-existing"><ServiceJobsWorkspace counter-scope="ready" /></div>
+    <div class="sos700-workhead"><div><h3>Delivery operations</h3><p>Select a job that is ready to deliver and open its Delivery Desk.</p></div><button type="button" class="sos700-button" @click="choose('service')">View linked invoices</button></div>
+    <div class="sos700-existing"><ServiceJobsWorkspace counter-scope="ready" guided-handover @handover="emit('handover', $event)" /></div>
   </div>
 
   <div v-else-if="tab==='service'" class="sos700-content" role="tabpanel">

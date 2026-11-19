@@ -1826,7 +1826,10 @@ const sosSalesAllowed = [
     <CounterRepairTabs698 @receive="sosReceiveFromJobs624B" @manage="sosManageFromJobs624B" />
   </template>
   <!-- SERVICING_COUNTER_PATCH_652: real ERPNext draft invoice workflow -->
-  <template #invoice="{ initialKind, initialJob, deliveryMode, closeInvoice }"><CounterInvoiceModal654 :key="initialJob || initialKind" :initial-job="initialJob" :initial-kind="initialKind" :delivery-mode="!!deliveryMode" @close="closeInvoice" /></template>
+  <template #invoice="{ initialKind, initialJob, guidedDraft, saveInvoice, closeInvoice }">
+    <CounterInvoiceModal654 :key="initialJob || initialKind" :initial-job="initialJob" :initial-kind="initialKind"
+      :guided-draft="!!guidedDraft" @saved="saveInvoice" @close="closeInvoice" />
+  </template>
 
   <!-- SERVICING_COUNTER_PATCH_653: actual source feature components, never placeholders -->
   <template #sale>
@@ -1850,14 +1853,14 @@ const sosSalesAllowed = [
        <InventoryWorkspace v-if="counter649Selection === 'stock' && !repairManagementOpen" />
     </div>
   </template>
-  <template #delivery>
+  <template #delivery="{ openHandover }">
     <div class="sos653-embedded-module">
-      <ServiceJobsWorkspace @receive="sosReceiveFromJobs624B" @manage="sosManageFromJobs624B" />
+      <ServiceJobsWorkspace guided-handover @handover="openHandover" @receive="sosReceiveFromJobs624B" @manage="sosManageFromJobs624B" />
     </div>
   </template>
-  <template #billing="{ openInvoice }">
+  <template #billing="{ openInvoice, openHandover }">
     <!-- SOS_BILLING_DELIVERY_700: original Counter billing is preserved in legacy slot -->
-    <BillingDeliveryCommand700>
+    <BillingDeliveryCommand700 @handover="openHandover">
       <template #legacy>
     <CounterBilling654 @create="openInvoice" />
   

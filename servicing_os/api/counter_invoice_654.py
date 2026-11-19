@@ -377,7 +377,7 @@ def get_counter_invoice_detail(invoice_name=None):
     return {'name':doc.name,'company':doc.company,'customer':doc.customer,
             'service_job':doc.get(LINK_FIELD) if doc.meta.has_field(LINK_FIELD) else None,
             'invoice_kind':invoice_kind(doc),'posting_date':str(doc.posting_date),
-            'status':doc.status,'docstatus':doc.docstatus,'currency':doc.currency,
+            'status':doc.status,'docstatus':doc.docstatus,'currency':doc.currency,'modified':str(doc.modified),
             'net_total':doc.net_total,'discount_amount':doc.discount_amount,
             'grand_total':doc.grand_total,'outstanding_amount':doc.outstanding_amount,
             'items':[{'item_code':r.item_code,'item_name':r.item_name,'qty':r.qty,

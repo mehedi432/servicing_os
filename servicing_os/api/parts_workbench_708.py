@@ -158,7 +158,11 @@ def overview(job_name):
     )
     for r in requests:
         mr = frappe.get_doc("Material Request", r.name)
-        r["items"] = [{"name": x.name, "item_code": x.item_code, "item_name": x.item_name, "qty": x.qty, "uom": x.uom} for x in mr.items]
+        r["items"] = [
+            {"name": x.name, "item_code": x.item_code, "item_name": x.item_name, "qty": x.qty,
+             "uom": x.uom, "stock_qty": flt(x.stock_qty or x.qty * flt(x.conversion_factor or 1))}
+            for x in mr.items
+        ]
         r["stock_entries"] = [{"name":x.name, "docstatus":x.docstatus} for x in _stock_links(r.name)]
     manager = _manager()
     return {
