@@ -1,6 +1,6 @@
 """SERVICING OS — direct Sales Invoice from a Service Job (Frappe/ERPNext v15).
 
-No mandatory repair-stage transition. No stock movement from the invoice.
+The repair finalizer controls submission and any approved stock issue.
 This module never uses ignore_permissions.
 """
 import json
@@ -8,6 +8,8 @@ from collections import OrderedDict
 
 import frappe
 from frappe.utils import flt, nowdate
+
+from servicing_os.api.service_invoice_661 import active_sale_invoice_names, linked_job
 
 LINK_FIELD = "custom_servicing_job"
 STOCK_LINK_FIELDS = ("service_job", "custom_service_job")
@@ -48,26 +50,19 @@ def _company(job):
 
 
 def _previous_invoice(job):
-    meta = frappe.get_meta("Sales Invoice")
-    if not meta.has_field(LINK_FIELD):
-        frappe.throw("Invoice link field is missing. Install Step 6.43 billing setup before invoicing.")
-    # Check links made by older repair-billing modules too; do not duplicate a bill.
-    for field in (LINK_FIELD, "service_job", "custom_service_job", "servicing_job"):
-        if not meta.has_field(field):
-            continue
-        f = meta.get_field(field)
-        if f.fieldtype != "Link" or f.options != "Service Job":
-            continue
-        matches = frappe.get_all("Sales Invoice", filters={field: job.name, "docstatus": ["<", 2]},
-                                 fields=["name", "docstatus", "grand_total"], limit=1,
-                                 order_by="creation desc")
-        if matches:
-            return matches[0]
+    names = active_sale_invoice_names(job.name, _company(job))
+    if len(names) > 1:
+        frappe.throw("Multiple active invoices found for this Service Job.")
+    if names:
+        invoice = frappe.get_doc("Sales Invoice", names[0])
+        invoice.check_permission("read")
+        return {"name": invoice.name, "docstatus": invoice.docstatus, "grand_total": invoice.grand_total}
     for field in ("sales_invoice", "invoice", "repair_invoice"):
         name = _clean(job.get(field))
         if name and frappe.db.exists("Sales Invoice", name):
             inv = frappe.get_doc("Sales Invoice", name)
-            if inv.docstatus < 2:
+            if inv.docstatus < 2 and inv.company == _company(job) and inv.customer == job.customer:
+                inv.check_permission("read")
                 return {"name": inv.name, "docstatus": inv.docstatus, "grand_total": inv.grand_total}
     return None
 
@@ -222,16 +217,20 @@ def create_invoice(service_job, lines=None, submit=0):
     frappe.db.sql("SELECT name FROM `tabService Job` WHERE name=%s FOR UPDATE", (job.name,))
     existing = _previous_invoice(job)
     if existing:
-        frappe.throw("An active invoice already exists for this job: " + existing.name)
+        frappe.throw("An active invoice already exists for this job: " + existing["name"])
+    meta = frappe.get_meta("Sales Invoice")
+    field = "custom_service_job" if meta.has_field("custom_service_job") else LINK_FIELD
     invoice = frappe.get_doc({
         "doctype": "Sales Invoice", "company": company, "customer": customer,
-        LINK_FIELD: job.name, "posting_date": nowdate(), "due_date": nowdate(),
+        field: job.name, "posting_date": nowdate(), "due_date": nowdate(),
         "update_stock": 0, "remarks": "SERVICING OS / Service Job " + job.name,
         "items": rows,
     })
     invoice.insert()  # Frappe and ERPNext validation, permissions, tax and accounting defaults.
     if should_submit:
-        invoice.submit()
+        from servicing_os.api.invoice_review import submit_reviewed_invoice
+        submit_reviewed_invoice(invoice.name, str(invoice.modified))
+        invoice.reload()
     return {"invoice": invoice.name, "submitted": invoice.docstatus == 1,
             "grand_total": invoice.grand_total, "currency": invoice.currency}
 
@@ -239,30 +238,14 @@ def create_invoice(service_job, lines=None, submit=0):
 @frappe.whitelist(methods=["POST"])
 def submit_existing_invoice(service_job, invoice_name):
     """Submit an already saved draft from SERVICING OS (no ERPNext Desk navigation)."""
+    from servicing_os.api.invoice_review import submit_reviewed_invoice
+
     job = _read_job(service_job)
-    company = _company(job)
-    invoice_name = _clean(invoice_name)
-    if not invoice_name:
-        frappe.throw("Invoice number is required")
-    if not frappe.has_permission("Sales Invoice", "submit"):
-        frappe.throw("Your role cannot submit Sales Invoices", frappe.PermissionError)
-
-    # Lock the same job as create_invoice to prevent racing a duplicate invoice.
-    frappe.db.sql("SELECT name FROM `tabService Job` WHERE name=%s FOR UPDATE", (job.name,))
-    existing = _previous_invoice(job)
-    if not existing or existing.name != invoice_name:
-        frappe.throw("This invoice is not the active invoice for the selected Service Job")
-
-    invoice = frappe.get_doc("Sales Invoice", invoice_name)
+    invoice = frappe.get_doc("Sales Invoice", _clean(invoice_name))
     invoice.check_permission("read")
-    invoice.check_permission("submit")
-    if invoice.docstatus != 0:
-        frappe.throw("Only draft invoices can be submitted from this action")
-    if invoice.company != company or invoice.customer != job.get("customer"):
-        frappe.throw("Invoice Company/Customer do not match this Service Job")
-    if int(invoice.update_stock or 0) != 0:
-        frappe.throw("Stock-updating invoices require inventory review before submission")
-    invoice.submit()
+    if linked_job(invoice) != job.name:
+        frappe.throw("This invoice is not linked to the selected Service Job.")
+    submit_reviewed_invoice(invoice.name, str(invoice.modified))
     return {"invoice": invoice.name, "submitted": True,
             "grand_total": invoice.grand_total, "currency": invoice.currency}
 

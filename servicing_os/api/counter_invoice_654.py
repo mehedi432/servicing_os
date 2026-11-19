@@ -6,6 +6,8 @@ stock valuation, tax and payment workflows remain authoritative. No bypass permi
 import re
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 import frappe
+from servicing_os.api.service_invoice_661 import active_sale_invoice_names
+from servicing_os.revenue_streams import KIND_TO_STREAM, STREAM_FIELD
 from frappe.utils import nowdate
 
 LINK_FIELD = "custom_service_job"
@@ -90,34 +92,36 @@ def search_invoice_customers(q=''):
 
 
 @frappe.whitelist(methods=['GET'])
-def search_invoice_items(q='', invoice_kind='retail', page=1):
-    """Permission-checked item catalog; 20 per page regardless of stock balance."""
+def search_invoice_items(q='', invoice_kind='retail', page=1, page_size=20):
+    """Permission-checked item catalog, including zero-stock products."""
     kind=kind_of(invoice_kind)
     shop=shop_config()
     read_permission('Item')
     q=str(q or '').strip()[:80]
     try: page=max(1,min(10000,int(page)))
     except (TypeError,ValueError): page=1
+    try: page_size=max(1,min(20,int(page_size)))
+    except (TypeError,ValueError): page_size=20
     filters={'disabled':0,'is_sales_item':1}
     if kind=='service': pass  # SOS_REPAIR_PARTS_BILLING_712 · service labour + repair parts
     elif kind=='used': filters['is_stock_item']=1
     opts={
         'filters':filters,
         'fields':['name','item_name','stock_uom','is_stock_item','has_serial_no'],
-        'order_by':'modified desc',
-        'start':(page-1)*20,
-        'limit_page_length':21,
+        'order_by':'modified desc, name asc',
+        'start':(page-1)*page_size,
+        'limit_page_length':page_size+1,
     }
     if q:
         pattern='%'+q.replace('%',r'\%').replace('_',r'\_')+'%'
         opts['or_filters']={'name':['like',pattern],'item_name':['like',pattern]}
     rows=frappe.get_list('Item',**opts)
-    has_next=len(rows)>20
+    has_next=len(rows)>page_size
     warehouse=shop.used_laptop_warehouse if kind=='used' else shop.retail_warehouse
     if kind=='service':
         warehouse=frappe.db.get_value('Servicing Shop',shop.name,'spare_parts_warehouse') or shop.retail_warehouse
     results=[]
-    for item in rows[:20]:
+    for item in rows[:page_size]:
         record=dict(item)
         record['stock_qty']=None
         if record.get('is_stock_item'):
@@ -125,7 +129,7 @@ def search_invoice_items(q='', invoice_kind='retail', page=1):
             record['stock_qty']=float(qty)
         # Include zero-stock items for browsing and searching. ERPNext still validates sales.
         results.append(record)
-    return {'results':results,'warehouse':warehouse,'page':page,'page_size':20,'has_next':has_next}
+    return {'results':results,'warehouse':warehouse,'page':page,'page_size':page_size,'has_next':has_next}
 
 
 def checked_job(job_name, shop):
@@ -219,13 +223,9 @@ def create_unified_invoice_draft(invoice_kind=None, customer=None, job_name=None
         customer=job.customer
         # Serializes this job's invoices without locking unrelated sales.
         frappe.db.sql('SELECT name FROM `tabService Job` WHERE name=%s FOR UPDATE',(job.name,))
-        prior = frappe.db.sql("""
-            SELECT name FROM `tabSales Invoice`
-            WHERE custom_service_job=%s AND docstatus<2 AND is_return=0
-            LIMIT 1 FOR UPDATE
-        """, (job.name,))
+        prior = active_sale_invoice_names(job.name, shop.company)
         if prior:
-            frappe.throw('A draft or submitted invoice already exists for this Service Job: '+prior[0][0])
+            frappe.throw('A draft or submitted invoice already exists for this Service Job: '+prior[0])
     name=str(customer or '').strip()
     if not name or not frappe.db.exists('Customer',name):frappe.throw('Choose an existing Customer.')
     read_permission('Customer',name)
@@ -312,6 +312,7 @@ def create_unified_invoice_draft(invoice_kind=None, customer=None, job_name=None
     meta=frappe.get_meta('Sales Invoice')
     doc={
         'doctype':'Sales Invoice','company':shop.company,'customer':name,
+        STREAM_FIELD: KIND_TO_STREAM[kind],
         'currency':frappe.db.get_value('Company',shop.company,'default_currency'),
         'posting_date':nowdate(),'due_date':nowdate(),
         'update_stock':0 if kind=='service' else (1 if any(x.get('warehouse') for x in bill_lines) else 0),

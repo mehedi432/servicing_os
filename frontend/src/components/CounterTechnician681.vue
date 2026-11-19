@@ -117,7 +117,7 @@ onMounted(refresh)
 .sos681-receive-content .sos649-original-workspace > .grid,.sos681-receive-content .sos649-original-workspace > div.grid{gap:10px!important}
 .sos681-receive-content .sos649-original-workspace > .grid > section,.sos681-receive-content .sos649-original-workspace > div.grid > section{padding:12px!important}
 .sos681-receive-content .sos649-original-workspace :is(.gap-4,.gap-5,.gap-6,.space-y-4,.space-y-5,.space-y-6){gap:9px!important}
-.sos681-receive-content .sos649-original-workspace :is(input:not([type="checkbox"]):not([type="radio"]),select){min-height:34px!important;padding:6px 9px!important;font-size:12px!important}
+.sos681-receive-content .sos649-original-workspace :is(input:not([type="checkbox"]):not([type="radio"]),select):not(:where([data-servicing-control-layout="local"] *)){min-height:34px!important;padding:6px 9px!important;font-size:12px!important}
 .sos681-receive-content .sos649-original-workspace textarea{padding:8px 9px!important;font-size:12px!important;min-height:56px!important;resize:vertical}
 .sos681-receive-content .sos649-original-workspace label{font-size:11px!important;line-height:1.25!important}
 .sos681-receive-content .sos649-original-workspace :is(.space-y-4,.space-y-5,.space-y-6)>:not([hidden])~:not([hidden]){margin-top:9px!important}

@@ -327,3 +327,17 @@ del _sos671_doc_events, _sos671_dt, _sos671_actions, _sos671_current, _sos671_ta
 after_install = "servicing_os.deployment.ensure_schema"
 after_migrate = "servicing_os.deployment.ensure_schema"
 # END SOS_REMOTE_DEPLOYMENT_703
+
+# Set income accounts before ERPNext validates and again before its GL posting.
+def _add_revenue_event(doctype, event, handler):
+    events = doc_events.setdefault(doctype, {})
+    current = events.get(event) or []
+    handlers = [current] if isinstance(current, str) else list(current)
+    if handler not in handlers:
+        events[event] = [*handlers, handler]
+
+
+_add_revenue_event("Sales Invoice", "before_validate", "servicing_os.revenue_streams.apply_invoice_income")
+_add_revenue_event("Sales Invoice", "before_submit", "servicing_os.revenue_streams.apply_invoice_income")
+_add_revenue_event("Company", "validate", "servicing_os.revenue_streams.validate_company_accounts")
+del _add_revenue_event

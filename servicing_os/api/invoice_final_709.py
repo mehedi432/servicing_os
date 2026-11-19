@@ -7,6 +7,7 @@ No payment entries or delivery transitions are fabricated.
 
 import frappe
 from frappe.utils import flt
+from servicing_os.api.service_invoice_661 import active_sale_invoice_names, linked_job
 from servicing_os.api.site_company_706 import site_shop_context, validate_job_shop
 
 
@@ -41,7 +42,7 @@ def _job_context(job_name):
 
 
 def _invoice_check(inv, job, ctx):
-    if inv.company != ctx['company'] or inv.customer != job.customer or inv.get('custom_service_job') != job.name:
+    if inv.company != ctx['company'] or inv.customer != job.customer or linked_job(inv) != job.name:
         frappe.throw('Invoice company/customer/Service Job mismatch', frappe.PermissionError)
     if inv.is_return or inv.update_stock:
         frappe.throw('Service Invoice must not be a return or update stock. Spare parts are issued separately.')
@@ -89,7 +90,7 @@ def _billing_check(inv, job_name, company, warehouse):
     issued = _collect_issued(job_name, company, warehouse)
     billed = {}
     for line in inv.items:
-        if frappe.db.get_value('Item', line.item_code, 'is_stock_item'):
+        if line.item_code and frappe.db.get_value('Item', line.item_code, 'is_stock_item'):
             billed[line.item_code] = billed.get(line.item_code,0) + flt(line.stock_qty or line.qty * (line.conversion_factor or 1))
     for code, qty in billed.items():
         if abs(qty - issued.get(code,0)) > 0.00001:
@@ -100,7 +101,7 @@ def _billing_check(inv, job_name, company, warehouse):
 
 
 @frappe.whitelist(methods=['POST'])
-def finalize_service_invoice(job_name, invoice_name):
+def finalize_service_invoice(job_name, invoice_name, expected_modified=None):
     """Submit existing Sales Invoice and approved parts issues in one Frappe request.
 
     Any exception before request commit rolls back invoice + stock submissions.
@@ -111,17 +112,21 @@ def finalize_service_invoice(job_name, invoice_name):
     if not invoice_name or len(str(invoice_name)) > 140:
         frappe.throw('Choose a valid Sales Invoice')
     # The Service Job is already locked. Lock the existing invoice before submitting it.
-    frappe.db.sql('SELECT name FROM `tabSales Invoice` WHERE name=%s FOR UPDATE', (invoice_name,))
+    locked = frappe.db.sql('SELECT modified, docstatus FROM `tabSales Invoice` WHERE name=%s FOR UPDATE', (invoice_name,))
     inv=frappe.get_doc('Sales Invoice', invoice_name)
     _invoice_check(inv, job, ctx)
-    competitors=frappe.get_all('Sales Invoice', filters={'company':ctx['company'], 'custom_service_job':job.name,
-                           'is_return':0,'docstatus':['!=',2]}, pluck='name', limit_page_length=100)
+    competitors = active_sale_invoice_names(job.name, ctx['company'])
     if len(competitors)!=1 or competitors[0]!=inv.name:
         frappe.throw('Multiple invoices are linked to this Service Job. Resolve before finalization.')
-    if inv.docstatus == 1:
+    if locked and locked[0][1] == 1:
         return {'invoice':inv.name,'service_job':job.name,'docstatus':1,'already_final':True,'stock_entries':[]}
-    if inv.docstatus != 0:
+    if not locked or locked[0][1] != 0 or inv.docstatus != 0:
         frappe.throw('Only Draft Sales Invoices can be finalized')
+    inv.check_permission('submit')
+    if expected_modified is not None and (
+        str(locked[0][0]) != str(expected_modified) or str(inv.modified) != str(expected_modified)
+    ):
+        frappe.throw('This invoice changed after review. Reopen it before submitting.')
     if job.status == 'Delivered':
         frappe.throw('This device was already delivered. Review the existing Sales Invoice in ERPNext.')
 
@@ -152,8 +157,14 @@ def finalize_service_invoice(job_name, invoice_name):
         entry = parts.submit_stock_entry(stock_entry, stock_entry)
         submitted_entries.append(entry['stock_entry'])
     _billing_check(inv,job.name,ctx['company'],warehouse)
+    if not inv.get('custom_service_job') and inv.meta.has_field('custom_service_job'):
+        inv.set('custom_service_job', job.name)
     inv.flags.ignore_permissions=False
+    if expected_modified is not None:
+        inv.flags.sos_submit_without_handover = True
     inv.submit()
+    if inv.docstatus != 1:
+        frappe.throw('The invoice did not reach Submitted status.')
     return {'invoice':inv.name,'service_job':job.name,'docstatus':inv.docstatus,
             'already_final':False,'stock_entries':submitted_entries}
 

@@ -2,8 +2,11 @@
 
 Frappe v15. No elevated permissions for client-facing methods.
 """
+from datetime import date, timedelta
+
 import frappe
 from frappe import _
+from frappe.utils import add_months, getdate, nowdate
 
 TECH_FIELDS = (
     'technician', 'assigned_technician', 'custom_assigned_technician',
@@ -130,16 +133,39 @@ def get_receive_technicians():
 
 
 @frappe.whitelist(methods=['GET'])
-def get_receive_history(q='', customer='', page=1):
-    """Return exactly five permitted Service Jobs/page, or five for selected customer."""
+def get_receive_history(q='', customer='', page=1, from_date=None, to_date=None, page_size=20, preset=None, status=None):
+    """Return a permission-filtered Customer History page for the received-date range."""
     _must_login()
     if not frappe.has_permission('Service Job', 'read'):
         frappe.throw(_('Service Job read permission required'), frappe.PermissionError)
     try: page = max(1, min(10000, int(page)))
     except (TypeError, ValueError): page = 1
+    page_size = 8 if str(page_size) == '8' else 20
     query = str(q or '').strip()[:90]
     selected_customer = str(customer or '').strip()[:140]
-    filters = {}
+    try:
+        end = date.fromisoformat(str(to_date or nowdate()))
+        if from_date:
+            start = date.fromisoformat(str(from_date))
+        elif preset == 'week':
+            start = end - timedelta(days=6)
+        else:
+            start = getdate(add_months(end, -1))
+    except (ValueError, OverflowError):
+        frappe.throw(_('Enter valid From and To dates.'))
+    if start > end:
+        frappe.throw(_('From date must be on or before To date.'))
+    filters = [
+        ['received_date', '>=', f'{start.isoformat()} 00:00:00'],
+        ['received_date', '<=', f'{end.isoformat()} 23:59:59.999999'],
+    ]
+    status_field = frappe.get_meta('Service Job').get_field('status')
+    options = [value.strip() for value in (status_field.options or '').splitlines() if value.strip()] if status_field else []
+    state = str(status or '').strip()
+    if state:
+        if state not in options:
+            frappe.throw(_('Invalid Service Job status filter.'))
+        filters.append(['status', '=', state])
     or_filters = None
     # Searching across ALL jobs overrides selected-customer history filtering.
     if query:
@@ -151,18 +177,30 @@ def get_receive_history(q='', customer='', page=1):
             ['Service Job', 'serial_number', 'like', pattern],
         ]
     elif selected_customer:
-        filters['customer'] = selected_customer
-    # Never bypass record-level permissions: get_list, not get_all.
+        filters.append(['customer', '=', selected_customer])
+    # Count against the same search and permission scope as the displayed rows.
+    total_rows = frappe.get_list(
+        'Service Job', fields=['count(distinct name) as total'], filters=filters,
+        or_filters=or_filters, order_by='total desc', limit_page_length=1,
+    )
+    total = int(total_rows[0].get('total') or 0) if total_rows else 0
+    pages = max(1, (total + page_size - 1) // page_size)
+    page = min(page, pages)
     rows = frappe.get_list(
         'Service Job', fields=['name', 'customer_name', 'mobile', 'device_type',
-                               'brand', 'device_model', 'status', 'received_date'],
-        filters=filters, or_filters=or_filters, order_by='creation desc',
-        limit_start=(page - 1)*5, limit_page_length=6,
-    )
+                               'brand', 'device_model', 'status', 'received_date', 'creation'],
+        filters=filters, or_filters=or_filters, order_by='received_date desc, creation desc, name desc',
+        limit_start=(page - 1) * page_size, limit_page_length=page_size,
+    ) if total else []
     return {
-        'jobs': [dict(row) for row in rows[:5]],
+        'jobs': [dict(row) for row in rows],
         'page': page,
-        'has_next': len(rows) > 5,
+        'has_next': page < pages,
         'has_prev': page > 1,
-        'page_size': 5,
+        'page_size': page_size,
+        'total': total,
+        'total_pages': pages,
+        'from_date': start.isoformat(),
+        'to_date': end.isoformat(),
+        'status_options': options,
     }

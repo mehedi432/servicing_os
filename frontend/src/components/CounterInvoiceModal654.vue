@@ -1,5 +1,6 @@
 <script setup>
 import CounterCheckout670 from './CounterCheckout670.vue'
+import ProductSuggestionGrid from './ProductSuggestionGrid.vue'
 const completed670 = ref(null)
 // SOS_FINAL_INVOICE_709
 const finalizing709 = ref(false)
@@ -45,18 +46,20 @@ const kind = ref(['retail','used','service'].includes(props.initialKind) ? props
 const setup = ref(null), loading = ref(true), saving=ref(false), error=ref(''), saved=ref(null)
 const customerText=ref(''), customerId=ref(''), customerSuggestions=ref([]), customerFocus=ref(false)
 const selectedJob=ref(''), jobList=ref([]), remarks=ref(''), discountMode=ref('none'), discountValue=ref(0)
-const rows=ref([{item_code:'',qty:1,rate:'',discount_percentage:0,serial_no:''}])
+let nextLineId = 0
+function blankLine() {
+  return { id: ++nextLineId, item_code:'', qty:1, rate:'', discount_percentage:0, serial_no:'' }
+}
+const rows=ref([blankLine()])
 const checkedJob = ref('')
 const checkingJob = ref(false)
 let jobLookup = 0
 
 // SERVICING_OS_WARRANTY_672: fetch and require an explicit warranty for each line.
 const sos672WarrantyCache = new Map()
-let sos672WarrantyTicket = 0
 async function sos672ResolveModalWarranty(row) {
   if (!row?.item_code) return
   const code=String(row.item_code).trim()
-  const ticket=++sos672WarrantyTicket
   row.sos672WarrantyCode=code
   row.sos672WarrantyPending=true
   row.sos672WarrantyError=''
@@ -99,12 +102,11 @@ watch(()=>rows.value.map(r=>r.item_code).join('|'),()=>{
   clearTimeout(sos672ModalTimer)
   sos672ModalTimer=setTimeout(()=>rows.value.forEach(r=>{
     if(r.item_code!==r.sos672WarrantyCode){r.sos672WarrantySelected=false;r.sos672WarrantyDays='';r.sos672WarrantySource='';r.sos672WarrantyCode=r.item_code}
-    if(r.item_code && !r.sos672WarrantySelected)sos672ResolveModalWarranty(r)
+    if(r.item_code && !r.sos672WarrantySelected && !r.sos672WarrantyPending && r.sos672WarrantySource!=='item_master')sos672ResolveModalWarranty(r)
   }),420)
 })
 
-const matches=ref([]), activeItem=ref(-1), itemBusy=ref(false), suggestFocused=ref(false)
-let customerTimer, itemTimer, customerSeq=0, itemSeq=0
+let customerTimer, customerSeq=0
 const currentJob=computed(()=>jobList.value.find(j=>j.name===selectedJob.value))
 const money=v=>Number(v||0).toLocaleString('en-BD',{minimumFractionDigits:2,maximumFractionDigits:2})
 const lineTotal=row=>Math.round(Math.max(0,Number(row.qty)||0)*Math.max(0,Number(row.rate)||0)*(1-Math.min(100,Math.max(0,Number(row.discount_percentage)||0))/100)*100)/100
@@ -114,11 +116,11 @@ const estimate=computed(()=>Math.max(0,subtotal.value-overall.value))
 const kindName={retail:'New Sale',used:'Used Laptop Sale',service:'Service Job'}
 function resetOnKind(){
   jobLookup++; checkedJob.value=''; checkingJob.value=false
-  customerSeq++; itemSeq++; clearTimeout(customerTimer); clearTimeout(itemTimer)
+  customerSeq++; clearTimeout(customerTimer)
   saved.value=null; completed670.value=null; finalized709.value=null; sos657Preview.value=''
-  error.value='';customerId.value='';customerText.value='';customerSuggestions.value=[];selectedJob.value='';rows.value=[{item_code:'',qty:1,rate:'',discount_percentage:0,serial_no:''}]
-  remarks.value=''; sos712PartsNote.value=''; customerFocus.value=false; suggestFocused.value=false; itemBusy.value=false
-  matches.value=[];activeItem.value=-1;discountMode.value='none';discountValue.value=0
+  error.value='';customerId.value='';customerText.value='';customerSuggestions.value=[];selectedJob.value='';rows.value=[blankLine()]
+  remarks.value=''; sos712PartsNote.value=''; customerFocus.value=false
+  discountMode.value='none';discountValue.value=0
 }
 function errorText(data, fallback) {
   try {
@@ -134,11 +136,11 @@ function errorText(data, fallback) {
   const message = data?.message?.message || data?.message
   return typeof message === 'string' && message.trim() ? message.replace(/<[^>]*>/g, '') : fallback
 }
-async function api(name,{method='GET',params={},body=null}={}){
+async function api(name,{method='GET',params={},body=null,signal}={}){
   const url=new URL('/api/method/servicing_os.api.counter_invoice_654.'+name,location.origin)
   for(const [key,val] of Object.entries(params)) url.searchParams.set(key,String(val))
   const token=window.frappe?.csrf_token||window.csrf_token||document.querySelector('meta[name="csrf-token"]')?.content||''
-  const res=await fetch(url,{method,credentials:'same-origin',cache:'no-store',headers:{Accept:'application/json',...(body?{'Content-Type':'application/json'}:{}),...(token?{'X-Frappe-CSRF-Token':token}:{})},...(body?{body:JSON.stringify(body)}:{})})
+  const res=await fetch(url,{method,credentials:'same-origin',cache:'no-store',signal,headers:{Accept:'application/json',...(body?{'Content-Type':'application/json'}:{}),...(token?{'X-Frappe-CSRF-Token':token}:{})},...(body?{body:JSON.stringify(body)}:{})})
   let data;try{data=await res.json()}catch(_){throw new Error('Unexpected invoice API response: HTTP '+res.status)}
   if(!res.ok||data.exc||data.exception)throw new Error(errorText(data,'Invoice request failed'))
   return data.message||{}
@@ -208,9 +210,22 @@ onMounted(load)
 function customerSearch(){clearTimeout(customerTimer);customerSuggestions.value=[];customerId.value='';if(!customerFocus.value||customerText.value.trim().length<1)return;const seq=++customerSeq;customerTimer=setTimeout(async()=>{try{const x=await api('search_invoice_customers',{params:{q:customerText.value}});if(seq===customerSeq)customerSuggestions.value=x.results||[]}catch(e){if(seq===customerSeq)error.value=e.message}},240)}
 function chooseCustomer(c){customerId.value=c.name;customerText.value=c.customer_name||c.name;customerFocus.value=false;customerSuggestions.value=[]}
 function onCustomerBlur(){setTimeout(()=>{customerFocus.value=false;customerSuggestions.value=[]},220)}
-function itemSearch(i){clearTimeout(itemTimer);activeItem.value=i;matches.value=[];if(!suggestFocused.value||!rows.value[i]||!rows.value[i].item_code.trim())return;const seq=++itemSeq;itemTimer=setTimeout(async()=>{itemBusy.value=true;try{const x=await api('search_invoice_items',{params:{q:rows.value[i].item_code,invoice_kind:kind.value}});if(seq===itemSeq)matches.value=x.results||[]}catch(e){if(seq===itemSeq)error.value=e.message}finally{if(seq===itemSeq)itemBusy.value=false}},230)}
-function focusItem(i){suggestFocused.value=true;itemSearch(i)}
-function onItemBlur(){setTimeout(()=>{suggestFocused.value=false;matches.value=[];activeItem.value=-1},250)}
+async function searchItems(q, signal) {
+  const result = await api('search_invoice_items', {params:{q, invoice_kind:kind.value, page_size:8}, signal})
+  return (result.results || []).map(item => ({
+    code: item.name, name: item.item_name, hasSerial: Boolean(item.has_serial_no),
+    detail: item.stock_qty == null ? 'Service / non-stock item' : `${item.stock_qty} ${item.stock_uom || ''} on hand`,
+  }))
+}
+function editItemCode(row, code) {
+  if (row.item_code === code) return
+  Object.assign(row, {
+    item_code:code, selectedProduct:false, has_serial_no:false, serial_no:'', rate:'',
+    priceLoading:false, priceError:'', priceList:'', sos672WarrantyCode:'',
+    sos672WarrantyPending:false, sos672WarrantySelected:false, sos672WarrantyDays:'',
+    sos672WarrantySource:'', sos672WarrantyError:'',
+  })
+}
 
 // SERVICING_OS_AUTO_SELLING_PRICE_660: Invoice rate from Item Price.
 async function sos660ModalPrice(code) {
@@ -223,18 +238,29 @@ async function sos660ModalPrice(code) {
   return data.message
 }
 
-async function chooseItem(i,it){
-  const row=rows.value[i]
-  row.item_code=it.name;row.has_serial_no=!!it.has_serial_no;row.stock_qty=it.stock_qty;row.sos672WarrantySelected=false;row.sos672WarrantyDays='';row.sos672WarrantySource='';sos672ResolveModalWarranty(row)
-  row.rate='';row.priceLoading=true;row.priceError='';row.priceList=''
-  matches.value=[];activeItem.value=-1;suggestFocused.value=false
-  try{
-    const value=await sos660ModalPrice(it.name)
-    if(rows.value[i]!==row||row.item_code!==it.name)return
-    row.rate=Number(value.rate);row.priceList=value.price_list
-  }catch(e){if(rows.value.includes(row)){
-    row.priceError=e?.message||'Selling price unavailable';error.value=row.priceError
-  }}finally{row.priceLoading=false}
+async function loadItemPrice(row, code) {
+  const request = Symbol()
+  row.priceRequest = request
+  const current = () => rows.value.includes(row) && row.item_code === code && row.priceRequest === request
+  row.priceLoading = true
+  row.priceError = ''
+  try {
+    const value = await sos660ModalPrice(code)
+    if (!current()) return
+    row.rate = Number(value.rate)
+    row.priceList = value.price_list
+  } catch (error) {
+    if (current()) row.priceError = error.message || 'Selling price unavailable'
+  } finally {
+    if (current()) row.priceLoading = false
+  }
+}
+function chooseItem(row, product) {
+  editItemCode(row, product.code)
+  row.selectedProduct = true
+  row.has_serial_no = product.hasSerial
+  if (!row.sos672WarrantySelected && !row.sos672WarrantyPending) sos672ResolveModalWarranty(row)
+  loadItemPrice(row, product.code)
 }
 
 // SOS_REPAIR_PARTS_BILLING_712 — copy approved repair materials into billing lines.
@@ -262,18 +288,16 @@ async function sos712ImportApprovedParts(){
     if((rows.value.length===1&&!rows.value[0].item_code?0:rows.value.length)+additions.length>35)throw new Error('The invoice exceeds 35 line items.')
     if(rows.value.length===1&&!rows.value[0].item_code)rows.value=[]
     for(const [code,qty] of additions){
-      rows.value.push({item_code:code,qty,rate:'',discount_percentage:0,serial_no:'',priceLoading:true,priceError:'',priceList:'',sos672WarrantySelected:false,sos672WarrantyDays:'',sos672WarrantySource:''})
+      rows.value.push({...blankLine(), item_code:code, qty})
       const row = rows.value[rows.value.length - 1]
       sos672ResolveModalWarranty(row)
-      try{const x=await sos660ModalPrice(code);row.rate=Number(x.rate);row.priceList=x.price_list}
-      catch(e){row.priceError=e?.message||'Selling price unavailable'}
-      finally{row.priceLoading=false}
+      await loadItemPrice(row, code)
     }
     sos712PartsNote.value=additions.length+' approved part line(s) imported. Review selling rates, quantities and warranty.'
   }catch(e){error.value=e.message||'Approved parts could not be imported'}finally{sos712ImportBusy.value=false}
 }
 
-function addItem(){if(rows.value.length<35)rows.value.push({item_code:'',qty:1,rate:'',discount_percentage:0,serial_no:''})}
+function addItem(){if(rows.value.length<35)rows.value.push(blankLine())}
 function removeItem(i){if(rows.value.length>1)rows.value.splice(i,1)}
 function nextInvoice() {
   if (saving.value || finalizing709.value) return
@@ -281,7 +305,7 @@ function nextInvoice() {
   else resetOnKind()
 }
 watch(kind,resetOnKind)
-onUnmounted(()=>{clearTimeout(customerTimer);clearTimeout(itemTimer);clearTimeout(sos672ModalTimer);customerSeq++;itemSeq++;jobLookup++})
+onUnmounted(()=>{clearTimeout(customerTimer);clearTimeout(sos672ModalTimer);customerSeq++;jobLookup++})
 async function save(){
   if(saving.value||saved.value)return
   error.value=''
@@ -354,37 +378,38 @@ async function save(){
         <label><span>Warehouse</span><input :value="kind==='service'?'Repair parts · separate Stock Entry':kind==='used'?setup?.used_laptop_warehouse:setup?.retail_warehouse" readonly /></label>
         <label><span>Remarks (optional)</span><input v-model="remarks" maxlength="360" placeholder="Customer reference / notes" /></label>
       </div>
-      <div class="sos654-heading"><div><strong>Invoice Items</strong><small>Search existing items; select matching Item Code</small></div><div class="sos712-import-actions"><button v-if="kind==='service'" type="button" :disabled="sos712ImportBusy" @click="sos712ImportApprovedParts">{{sos712ImportBusy?'Importing…':'＋ Import Approved Parts'}}</button><button type="button" :disabled="rows.length>=35" @click="addItem">+ Add Item</button></div></div>
+      <div class="sos654-heading"><div><strong>Invoice Items</strong><small>Focus the product field to browse or type to search</small></div><div class="sos712-import-actions"><button v-if="kind==='service'" type="button" :disabled="sos712ImportBusy" @click="sos712ImportApprovedParts">{{sos712ImportBusy?'Importing…':'＋ Import Approved Parts'}}</button><button type="button" :disabled="rows.length>=35" @click="addItem">+ Add Item</button></div></div>
       <p v-if="sos712PartsNote" class="sos712-parts-hint">{{sos712PartsNote}}</p>
       <div class="sos654-lines">
-        <div v-for="(row,i) in rows" :key="i" class="sos654-line">
-          <label class="sos654-search-field"><span>Item Code *</span>
-            <input v-model="row.item_code" autocomplete="off" placeholder="Click, then type Item Code" @focus="focusItem(i)" @input="itemSearch(i)" @blur="onItemBlur" />
-            <div v-if="activeItem===i&&suggestFocused" class="sos654-suggest" role="listbox">
-              <p v-if="itemBusy">Searching…</p>
-              <button v-for="it in matches" :key="it.name" type="button" @mousedown.prevent="chooseItem(i,it)">{{ it.item_name }} <small>{{ it.name }} <template v-if="it.stock_qty!==null&&it.stock_qty!==undefined">· Stock: {{ it.stock_qty }}</template></small></button>
-            </div>
-          </label>
+        <div v-for="(row,i) in rows" :key="row.id" class="invoice-line-fields">
+          <ProductSuggestionGrid class="invoice-product" label="Item Code *" :model-value="row.item_code" :selected="!!row.selectedProduct"
+            :lookup="searchItems" @update:model-value="editItemCode(row, $event)" @select="chooseItem(row, $event)" />
           <label><span>Qty</span><input v-model.number="row.qty" type="number" min="0.01" step="0.01" /></label>
-          <label><span>Unit Selling Price (BDT)</span><input v-model.number="row.rate" type="number" min="0" step="0.01" :readonly="kind!=='service'" title="Edit the final selling rate for service items and approved spare parts" @input="row.priceError = ''" />
-           <small v-if="row.priceLoading">Fetching selling price…</small><small v-else-if="row.priceError" class="sos660-modal-error">{{ row.priceError }}</small><small v-else-if="row.priceList">{{ row.priceList }}</small>
-         </label>
-          <label><span>Disc. %</span><input v-model.number="row.discount_percentage" type="number" min="0" max="100" step="0.01" /></label>
-          <label class="sos672-modal-warranty"><span>Warranty (Days)</span>
+          <label><span>Unit selling price (BDT)</span><input v-model.number="row.rate" type="number" min="0" step="0.01" :readonly="kind !== 'service'" title="Edit the final selling rate for service items and approved spare parts" @input="row.priceError = ''" /></label>
+          <label><span>Discount %</span><input v-model.number="row.discount_percentage" type="number" min="0" max="100" step="0.01" /></label>
+          <label class="invoice-warranty"><span>Warranty days</span>
             <input v-model.number="row.sos672WarrantyDays" type="number" :min="row.sos672WarrantySource==='none'?0:1" max="36500" step="1"
               :readonly="row.sos672WarrantySource==='item_master'"
-              :disabled="row.sos672WarrantyPending" placeholder="Enter days" @input="sos672WarrantyEdited(row)" />
-            <small v-if="row.sos672WarrantySource==='item_master'">ERPNext Item Master</small>
-            <small v-else-if="row.sos672WarrantyPending">Checking warranty…</small>
-            <small v-else-if="row.sos672WarrantyError">{{ row.sos672WarrantyError }}</small>
-            <small v-else-if="row.sos672WarrantySource==='none'">No warranty selected</small>
-            <small v-else>Manual warranty days</small>
-            <button v-if="row.sos672WarrantySource!=='item_master'&&!row.sos672WarrantyPending"
-              type="button" class="sos672-none-button" :aria-pressed="row.sos672WarrantySource==='none'" @click="sos672NoWarranty(row)">No warranty</button>
+              :disabled="row.sos672WarrantyPending" placeholder="Days" @input="sos672WarrantyEdited(row)" />
           </label>
-          <label v-if="kind==='used'||row.has_serial_no" class="sos654-serial"><span>Serial Number(s)</span><input v-model.trim="row.serial_no" placeholder="For serialized items, one per unit" /></label>
-          <div class="sos654-lineamount"><small>Line</small><strong>৳ {{ money(lineTotal(row)) }}</strong></div>
-          <button type="button" class="sos654-remove" aria-label="Remove invoice item" :disabled="rows.length<2" @click="removeItem(i)">×</button>
+          <div class="invoice-line-amount"><span>Line total</span><strong>৳ {{ money(lineTotal(row)) }}</strong></div>
+          <button class="invoice-remove" type="button" aria-label="Remove invoice item" :disabled="rows.length<2" @click="removeItem(i)">×</button>
+          <div v-if="row.item_code" class="invoice-line-notes">
+            <span aria-live="polite">
+              <span v-if="row.priceLoading">Fetching selling price…</span>
+              <span v-else-if="row.priceError" class="invoice-note-error">{{ row.priceError }}</span>
+              <span v-else-if="row.priceList">{{ row.priceList }}</span>
+            </span>
+            <div class="invoice-warranty-note">
+              <span v-if="row.sos672WarrantySource==='item_master'">Warranty from Item Master</span>
+              <span v-else-if="row.sos672WarrantyPending" role="status">Checking warranty…</span>
+              <template v-else>
+                <span v-if="row.sos672WarrantyError" class="invoice-note-error">{{ row.sos672WarrantyError }}</span>
+                <button type="button" :aria-pressed="row.sos672WarrantySource==='none'" @click="sos672NoWarranty(row)">No warranty</button>
+              </template>
+            </div>
+          </div>
+          <label v-if="kind==='used'||row.has_serial_no" class="invoice-line-serial"><span>Serial Number(s)</span><input v-model.trim="row.serial_no" placeholder="For serialized items, one per unit" /></label>
         </div>
       </div>
       <div class="sos654-bottom">
@@ -423,32 +448,40 @@ async function save(){
 .sos654-suggest button{display:block;width:100%;text-align:left;padding:10px!important;border:0!important;border-bottom:1px solid #efe3d8!important;color:#4a3729!important;background:#fffefa!important;font-size:12px!important}.sos654-suggest button:hover{background:#f4e3d3!important}.sos654-suggest small{display:block}.sos654-suggest p{margin:0;padding:12px;color:#8b725e}
 .sos654-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:9px}.sos654-heading strong{font-size:15px}.sos654-heading small{display:block;color:#8b725e;margin-top:3px}
 .sos654-heading button,.sos654-footer button,.sos654-success button{border:1px solid #e3ceba!important;background:#f4e3d3!important;color:#684832!important;padding:9px 12px!important;border-radius:9px!important;font-size:12px!important;font-weight:700!important}
-.sos654-lines{display:grid;gap:9px}.sos654-line{display:grid;grid-template-columns:minmax(150px,3fr) minmax(60px,.7fr) minmax(90px,1fr) minmax(75px,.8fr) minmax(90px,1fr) 30px;gap:9px;padding:11px;border:1px solid #e7d6c5;border-radius:11px;background:#fffdf9;align-items:end}
-.sos654-serial{grid-column:1/-1}.sos654-lineamount{display:grid;gap:4px;min-height:40px}.sos654-lineamount small{font-size:10px;color:#8b725e}.sos654-lineamount strong{white-space:nowrap}.sos654-remove{border:1px solid #eccfbe!important;border-radius:9px!important;background:#fff0e8!important;color:#a55e40!important;font-size:23px!important;min-height:40px!important}.sos654-remove:disabled{opacity:.4}
+.sos654-lines{container: invoice-lines / inline-size;display:grid;gap:9px}
+.sos654-invoice .invoice-line-fields{display:grid;grid-template-columns:minmax(130px,2.4fr) minmax(56px,.65fr) minmax(96px,1.15fr) minmax(69px,.8fr) minmax(95px,1fr) minmax(90px,1fr) 38px;align-items:end;gap:8px;padding:11px;border:1px solid #e7d6c5;border-radius:11px;background:#fffdf9;min-width:0}
+.sos654-invoice .invoice-line-fields label,.invoice-line-amount{display:grid;grid-template-rows:auto 40px;gap:5px;min-width:0}
+.invoice-line-amount{color:#634633;font-size:11px;font-weight:700}
+.invoice-line-amount strong,.sos654-invoice .invoice-remove{display:flex;align-items:center;justify-content:center;min-height:40px;border:1px solid #e5d1bf;border-radius:9px;background:#f9f0e6;color:#573c2a;padding:4px}
+.invoice-line-amount strong{justify-content:flex-start;padding-inline:8px;overflow-wrap:anywhere}
+.sos654-invoice .invoice-remove{font-size:20px;background:#fff0e8;color:#a05a40}
+.invoice-remove:disabled{opacity:.45;cursor:not-allowed}
+.invoice-line-fields .invoice-product{display:contents}
+.invoice-line-fields .sos-product-panel{grid-column:1/-1;order:1}
+.invoice-line-notes{grid-column:1/-1;order:2;display:flex;justify-content:space-between;align-items:center;gap:6px;color:#765b47;font-size:11px}
+.invoice-warranty-note{display:flex;justify-content:flex-end;align-items:center;gap:6px;flex-wrap:wrap}
+.invoice-warranty-note button{background:#f8ebde;border:1px solid #e3cab4;border-radius:7px;color:#725037;padding:4px 8px;font-weight:650}
+.invoice-warranty-note button[aria-pressed="true"]{background:#805a3e;color:#fff9f2}
+.invoice-note-error{color:#963a2c}
+.invoice-line-serial{grid-column:1/-1;order:3}
+.sos654-invoice .sos654-discount select{height:40px}
+@container invoice-lines (max-width:680px){
+  .sos654-invoice .invoice-line-fields{grid-template-columns:repeat(4,minmax(0,1fr))}
+  .invoice-line-fields .sos-product-label{grid-column:1/-1}
+  .invoice-line-amount{grid-column:1/4}
+}
+@container invoice-lines (max-width:400px){
+  .sos654-invoice .invoice-line-fields{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .invoice-line-amount{grid-column:1}
+  .sos654-invoice .invoice-remove{justify-self:end;width:40px}
+}
 .sos654-bottom{display:grid;grid-template-columns:minmax(0,1fr) minmax(280px,1fr);gap:15px;margin-top:16px;padding:16px;border:1px solid #e7d6c5;background:#fffaf5;border-radius:11px}.sos654-discount{display:grid;grid-template-columns:1fr 1fr;gap:9px;align-content:start}.sos654-totals{display:grid;gap:11px}.sos654-totals>div{display:flex;justify-content:space-between;gap:8px}.sos654-totals .total{border-top:1px solid #e7d6c5;padding-top:10px;font-weight:800}.sos654-totals .total strong{font-size:17px}
 .sos654-info{background:#f1e5d9;border-radius:9px;padding:10px 12px;margin-top:13px;color:#715641;line-height:1.45}.sos654-error{background:#fff1ec;color:#8e3a2b;border:1px solid #ecc7bb;padding:10px;border-radius:8px;margin-top:12px}.sos654-footer{display:flex;gap:10px;justify-content:flex-end;margin-top:15px}.sos654-footer button.primary,.sos654-success button{background:#805a3e!important;color:#fff!important;border-color:#805a3e!important}.sos654-success{text-align:center;padding:28px;background:#fffaf4;border:1px solid #e7d6c5;border-radius:11px}.sos654-success h2{font-weight:800;font-size:22px;margin:10px}.sos654-success p{color:#896b55;margin:10px}
-@media(max-width:850px){.sos654-line{grid-template-columns:repeat(4,minmax(0,1fr))}.sos654-line .sos654-search-field{grid-column:1/-1}.sos654-lineamount{grid-column:1/3}.sos654-bottom{grid-template-columns:1fr}}
-@media(max-width:560px){.sos654-fields,.sos654-discount{grid-template-columns:1fr}.sos654-line{grid-template-columns:1fr 1fr}.sos654-line .sos654-search-field{grid-column:1/-1}.sos654-lineamount{grid-column:1/-1}.sos654-footer button{flex:1}}
+@media(max-width:850px){.sos654-bottom{grid-template-columns:1fr}}
+@media(max-width:560px){.sos654-fields,.sos654-discount{grid-template-columns:1fr}.sos654-footer button{flex:1}}
 </style>
 
 <!-- SERVICING_OS_COUNTER_657 -->
-
-<style>
-/* SERVICING_OS_AUTO_SELLING_PRICE_660 */
-.sos654-invoice input[readonly]{background:#f5ebe2!important;color:#634633!important}
-.sos654-invoice .sos660-modal-error{color:#9d412c!important;font-size:10px!important}
-</style>
-
-<style>
-/* SERVICING_OS_WARRANTY_672 — explicit warranty controls on every modal row. */
-.sos654-invoice .sos654-line{grid-template-columns:minmax(160px,2.6fr) minmax(65px,.7fr) minmax(92px,1fr) minmax(72px,.8fr) minmax(110px,1fr) minmax(90px,1fr) 34px!important;gap:8px!important}
-.sos654-invoice .sos672-modal-warranty{min-width:0}
-.sos654-invoice .sos672-modal-warranty input[readonly]{background:#f3e8dd!important}
-.sos654-invoice .sos672-modal-warranty small{font-size:10px;line-height:1.3;color:#88674e}
-.sos654-invoice .sos672-none-button{background:transparent!important;border:0!important;color:#805a3e!important;text-decoration:underline!important;font-size:10px!important;padding:2px!important;text-align:left}
-@media(max-width:1200px){.sos654-invoice .sos654-line{grid-template-columns:repeat(4,minmax(0,1fr))!important}.sos654-invoice .sos654-line>.sos654-search-field{grid-column:1/-1}.sos654-invoice .sos654-line>.sos672-modal-warranty{grid-column:1/3}.sos654-invoice .sos654-line>.sos654-lineamount{grid-column:3/4}.sos654-invoice .sos654-line>.sos654-remove{grid-column:4}}
-@media(max-width:550px){.sos654-invoice .sos654-line{grid-template-columns:repeat(2,minmax(0,1fr))!important}.sos654-invoice .sos654-line>.sos672-modal-warranty{grid-column:1/3}.sos654-invoice .sos654-line>.sos654-lineamount{grid-column:1}.sos654-invoice .sos654-line>.sos654-remove{grid-column:2}}
-</style>
 
 <style>/* SOS_SERVICE_WORKFLOW_690 */
 .sos654-kind button:disabled{opacity:.48!important;cursor:not-allowed!important}.sos654-invoice input[readonly]{color:#5a3e2c!important;background:#f4e9df!important;cursor:not-allowed}

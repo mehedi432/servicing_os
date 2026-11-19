@@ -12,6 +12,7 @@ const phrase = /(?:component(?:s)?\s*(?:receive|received|receiving)|(?:receive|r
 const componentWord = /(?:components?|parts|কম্পোনেন্ট|যন্ত্রাংশ)/i;
 const receiveWord = /(?:receive|received|receiving|রিসিভ|গ্রহণ)/i;
 const controlsSelector = 'input:not([type="hidden"]), select, textarea, [role="combobox"]';
+const VUE_LAYOUT = '[data-servicing-component-layout="vue"]';
 const state = { version: VERSION, scans: 0, panels: 0, grids: 0, lastScan: null };
 
 function visible(el) {
@@ -20,11 +21,11 @@ function visible(el) {
   return cs.display !== 'none' && cs.visibility !== 'hidden';
 }
 function formControls(el) {
-  return [...el.querySelectorAll(controlsSelector)].filter(visible);
+  return [...el.querySelectorAll(controlsSelector)].filter(control => !control.closest(VUE_LAYOUT) && visible(control));
 }
 function textOf(el) { return (el.textContent || '').replace(/\s+/g, ' ').trim(); }
 function supportedAnchor(el) {
-  if (!visible(el)) return false;
+  if (el.closest(VUE_LAYOUT) || !visible(el)) return false;
   const value = textOf(el);
   return value.length > 0 && value.length < 105 && phrase.test(value);
 }
@@ -51,7 +52,7 @@ function panelCandidates() {
   for (const modal of modals) {
     if (!visible(modal) || formControls(modal).length < 3) continue;
     const titleText = [...modal.querySelectorAll('h1,h2,h3,h4,h5,h6,legend,[role="tab"],button')]
-      .filter(visible).map(textOf).filter(x => x.length < 90).join(' ');
+      .filter(el => !el.closest(VUE_LAYOUT) && visible(el)).map(textOf).filter(x => x.length < 90).join(' ');
     if (phrase.test(titleText)) roots.add(modal);
     else if (receiveWord.test(titleText) && componentWord.test(titleText)) {
       // Only treat it as Components when its tab is selected (if tabs exist).
@@ -68,7 +69,7 @@ function panelCandidates() {
 function fieldGridCandidates(root) {
   const candidates = [];
   for (const el of root.querySelectorAll('div, section, fieldset')) {
-    if (!visible(el) || el.children.length < 3 || el.children.length > 20) continue;
+    if (el.closest(VUE_LAYOUT) || !visible(el) || el.children.length < 3 || el.children.length > 20) continue;
     const children = [...el.children].filter(visible);
     if (children.length < 3) continue;
     const counts = children.map(child => formControls(child).length);

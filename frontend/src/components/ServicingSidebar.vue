@@ -1,6 +1,6 @@
 <script setup>
 import { currentLanguage, setLanguage } from '../i18n/servicingLanguage.js'
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 
 // SERVICING_STABLE_SIDEBAR_V4_20261110
 const props = defineProps({
@@ -8,7 +8,8 @@ const props = defineProps({
   active: { type: String, default: 'Counter' },
   repairOpen: { type: Boolean, default: false },
   mobileOpen: { type: Boolean, default: false },
-  salesSection: { type: String, default: 'New Sale' }
+  salesSection: { type: String, default: 'New Sale' },
+  counterInvoices: { type: Boolean, default: false }
 });
 const emit = defineEmits(['navigate', 'repair', 'close-mobile']);
 const compact = ref(false);
@@ -49,6 +50,7 @@ const ICON = {
 
   'Counter': ['M3 3h8v8H3z','M13 3h8v5h-8z','M13 10h8v11h-8z','M3 13h8v8H3z'],
   'New Sales': ['M3 4h2l2.4 11h11.5l2-8H6','M9 20h.01','M18 20h.01'],
+  'Invoices': ['M6 3h12v18l-3-2-3 2-3-2-3 2z','M9 8h6','M9 12h6','M9 16h4'],
   'Used Laptops': ['M4 5h16v12H4z','M2 21h20','M8 17l-1 4','M16 17l1 4'],
   'Service Jobs': ['M8 4H6a2 2 0 0 0-2 2v14h16V6a2 2 0 0 0-2-2h-2','M9 4a3 3 0 0 1 6 0v2H9z','M8 13h8','M8 17h5'],
   'Repair Management': ['M14 7l3 3','M5 19l7-7','M14.4 3.7a5 5 0 0 0-6.7 6.7L3 15l6 6 4.7-4.7a5 5 0 0 0 6.7-6.7l-3.4 2-4-4z'],
@@ -77,7 +79,8 @@ const filteredGroups = computed(() => {
   const groups = menuGroups.map(group => {
     const entries = group.entries.filter(item => available.includes(item));
     entries.forEach(item => seen.add(item));
-    return { ...group, entries: entries.filter(item => item.toLocaleLowerCase().includes(q)) };
+    return { ...group, entries: entries.filter(item => item.toLocaleLowerCase().includes(q) ||
+      (item === 'Counter' && 'invoices'.includes(q))) };
   });
   const other = available.filter(item => !seen.has(item) && item.toLocaleLowerCase().includes(q));
   if (other.length) groups.push({ id:'other', label:'OTHER', entries:other });
@@ -87,7 +90,10 @@ const filteredGroups = computed(() => {
 
 
 // SOS_SALES_V3_PRESERVE_POS: additive submenu, never changes original choose(item)
-const sosSalesExpanded = ref(false)
+const dropdownOpen = ref({ Counter: false, 'New Sales': false })
+watch(() => props.counterInvoices, open => {
+  if (open) dropdownOpen.value.Counter = true
+}, { immediate: true })
 const sosSalesChildren = [
   { en: "New Sale", bn: "নতুন বিক্রয়" },
   { en: "Sales History", bn: "বিক্রয় ইতিহাস" },
@@ -97,19 +103,26 @@ const sosSalesChildren = [
   { en: "Sales Warranty", bn: "বিক্রয় ওয়ারেন্টি" },
   { en: "Sales Reports", bn: "বিক্রয় প্রতিবেদন" },
 ]
-function sosSalesExpand() {
-  if (compact.value) {
-    compact.value = false
-    try { localStorage.setItem('servicing-os-sidebar-compact-v4', '0') } catch (_) {}
+function toggleDropdown(item) {
+  if (compact.value) toggle()
+  const open = isDropdownOpen(item)
+  if (item === 'Counter' && menuSearch.value.trim() && !'counter'.includes(menuSearch.value.trim().toLowerCase())) {
+    menuSearch.value = ''
   }
-  sosSalesExpanded.value = !sosSalesExpanded.value
+  dropdownOpen.value[item] = !open
 }
-function sosSalesNavigate(section) {
-  emit('navigate', 'Sales: ' + section)
-  emit('close-mobile')
+function isDropdownOpen(item) {
+  return dropdownOpen.value[item] || (item === 'Counter' && !!menuSearch.value.trim() && 'invoices'.includes(menuSearch.value.trim().toLowerCase()))
 }
-
-
+function chooseChild(item, key) {
+  choose((item === 'Counter' ? 'Counter: ' : 'Sales: ') + key)
+}
+function isCurrentChild(item, key) {
+  return isActive(item) && (item === 'Counter' ? props.counterInvoices : props.salesSection === key)
+}
+function panelId(item) {
+  return item === 'Counter' ? 'sos-counter-nav-panel' : 'sos-sales-nav-panel'
+}
 
 // SOS_SALES_UI_V3_2_DESCRIPTIONS — Navigation presentation only, no transaction code.
 const sosSalesNavDetails = {
@@ -120,6 +133,16 @@ const sosSalesNavDetails = {
   'Payments & Dues': { en: 'Collections & balances', bn: 'আদায় ও বকেয়া', paths: ['M3 6h18v12H3z','M3 10h18','M7 15h4'] },
   'Sales Warranty': { en: 'Coverage & expiry', bn: 'ওয়ারেন্টি ও মেয়াদ', paths: ['M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z','m9 12 2 2 4-4'] },
   'Sales Reports': { en: 'Performance & insights', bn: 'বিক্রয় বিশ্লেষণ', paths: ['M4 20V11h4v9','M10 20V5h4v15','M16 20v-7h4v7','M3 20h18'] }
+}
+
+const dropdowns = {
+  'New Sales': sosSalesChildren.map(child => ({ ...child, key: child.en, description: sosSalesNavDetails[child.en] })),
+  Counter: [{
+    key: 'Invoices',
+    en: 'Invoices',
+    bn: 'ইনভয়েস',
+    description: { en: 'Register & reports', bn: 'রেজিস্টার ও রিপোর্ট', paths: ICON.Invoices }
+  }]
 }
 
 </script>
@@ -164,23 +187,23 @@ const sosSalesNavDetails = {
           
 <!-- SOS_SALES_V3_3_NATIVE_ROW -->
 <template v-for="item in group.entries" :key="item">
-  <div class="sosSalesWrap" :class="{'sosSalesOther':item!=='New Sales'}">
-    <div class="sosSalesNavRow" :class="{'sosSalesNavParent':item==='New Sales'}">
+  <div class="sosSalesWrap" :class="{'sosSalesOther':!dropdowns[item]}">
+    <div class="sosSalesNavRow" :class="{'sosSalesNavParent':dropdowns[item]}">
 <button   type="button" class="sos4-item"
                   :class="{ 'sos4-active': isActive(item) }"
                   :title="compact ? item : undefined" :aria-label="item"
-                  :aria-current="isActive(item) ? 'page' : undefined"
+                  :aria-current="isActive(item) && !(item === 'Counter' && counterInvoices) ? 'page' : undefined"
                   @click.stop="choose(item)">
             <svg class="sos4-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <path v-for="(path,index) in iconPaths(item)" :key="index" :d="path" />
             </svg>
-            <span class="sos4-label">{{ item === 'Inventory' && currentLanguage === 'bn' ? 'ইনভেন্টরি' : item }}</span>
+            <span class="sos4-label">{{ currentLanguage === 'bn' && item === 'Inventory' ? 'ইনভেন্টরি' : item }}</span>
           </button>
-      <button v-if="item==='New Sales'" type="button" class="sosSalesExpand"
-              :aria-label="sosSalesExpanded ? 'Collapse Sales' : 'Expand Sales'"
-              :title="sosSalesExpanded ? 'Collapse Sales' : 'Expand Sales'"
-              aria-controls="sos-sales-nav-panel" :aria-expanded="sosSalesExpanded"
-              @click.stop="sosSalesExpand">
+      <button v-if="dropdowns[item]" type="button" class="sosSalesExpand"
+              :aria-label="(isDropdownOpen(item) ? 'Collapse ' : 'Expand ') + item"
+              :title="(isDropdownOpen(item) ? 'Collapse ' : 'Expand ') + item"
+              :aria-controls="panelId(item)" :aria-expanded="isDropdownOpen(item)"
+              @click.stop="toggleDropdown(item)">
         <svg class="sosSalesChevron" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"
              fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
           <path d="m6 9 6 6 6-6" />
@@ -188,20 +211,20 @@ const sosSalesNavDetails = {
       </button>
     </div>
     <Transition name="sosSalesSlide">
-      <div v-if="item==='New Sales' && sosSalesExpanded" id="sos-sales-nav-panel"
-           class="sosSalesNavPanel" role="group" aria-label="Sales submenus">
-        <button v-for="child in sosSalesChildren" :key="child.en" type="button"
+      <div v-if="dropdowns[item] && isDropdownOpen(item)" :id="panelId(item)"
+           class="sosSalesNavPanel" role="group" :aria-label="item">
+        <button v-for="child in dropdowns[item]" :key="child.key" type="button"
                 class="sos4-item sosSalesChild"
-                :class="{'sos4-active sosSalesChildCurrent':props.active==='New Sales' && props.salesSection===child.en}"
-                :aria-current="props.active==='New Sales' && props.salesSection===child.en ? 'page' : undefined"
-                @click.stop="sosSalesNavigate(child.en)">
+                :class="{'sos4-active sosSalesChildCurrent':isCurrentChild(item, child.key)}"
+                :aria-current="isCurrentChild(item, child.key) ? 'page' : undefined"
+                @click.stop="chooseChild(item, child.key)">
           <svg class="sosSalesChildIcon" viewBox="0 0 24 24" width="19" height="19"
                fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path v-for="(path,index) in sosSalesNavDetails[child.en].paths" :key="index" :d="path" />
+            <path v-for="(path,index) in child.description.paths" :key="index" :d="path" />
           </svg>
           <span class="sosSalesChildText">
             <span class="sosSalesChildName">{{currentLanguage==='bn'?child.bn:child.en}}</span>
-            <span class="sosSalesChildHelp">{{currentLanguage==='bn'?sosSalesNavDetails[child.en].bn:sosSalesNavDetails[child.en].en}}</span>
+            <span class="sosSalesChildHelp">{{currentLanguage==='bn'?child.description.bn:child.description.en}}</span>
           </span>
         </button>
       </div>

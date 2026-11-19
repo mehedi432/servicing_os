@@ -10,9 +10,27 @@ from frappe.utils import cint, flt
 
 LINK_FIELDS = (
     'custom_service_job', 'service_job', 'custom_service_job_no',
-    'custom_repair_job', 'service_job_number',
+    'custom_repair_job', 'service_job_number', 'custom_servicing_job', 'servicing_job',
 )
 DTYPES = ('Sales Invoice', 'POS Invoice')
+
+
+def linked_job(invoice):
+    names = {str(invoice.get(field)).strip() for field in LINK_FIELDS if invoice.get(field)}
+    names.discard('')
+    if len(names) > 1:
+        frappe.throw('This invoice has conflicting Service Job references.')
+    return next(iter(names), '')
+
+
+def active_sale_invoice_names(job_name, company):
+    # Include even unreadable matches to prevent duplicate Sales Invoices.
+    meta = frappe.get_meta('Sales Invoice')
+    filters = [['Sales Invoice', field, '=', job_name] for field in LINK_FIELDS if meta.has_field(field)]
+    if not filters:
+        frappe.throw('Service Job invoice link is missing. Run bench migrate.')
+    return frappe.get_all('Sales Invoice', filters={'company': company, 'docstatus': ['<', 2], 'is_return': 0},
+                          or_filters=filters, pluck='name', limit_page_length=2)
 
 
 def _shop():

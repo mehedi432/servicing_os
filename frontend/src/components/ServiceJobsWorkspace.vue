@@ -2,16 +2,10 @@
 // S44_SERVICE_JOBS_INVOICE: only wire existing actions; no sidebar or layout replacement.
 import { ref as s44Ref, computed as s44Computed } from 'vue';
 import ServiceJobQuickInvoice644 from './ServiceJobQuickInvoice644.vue';
+import StockReceipt712 from './StockReceipt712.vue';
 const s44InvoiceOpen = s44Ref(false);
-// Only use the existing selection if this particular workspace exposes it.
-const s44InitialJob = s44Computed(() => {
-  let selected = null;
-  if (typeof selectedJob !== 'undefined') selected = selectedJob?.value ?? selectedJob;
-  else if (typeof selectedJobName !== 'undefined') selected = selectedJobName?.value ?? selectedJobName;
-  else if (typeof selectedName !== 'undefined') selected = selectedName?.value ?? selectedName;
-  else if (typeof activeJob !== 'undefined') selected = activeJob?.value ?? activeJob;
-  return typeof selected === 'string' ? selected : (selected?.name || '');
-});
+const s44InitialJob = s44Computed(() => selected.value?.name || '');
+const s44ReceiptJob = s44Ref('');
 function s44OpenCounterReceive() {
   window.dispatchEvent(new CustomEvent('servicing-os:open-counter-service-receive'));
 }
@@ -184,6 +178,11 @@ async function sos699Deleted() {
             <button v-if="guidedHandover && ['Ready to Deliver', 'Delivered'].includes(detail.status)" type="button" class="sj-primary sj-handover" @click="emit('handover', selected.name)">
               {{ detail.status === 'Delivered' ? 'Open delivery documents' : 'Open Delivery Desk' }}
             </button>
+            <div class="sj-row">
+              <button type="button" class="sj-outline" @click="s44InvoiceOpen = true">Review or create invoice</button>
+              <button v-if="!['Delivered','Cancelled','Canceled'].includes(detail.status)" type="button"
+                class="sj-outline" @click="s44ReceiptJob = selected.name">Receive Spare Part</button>
+            </div>
             <ServiceJobRecordActions699 :job-name="selected.name" @saved="sos699Saved" @deleted="sos699Deleted" />
             <div class="sj-print-sticker"><button type="button" @click="sos629StickerJob = selected.name">Print QR Device Sticker</button></div>
             <div class="sj-info">
@@ -201,6 +200,7 @@ async function sos699Deleted() {
       </section>
     </div>
   </div>
+  <StockReceipt712 v-if="s44ReceiptJob" :job-name="s44ReceiptJob" @close="s44ReceiptJob = ''" />
   <ServiceJobSticker629 v-if="sos629StickerJob" :job-name="sos629StickerJob" @close="sos629StickerJob = ''" />
 </template>
 <style scoped>

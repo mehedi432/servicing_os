@@ -256,9 +256,11 @@ function sos676TabKeydown(event, currentKey) {
       </div>
     </header>
 
+    <slot v-if="active === 'invoices'" name="invoices" :open-invoice="openInvoice" />
+    <template v-else>
     <div class="sos652-section-title">
       <div><h1>{{ bn ? 'কাউন্টার' : 'Counter' }}</h1><p>{{ bn ? 'বিক্রয় · সার্ভিস · ডেলিভারি · বিলিং' : 'Sales · Service · Delivery · Billing' }}</p></div>
-      <span class="sos652-ops">{{ bn ? 'অপারেশন' : 'Operations' }}</span>
+      <button type="button" class="sos652-new-job" @click="doSelect('invoices')">{{ bn ? 'ইনভয়েস' : 'Invoices' }}</button>
     </div>
 
     <!-- SOS_COUNTER_HERO_676: read-only snapshot; no hard-coded business figures -->
@@ -342,6 +344,7 @@ function sos676TabKeydown(event, currentKey) {
         <p v-if="fab710Delivered===selectedServiceJob && fab710Delivered" class="sos710-success" role="status">Device delivery recorded.</p>
       </div>
     </section>
+    </template>
     <Teleport to="body">
       <DeliveryDesk v-if="deliveryJob" :key="deliveryJob" :job-name="deliveryJob"
         :print-open="!!fab710PrintInvoice" @close="deliveryJob=''" @delivered="onDeliveryCompleted" @print="fab710PrintInvoice=$event">
@@ -436,7 +439,8 @@ function sos676TabKeydown(event, currentKey) {
 .sos652-mobile{display:none;width:31px;height:33px;flex-shrink:0;background:#f1e4d6;color:#78583f;border:0;border-radius:8px;padding:7px}.sos652-mobile svg{width:18px;height:18px}
 .sos652-shell :is(.sos652-avatar,.sos652-searchbtn,.sos652-tile,.sos652-new-job):focus-visible{outline:2px solid #a7794d!important;outline-offset:2px}
 @media(max-width:860px){.sos652-shell{padding:12px}.sos652-grid{gap:8px!important}.sos652-brandcopy strong{font-size:12.5px}}
-@media(max-width:680px){.sos652-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important}.sos652-mobile{display:grid;place-items:center}.sos652-section-title{margin-top:15px}}
+@media(max-width:1023px){.sos652-mobile{display:grid;place-items:center}}
+@media(max-width:680px){.sos652-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important}.sos652-section-title{margin-top:15px}}
 @media(max-width:470px){.sos652-shell{padding:10px}.sos652-topactions{gap:6px}.sos652-connect{font-size:0;padding:0 9px}.sos652-connect svg,.sos652-status-dot{width:11px;height:11px}.sos652-brandcopy strong{font-size:11px;max-width:170px}.sos652-brandcopy small{font-size:9px}.sos652-tile{padding:10px!important}.sos652-label{font-size:12px!important}.sos652-sub{font-size:9px!important}.sos652-workbar strong{font-size:12px}.sos652-searchwrap input{width:128px}}
 
 /* STEP 6.52: layout is full width, no unused 12-column space. */
@@ -469,8 +473,8 @@ function sos676TabKeydown(event, currentKey) {
 .sos652-workbody .sos649-original-workspace :is(.text-blue-700,.text-blue-600){color:#835a3f!important}
 .sos652-workbody .sos649-original-workspace :is(.bg-blue-50,.bg-slate-50){background:#f9f1e8!important}
 .sos652-workbody .sos649-original-workspace .border-blue-200{border-color:#e7d6c5!important}
-.sos652-workbody .sos649-original-workspace :is(input,select,textarea){background:#fffdfa!important;border-color:#ddc7b4!important;border-radius:8px!important;color:#3c2c25!important;min-width:0}
-.sos652-workbody .sos649-original-workspace :is(input,select,textarea):focus{outline:2px solid #c99e78!important;outline-offset:1px}
+.sos652-workbody .sos649-original-workspace :is(input,select,textarea):not(:where([data-servicing-control-layout="local"] *)){background:#fffdfa!important;border-color:#ddc7b4!important;border-radius:8px!important;color:#3c2c25!important;min-width:0}
+.sos652-workbody .sos649-original-workspace :is(input,select,textarea):not(:where([data-servicing-control-layout="local"] *)):focus{outline:2px solid #c99e78!important;outline-offset:1px}
 .sos652-workbody .sos649-original-workspace :is(button.bg-blue-600,button.bg-blue-700,button.bg-slate-900){background:#856044!important;border-color:#856044!important;color:#fffaf2!important}
 .sos652-workbody .sos649-original-workspace :is(.border-slate-200,.border-slate-300){border-color:#e7d6c5!important}
 .sos652-workbody .sos649-original-workspace .text-slate-500{color:#8b725e!important}

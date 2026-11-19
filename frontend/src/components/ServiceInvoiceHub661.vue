@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from 'vue'
-import InvoicePrint657 from './InvoicePrint657.vue'
+import UnifiedInvoicePrint684 from './UnifiedInvoicePrint684.vue'
 
 // SERVICING_OS_SERVICE_INVOICE_661 — read-only linked invoices + job-aware invoice launcher.
 const rows = ref([])
@@ -57,7 +57,7 @@ function findJob() {
 }
 function clearJob() {jobInput.value = ''; selected.value = null; refresh()}
 function chooseJob(id) {jobInput.value = id;refresh(id)}
-function printInvoice(row, duplicate=false) {preview.value = {name:row.name, doctype:row.doctype, duplicate}}
+function printInvoice(row, duplicate=false) {preview.value = {name:row.name, doctype:row.doctype, duplicate, previewOnly: Number(row.docstatus) !== 1}}
 function createForJob() {
   if (!selected.value?.name) {error.value = 'Select a saved Service Job first.'; return}
   if (currentInvoice.value) {
@@ -101,7 +101,7 @@ onUnmounted(() => {requestSeq++;window.removeEventListener('servicing-os-invoice
 
     <div v-if="selected" class="sos661-selected">
       <div><small>SELECTED SERVICE JOB</small><strong>{{ selected.name }}</strong><span>{{ selected.customer_name || selected.customer }} · {{ selected.status }}</span></div>
-      <div v-if="currentInvoice" class="sos661-linked"><small>ALREADY INVOICED</small><strong>{{ currentInvoice.name }}</strong><button type="button" @click="printInvoice(currentInvoice)">Print Invoice</button></div>
+      <div v-if="currentInvoice" class="sos661-linked"><small>ALREADY INVOICED</small><strong>{{ currentInvoice.name }}</strong><button type="button" @click="printInvoice(currentInvoice)">Review Invoice</button></div>
       <div v-else class="sos661-notbilled"><small>BILLING STATUS</small><strong>Not yet invoiced</strong><span>Create an invoice for this job above</span></div>
     </div>
     <div v-else class="sos661-note">Select a Service Job to see its exact invoice history and create its draft invoice without re-entering the customer.</div>
@@ -117,12 +117,12 @@ onUnmounted(() => {requestSeq++;window.removeEventListener('servicing-os-invoice
           <td>{{ item.customer }}</td>
           <td><span class="sos661-badge" :class="{'is-submitted':item.docstatus===1,'is-cancelled':item.docstatus===2}">{{ item.status }}</span></td>
           <td class="sos661-total">{{ money(item.grand_total,item.currency) }}</td>
-          <td><div class="sos661-buttons"><button type="button" @click="printInvoice(item)">Print</button><button type="button" @click="printInvoice(item,true)">Duplicate</button></div></td>
+          <td><div class="sos661-buttons"><button type="button" @click="printInvoice(item)">Review</button><button v-if="Number(item.docstatus) === 1" type="button" @click="printInvoice(item,true)">Duplicate</button></div></td>
         </tr></tbody>
       </table>
     </div>
     <div class="sos661-foot">Existing Sales/POS Invoices only. Duplicate prints the same invoice and never creates a new transaction. Drafts are not submitted sales.</div>
-    <InvoicePrint657 v-if="preview" :invoice-name="preview.name" :doctype="preview.doctype" :duplicate="preview.duplicate" :key="preview.doctype+preview.name+String(preview.duplicate)" @close="preview=null" />
+    <UnifiedInvoicePrint684 v-if="preview" submit-draft :preview-only="preview.previewOnly" @submitted="onInvoiceSaved" :invoice-name="preview.name" :doctype="preview.doctype" :duplicate="preview.duplicate" :key="preview.doctype+preview.name+String(preview.duplicate)" @close="preview=null" />
   </section>
 </template>
 

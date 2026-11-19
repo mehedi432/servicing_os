@@ -14,6 +14,9 @@ def ensure_schema():
     from servicing_os.parts_request_schema_705 import ensure_service_job_link
     from servicing_os.repair_completed_schema_7071 import ensure as setup_completed_status
 
+    from servicing_os.revenue_streams import ensure_schema as setup_revenue_fields
+    from servicing_os.api.invoice_payment import ensure_schema as setup_invoice_payments
+
     if not frappe.db.exists('DocType', 'Service Job'):
         frappe.throw('SERVICING OS: Service Job DocType is missing; cannot initialize schema')
     return {
@@ -22,6 +25,8 @@ def ensure_schema():
         'completed_status': setup_completed_status(),
         'sales_invoice_link': ensure_service_job_link('Sales Invoice', 'customer'),
         'warranty_fields': ensure_warranty_fields(),
+        'revenue_fields': setup_revenue_fields(),
+        'invoice_payment_tracking': setup_invoice_payments(),
     }
 
 
@@ -30,6 +35,9 @@ def verify():
     from servicing_os.api.invoice_warranty_659 import ALLOWED, FIELDS
     from servicing_os.parts_request_schema_705 import FIELD, get_service_job_link
     from servicing_os.repair_completed_schema_7071 import verify as verify_completed_status
+
+    from servicing_os.revenue_streams import verify_schema as verify_revenue_fields
+    from servicing_os.api.invoice_payment import verify_schema as verify_invoice_payments
 
     name = 'Service Received Component'
     if not frappe.db.exists('DocType', 'Service Job'):
@@ -67,5 +75,7 @@ def verify():
         'sales_invoice_link': True,
         'completed_status': verify_completed_status(),
         'warranty_fields': True,
+        'revenue_fields': verify_revenue_fields(),
+        'invoice_payment_tracking': verify_invoice_payments(),
         'note': 'Existing customer/job/invoice data not rewritten by deployment setup',
     }

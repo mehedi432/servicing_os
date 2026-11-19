@@ -5,20 +5,22 @@ import InvoicePrint657 from './InvoicePrint657.vue'
 const props = defineProps({
   invoiceName: { type: String, required: true },
   doctype: { type: String, default: 'Sales Invoice' },
-  duplicate: { type: Boolean, default: false }
+  duplicate: { type: Boolean, default: false },
+  previewOnly: { type: Boolean, default: false },
+  submitDraft: { type: Boolean, default: false }
 })
-const emit = defineEmits(['close'])
+const emit = defineEmits(['close','submitted'])
 </script>
 <template>
   <CounterPremiumInvoice681
     v-if="doctype === 'Sales Invoice'"
     :invoice-name="invoiceName"
-    :duplicate="duplicate"
-    @close="emit('close')" />
+    :duplicate="duplicate" :preview-only="previewOnly" :submit-draft="submitDraft"
+    @close="emit('close')" @submitted="emit('submitted', $event)" />
   <InvoicePrint657
     v-else
     :invoice-name="invoiceName"
     :doctype="doctype"
-    :duplicate="duplicate"
+    :duplicate="duplicate" :preview-only="previewOnly"
     @close="emit('close')" />
 </template>

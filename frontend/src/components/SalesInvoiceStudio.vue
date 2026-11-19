@@ -7,8 +7,15 @@ const props = defineProps({
   invoiceName: { type: String, default: '' },
   error: { type: String, default: '' },
   duplicate: { type: Boolean, default: false },
+  previewOnly: { type: Boolean, default: false },
+  draftAction: { type: Boolean, default: false },
+  actionHeading: { type: String, default: '' },
+  canSubmit: { type: Boolean, default: false },
+  submitting: { type: Boolean, default: false },
+  submitError: { type: String, default: '' },
+  submitMessage: { type: String, default: '' },
 })
-const emit = defineEmits(['close', 'retry'])
+const emit = defineEmits(['close', 'retry', 'submit'])
 const format=ref('a4')
 const sos7111Copy=ref(props.duplicate ? 'duplicate' : 'customer')
 const dialog = ref(null)
@@ -23,6 +30,14 @@ const formats = [
 onMounted(() => dialog.value.showModal())
 onBeforeUnmount(() => dialog.value?.close())
 const r=computed(()=>props.receipt||{})
+const draftOrCancelled=computed(()=>['0','2'].includes(String(r.value.docstatus)))
+const canPrint=computed(()=>!props.actionHeading && !props.previewOnly && !draftOrCancelled.value)
+const heading=computed(()=>props.actionHeading || (canPrint.value?'Print / Reprint Invoice':'Invoice Preview'))
+const documentStamp=computed(()=>{
+ if(String(r.value.docstatus)==='0')return 'DRAFT'
+ if(String(r.value.docstatus)==='2')return 'CANCELLED'
+ return sos7111Copy.value==='duplicate'?'DUPLICATE / REPRINT':'CUSTOMER COPY'
+})
 const items=computed(()=>Array.isArray(r.value.items)?r.value.items:[])
 const val=(...keys)=>{for(const k of keys){const v=r.value[k];if(v!==undefined&&v!==null&&v!=='')return v}return null}
 const num=v=>v===null||v===undefined||v===''?null:Number(v)
@@ -103,7 +118,7 @@ const sos7111PrintCss = `/* SOS_PREMIUM_PRINT_7111 — warm ivory invoice, previ
 @media print{.sos7111-premium,.sos7111-premium *{-webkit-print-color-adjust:exact;print-color-adjust:exact}.sos7111-premium .brand,.sos7111-copytag{break-inside:avoid}}
 `
 function printInvoice(){
- if(!paper.value)return
+ if(!paper.value || !canPrint.value)return
  printError.value = ''
  const w=window.open('','_blank','width=980,height=880')
  if(!w){printError.value='Allow pop-ups for this site, then select Print / Reprint again.';return}
@@ -119,32 +134,43 @@ function printInvoice(){
 </script>
 <template>
 <Teleport to="body">
- <dialog ref="dialog" class="amci-modal" :class="{ 'amci-pending': !receipt }" aria-label="Print / Reprint Invoice" @cancel.prevent="emit('close')">
+ <dialog ref="dialog" class="amci-modal" :class="{ 'amci-pending': !receipt }" :aria-label="heading" @cancel.prevent="!submitting && emit('close')">
   <header class="amci-header">
-    <div><h2>Print / Reprint Invoice</h2><small>{{ invoice }}<template v-if="receipt"> · {{ customer }}</template></small></div>
-    <button type="button" autofocus @click="emit('close')">Close</button>
+    <div><h2>{{ heading }}</h2><small>{{ invoice }}<template v-if="receipt"> · {{ customer }}</template></small></div>
+    <button type="button" autofocus :disabled="submitting" @click="emit('close')">Close</button>
   </header>
   <div v-if="!receipt" class="amci-load">
     <template v-if="error"><p role="alert">{{ error }}</p><button type="button" @click="emit('retry')">Retry</button></template>
     <p v-else role="status">Loading invoice…</p>
   </div>
   <div v-else class="amci-content">
-   <section class="amci-print-controls" aria-label="Print settings">
-    <div class="amci-formats" role="group" aria-label="Paper format">
+   <section class="amci-print-controls" aria-label="Invoice actions">
+    <div v-if="submitMessage" class="amci-submit-message" role="status">{{ submitMessage }}</div>
+    <div v-if="draftAction && String(receipt.docstatus) === '0'" class="amci-draft-actions">
+      <p>Review the customer, items, quantities and total before submitting.</p>
+      <button v-if="canSubmit" class="amci-print" type="button" :disabled="submitting" @click="emit('submit')">
+        {{ submitting ? 'Submitting…' : 'Submit Draft Invoice' }}
+      </button>
+      <p v-else>Sales Invoice submit permission is required.</p>
+      <p v-if="submitError" class="amci-print-error" role="alert">{{ submitError }}</p>
+      <button v-if="submitError" type="button" :disabled="submitting" @click="emit('retry')">Refresh invoice</button>
+    </div>
+    <slot name="actions" />
+    <div v-if="!actionHeading" class="amci-formats" role="group" aria-label="Paper format">
       <button v-for="option in formats" :key="option.id" type="button"
         :aria-pressed="format === option.id" @click="format = option.id">
         <strong>{{ option.label }}</strong><small>{{ option.size }}</small>
       </button>
     </div>
-    <label class="amci-copy">Copy
+    <label v-if="canPrint" class="amci-copy">Copy
       <select v-model="sos7111Copy"><option value="customer">Customer copy</option><option value="duplicate">Duplicate / Reprint</option></select>
     </label>
-    <button class="amci-print" type="button" @click="printInvoice">Print / Reprint</button>
+    <button v-if="canPrint" class="amci-print" type="button" @click="printInvoice">Print / Reprint</button>
     <p v-if="printError" role="alert" class="amci-print-error">{{ printError }}</p>
    </section>
-   <section class="amci-preview" aria-label="Invoice preview" tabindex="0"><div class="amci-paper-wrap" :class="'paper-'+format">
+   <section class="amci-preview" :aria-label="actionHeading || 'Invoice preview'" tabindex="0"><slot name="workspace"><div class="amci-paper-wrap" :class="'paper-'+format">
    <article ref="paper" class="sheet amci683-document sos7111-premium">
-    <div class="sos7111-copytag">{{sos7111Copy==='duplicate'?'DUPLICATE / REPRINT':'CUSTOMER COPY'}}</div>
+    <div class="sos7111-copytag">{{documentStamp}}</div>
     <div class="brand"><div><div class="seal">AL MODINA · COMPUTERS</div><h2>{{val('company')||'AL MODINA COMPUTERS LTD'}}</h2><address>Mawna Chowrasta, Sreepur, Gazipur, Bangladesh<span class="sos7111-phone">Mobile: +8801911179837</span></address></div><div class="invoice-title amci685-invoice-title"><div v-if="barcodeValid" class="amci685-topbarcode"><svg xmlns="http://www.w3.org/2000/svg" :viewBox="`0 0 ${barcodeWidth} 52`" preserveAspectRatio="none" shape-rendering="crispEdges" role="img" :aria-label="`Code 128 barcode for invoice ${barcodeValue}`"><rect :width="barcodeWidth" height="52" fill="#fff"/><rect v-for="(bar,n) in barcodeBars" :key="n" :x="bar.x" y="2" :width="bar.w" height="48" fill="#111"/></svg><small>{{barcodeValue}}</small></div><h3>{{format==='delivery'?'DELIVERY NOTE':'SALES INVOICE'}}</h3><small class="amci685-invoice-ref">Invoice No. <b>{{invoice}}</b></small><small v-if="date">{{date}}</small></div></div>
     <div class="details"><div><div class="label">BILL TO</div><strong>{{customer}}</strong><p v-if="val('customer_mobile','mobile_no','contact_mobile')">Mobile: {{val('customer_mobile','mobile_no','contact_mobile')}}</p></div><div><div class="label">INVOICE DETAILS</div><div class="meta"><template v-if="val('mode_of_payment','payment_method')"><span>Payment</span><b>{{val('mode_of_payment','payment_method')}}</b></template><span>Currency</span><b>{{val('currency')||'BDT'}}</b></div></div></div>
     <table><thead><tr><th class="amci683-sl">S/L</th><th>Item / Description</th><th class="right">Qty</th><th v-if="financial" class="right">Unit Price</th><th v-if="financial" class="right">Amount</th></tr></thead><tbody><tr v-for="(i,idx) in items" :key="idx"><td class="amci683-sl">{{String(idx+1).padStart(2,'0')}}</td><td><b>{{i.item_name||i.description||i.item_code||i.code||'Item'}}</b><small v-if="itemSerial(i)"><b>Serial / SN:</b> {{itemSerial(i)}}</small><small v-if="itemWarranty(i)!=null">Warranty: {{itemWarranty(i)}} days</small></td><td class="right">{{i.qty}}</td><td v-if="financial" class="right">{{unit(i)==null?'—':money(unit(i))}}</td><td v-if="financial" class="right">{{money(amount(i))}}</td></tr></tbody></table>
@@ -158,12 +184,18 @@ function printInvoice(){
       </div>
     </div>
    </article>
-   </div></section>
+   </div></slot></section>
   </div>
  </dialog>
 </Teleport>
 </template>
 <style scoped>
+.amci-draft-actions,.amci-submit-message{grid-column:1/-1;margin:0 0 9px;padding:10px;border:1px solid #e4d2c1;border-radius:8px}
+.amci-draft-actions p{margin:0 0 6px}
+.amci-draft-actions button{min-height:34px;padding:6px 9px;cursor:pointer;border:1px solid #dbc6b0;border-radius:8px}
+.amci-draft-actions .amci-print-error{margin-top:8px}
+.amci-submit-message{background:#f8eee0;color:#624634}
+
 
 .shell{max-width:1200px;margin:auto;padding:28px}.top{display:flex;justify-content:space-between;gap:16px;align-items:center;margin-bottom:22px}.eyebrow{font-size:11px;font-weight:800;letter-spacing:2px;color:#947454}.top h1{margin:5px 0;font-size:28px}.muted{color:#917e69;font-size:13px}.toolbar{display:flex;align-items:center;gap:9px;flex-wrap:wrap;background:#fffaf3;border:1px solid #e5d7c5;border-radius:16px;padding:12px;margin-bottom:20px}.toolbar button{border:1px solid #dacbb9;background:white;border-radius:10px;padding:10px 14px;color:#614c37;font-weight:700;cursor:pointer}.toolbar button.active{background:#5c4432;color:white;border-color:#5c4432}.toolbar .print{background:#5c4432;color:white;margin-left:auto}.layout{display:grid;grid-template-columns:1fr 260px;gap:20px;align-items:start}.sheet{background:#fff;box-shadow:0 12px 45px #48321b1b;margin:auto;padding:35px 39px;width:100%;min-height:700px}.brand{display:flex;justify-content:space-between;gap:24px;align-items:flex-start;border-bottom:2px solid #5c4432;padding-bottom:20px}.brand h2{margin:5px 0 7px;font-size:25px;letter-spacing:-.7px}.brand address{font-style:normal;font-size:11px;line-height:1.7;color:#756454}.seal{font-size:10px;font-weight:800;letter-spacing:2px;color:#9e7c55}.invoice-title{text-align:right}.invoice-title h3{font-size:24px;letter-spacing:2px;margin:0 0 9px}.invoice-title small{font-size:11px;color:#82715e}.details{display:grid;grid-template-columns:1fr 1fr;gap:25px;padding:24px 0}.label{font-size:10px;font-weight:800;letter-spacing:1.5px;color:#92765a;margin-bottom:9px}.details strong{font-size:13px}.details p{font-size:12px;color:#756454;line-height:1.7;margin:4px 0}.meta{display:grid;grid-template-columns:1fr 1fr;gap:7px;font-size:12px}.meta span{color:#85715d}.meta b{text-align:right}table{width:100%;border-collapse:collapse;font-size:12px}th{text-align:left;background:#f4eee5;color:#6d533b;text-transform:uppercase;letter-spacing:.7px;font-size:10px;padding:12px 9px}td{padding:14px 9px;border-bottom:1px solid #eee7dd;vertical-align:top}td small{display:block;color:#94816e;margin-top:5px}.right{text-align:right}.totals{margin:23px 0 0 auto;width:min(300px,100%)}.totals div{display:flex;justify-content:space-between;padding:9px 0;font-size:12px}.totals .grand{border-top:2px solid #5c4432;font-size:18px;font-weight:800;padding-top:15px}.bottom{display:flex;justify-content:space-between;gap:20px;margin-top:55px;border-top:1px solid #e9dfd2;padding-top:20px}.bottom p{font-size:11px;color:#82715f;max-width:380px;line-height:1.6}.qr{width:75px;height:75px;border:5px solid #fff;outline:1px solid #ded3c4;background:repeating-linear-gradient(90deg,#483727 0 4px,#fff 4px 7px,#483727 7px 9px,#fff 9px 13px);display:grid;place-items:center}.qr span{background:white;padding:3px;font-size:8px;color:#4e3826;font-weight:800}.aside{background:#fffaf3;border:1px solid #e6d9c9;border-radius:16px;padding:20px}.aside h3{margin:0 0 10px;font-size:15px}.aside p,.aside li{font-size:12px;color:#7e6a54;line-height:1.6}.aside ul{padding-left:18px}.paper-thermal .sheet{width:340px;padding:20px 14px;min-height:0}.paper-thermal .brand{display:block;text-align:center}.paper-thermal .brand h2{font-size:17px}.paper-thermal .invoice-title{text-align:center;margin-top:17px}.paper-thermal .invoice-title h3{font-size:17px}.paper-thermal .details{display:block;padding:16px 0}.paper-thermal .details>div{margin-bottom:12px}.paper-thermal th,.paper-thermal td{padding:8px 3px;font-size:10px}.paper-thermal .totals{width:100%}.paper-thermal .bottom{margin-top:22px}.paper-thermal .qr{width:55px;height:55px}.paper-a5 .sheet{max-width:610px;min-height:770px;padding:27px}.paper-a5 .brand h2{font-size:20px}.paper-a5 .invoice-title h3{font-size:19px}.paper-delivery .totals{display:none}.paper-delivery .deliverynote{display:block!important}.deliverynote{display:none;margin-top:25px;background:#f8f2e9;padding:15px;font-size:12px}.disclaimer{font-size:10px;color:#9a8976;margin-top:10px}@media(max-width:850px){.layout{grid-template-columns:1fr}.aside{order:-1}.shell{padding:12px}.sheet{padding:22px}.top{align-items:flex-start}.top h1{font-size:23px}}@media(max-width:540px){.brand{display:block}.invoice-title{text-align:left;margin-top:17px}.details{grid-template-columns:1fr}.toolbar .print{margin-left:0}.sheet{padding:16px}.brand h2{font-size:20px}.invoice-title h3{font-size:20px}}
 .amci-modal{position:fixed;inset:0;width:min(1120px,calc(100% - 28px));height:min(820px,calc(100dvh - 28px));max-width:none;max-height:none;margin:auto;padding:0;overflow:hidden;border:1px solid #decab7;border-radius:17px;background:#faf3eb;color:#3e3025;box-shadow:0 24px 80px #24170c66;font:13px/1.5 Inter,system-ui,sans-serif}

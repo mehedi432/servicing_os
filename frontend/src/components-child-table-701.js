@@ -18,6 +18,7 @@ const HEADER_RE = /(?:components?\s*received|received\s*components?|কম্প
 const ADD_RE = /(?:add\s+component|কম্পোনেন্ট\s+যোগ)/i;
 const REMOVE_RE = /(?:remove|মুছুন|সরান|বাদ\s*দিন)/i;
 const CTRL = 'input:not([type="hidden"]),select,textarea,[role="combobox"]';
+const VUE_LAYOUT = '[data-servicing-component-layout="vue"]';
 const info = { version: VERSION, scans: 0, panels: 0, rows: 0, columns: COLUMNS.length, error: '', lastScan: null };
 let timer = null;
 
@@ -27,7 +28,7 @@ function visible(node) {
   const style = getComputedStyle(node);
   return style.display !== 'none' && style.visibility !== 'hidden';
 }
-function controls(node) { return [...node.querySelectorAll(CTRL)].filter(visible); }
+function controls(node) { return [...node.querySelectorAll(CTRL)].filter(el => !el.closest(VUE_LAYOUT) && visible(el)); }
 function fieldIndex(name) {
   const value = (name || '').replace(/\s*[:：*]\s*$/, '').replace(/\s+/g,' ').trim();
   return COLUMNS.findIndex(([, regex]) => regex.test(value));
@@ -35,7 +36,7 @@ function fieldIndex(name) {
 function labels(node) {
   return [...node.querySelectorAll('label, .field-label, .form-label')].filter(el => {
     // avoid duplicate nested label wrappers
-    if (!visible(el) || el.querySelector('label,.field-label,.form-label')) return false;
+    if (el.closest(VUE_LAYOUT) || !visible(el) || el.querySelector('label,.field-label,.form-label')) return false;
     return fieldIndex(labelText(el)) >= 0;
   });
 }
@@ -52,7 +53,7 @@ function headerNode(node) {
 function findPanels() {
   const result = new Set();
   for (const heading of document.querySelectorAll('h1,h2,h3,h4,h5,h6,legend,strong,b,span,.section-title,.panel-title')) {
-    if (!visible(heading) || !headerNode(heading)) continue;
+    if (heading.closest(VUE_LAYOUT) || !visible(heading) || !headerNode(heading)) continue;
     let node = heading;
     for (let level=0; level<9 && node && node!==document.body; level++, node=node.parentElement) {
       const n = controls(node).length;

@@ -56,7 +56,41 @@ def receipt_context(job_name, item_code=''):
     return {'service_job':job.name, 'company':ctx['company'], 'warehouse':warehouse,
             'currency':frappe.db.get_value('Company',ctx['company'],'default_currency') or 'BDT',
             'item': {'item_code':item.name, 'item_name':item.item_name, 'uom':item.stock_uom, 'available':available} if item else None,
-            'price_lists':_price_lists()}
+            'price_lists':_price_lists(),
+            'can_submit': bool(frappe.has_permission('Stock Entry', 'submit')),
+            'can_update_prices': bool(frappe.has_permission('Item Price', 'create') or
+                                      frappe.has_permission('Item Price', 'write'))}
+
+
+@frappe.whitelist(methods=['GET'])
+def suggest_receipt_items(job_name, q=''):
+    _manager_require(create=True)
+    _, _, warehouse = _get_scope(job_name)
+    if not frappe.has_permission('Item', 'read'):
+        frappe.throw('Item read permission required.', frappe.PermissionError)
+    options = {
+        'filters': {'disabled': 0, 'is_stock_item': 1, 'is_sales_item': 1, 'has_serial_no': 0, 'has_batch_no': 0},
+        'fields': ['name', 'item_name', 'stock_uom'],
+        'order_by': 'modified desc, name asc',
+        'limit_page_length': 8,
+    }
+    query = str(q or '').strip()[:80]
+    if query:
+        pattern = '%' + query.replace('%', r'\%').replace('_', r'\_') + '%'
+        options['or_filters'] = {'name': ['like', pattern], 'item_name': ['like', pattern]}
+    items = frappe.get_list('Item', **options)
+    if not items:
+        return {'items': []}
+    bins = frappe.get_all(
+        'Bin', filters={'warehouse': warehouse, 'item_code': ['in', [item.name for item in items]]},
+        fields=['item_code', 'actual_qty'],
+    )
+    on_hand = {row.item_code: flt(row.actual_qty) for row in bins}
+    return {'items': [
+        {'item_code': item.name, 'item_name': item.item_name, 'uom': item.stock_uom,
+         'on_hand': on_hand.get(item.name, 0)}
+        for item in items
+    ]}
 
 
 def _upsert_price(item_code, price_list, price, currency, direction):

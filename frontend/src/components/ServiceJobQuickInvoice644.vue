@@ -1,6 +1,8 @@
 <script setup>
 // STEP644_DIRECT_INVOICE: standalone invoice dialog; it does not alter the existing sidebar or job register.
 import { ref, watch, computed, nextTick } from 'vue';
+import UnifiedInvoicePrint684 from './UnifiedInvoicePrint684.vue';
+const invoicePreview = ref('');
 
 const props = defineProps({ open: Boolean, initialJob: { type: String, default: '' } });
 const emit = defineEmits(['close', 'created']);
@@ -78,6 +80,7 @@ async function loadJob(name) {
 }
 watch(() => props.open, async open => {
   if (!open) return;
+  invoicePreview.value = '';
   selected.value = null; done.value = null; error.value = ''; lines.value = [];
   query.value = props.initialJob || '';
   await nextTick();
@@ -85,27 +88,17 @@ watch(() => props.open, async open => {
   else await searchJobs();
 }, { immediate: true });
 const amount = computed(() => lines.value.reduce((sum, row) => sum + Number(row.qty || 0) * Number(row.rate || 0), 0));
-async function submitDraftInvoice() {
-  if (saving.value || !selected.value?.existing_invoice) return;
-  const invoice = selected.value.existing_invoice;
-  if (Number(invoice.docstatus) !== 0) return;
-  error.value = '';
-  saving.value = true;
-  try {
-    const result = await call('submit_existing_invoice', {
-      service_job: selected.value.job,
-      invoice_name: invoice.name,
-    }, true);
-    const jobName = selected.value.job;
-    emit('created', result);
-    await loadJob(jobName);
-    done.value = result;
-  } catch (e) { error.value = e.message; }
-  finally { saving.value = false; }
+async function onReviewedSubmitted(result) {
+  const job = selected.value?.job;
+  const previous = selected.value?.existing_invoice;
+  emit('created', result);
+  if (job) await loadJob(job);
+  done.value = { ...result, submitted: true, grand_total: previous?.grand_total,
+    currency: selected.value?.currency };
 }
 function addCharge() { lines.value.push({ item_code: '', item_name: '', qty: 1, rate: 0 }); }
 function addPart() { lines.value.push({ item_code: '', item_name: '', qty: 1, rate: 0, chooseItem: true }); }
-async function create(submit) {
+async function create(review) {
   if (saving.value || !selected.value) return;
   if (selected.value.existing_invoice) { error.value = 'An invoice already exists for this job.'; return; }
   error.value = '';
@@ -115,11 +108,12 @@ async function create(submit) {
       item_code: r.item_code || '', item_name: r.item_name || '',
       qty: Number(r.qty), rate: Number(r.rate), description: r.item_name || '',
     }));
-    const result = await call('create_invoice', { service_job: selected.value.job, lines: clean, submit: submit ? 1 : 0 }, true);
+    const result = await call('create_invoice', { service_job: selected.value.job, lines: clean, submit: 0 }, true);
     done.value = result;
     emit('created', result);
     await loadJob(selected.value.job);
     done.value = result;
+    if (review) invoicePreview.value = result.invoice;
   } catch (e) { error.value = e.message; }
   finally { saving.value = false; }
 }
@@ -159,11 +153,8 @@ async function create(submit) {
             <p v-if="selected.existing_invoice" class="s44-info">
               An invoice already exists: <strong>{{ selected.existing_invoice.name }}</strong>.
               This job cannot be invoiced twice while that invoice is active.
-              <a :href="`/printview?doctype=Sales%20Invoice&name=${encodeURIComponent(selected.existing_invoice.name)}&trigger_print=1`" target="_blank" rel="noopener">Print invoice</a>
-              <button v-if="Number(selected.existing_invoice.docstatus) === 0" type="button"
-                class="s44-primary" :disabled="saving" @click="submitDraftInvoice">
-                {{ saving ? 'Submitting...' : 'Submit Draft Here · এখানেই সাবমিট' }}
-              </button>
+              <button type="button" class="s44-primary" :disabled="saving"
+                @click="invoicePreview = selected.existing_invoice.name">Review invoice</button>
             </p>
             <template v-else>
               <div class="s44-subhead"><h3>Labour & consumed parts</h3><div class="s44-subhead-actions"><button type="button" class="s44-link" @click="addCharge">＋ Add charge</button><button type="button" class="s44-link" @click="addPart">＋ Add part by Item Code</button></div></div>
@@ -184,18 +175,20 @@ async function create(submit) {
               <p class="s44-note">Estimated cost is a reference, not a confirmed labour charge. Check all rates before submitting. Already-issued spare parts are listed for billing. This invoice does not deduct inventory again. If parts have not been issued, record their stock movement separately. Rates can be edited before saving.</p>
               <div class="s44-actions">
                 <button type="button" class="s44-muted" :disabled="saving || amount <= 0" @click="create(false)">Save Draft</button>
-                <button type="button" class="s44-primary" :disabled="saving || amount <= 0" @click="create(true)">{{ saving ? 'Creating...' : 'Create & Submit Invoice' }}</button>
+                <button type="button" class="s44-primary" :disabled="saving || amount <= 0" @click="create(true)">{{ saving ? 'Creating...' : 'Save & Review Invoice' }}</button>
               </div>
             </template>
           </div>
           <div v-if="done" class="s44-done">
             Invoice <strong>{{ done.invoice }}</strong> {{ done.submitted ? 'submitted' : 'saved as draft' }}. Total: {{ done.currency }} {{ done.grand_total }}.
-            <a :href="`/printview?doctype=Sales%20Invoice&name=${encodeURIComponent(done.invoice)}&trigger_print=1`" target="_blank" rel="noopener">Print invoice</a>
+            <button type="button" class="s44-primary" @click="invoicePreview = done.invoice">View invoice</button>
           </div>
         </div>
       </section>
     </div>
   </Teleport>
+  <UnifiedInvoicePrint684 v-if="open && invoicePreview" :invoice-name="invoicePreview" submit-draft
+    @close="invoicePreview = ''" @submitted="onReviewedSubmitted" />
 </template>
 
 <style>

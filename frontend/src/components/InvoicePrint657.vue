@@ -3,7 +3,7 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import QRCode from 'qrcode'
 import JsBarcode from 'jsbarcode'
 
-const props = defineProps({ invoiceName: { type:String, required:true }, doctype: {type:String,default:'Sales Invoice'}, duplicate: {type:Boolean,default:false} })
+const props = defineProps({ invoiceName: { type:String, required:true }, doctype: {type:String,default:'Sales Invoice'}, duplicate: {type:Boolean,default:false}, previewOnly: {type:Boolean,default:false} })
 const emit = defineEmits(['close'])
 const invoice = ref(null)
 const busy = ref(false)
@@ -135,7 +135,7 @@ const sheetCSS = `
 `
 
 async function printInvoice() {
-  if(!paper.value || !invoice.value || printing.value)return
+  if(!paper.value || !invoice.value || printing.value || props.previewOnly)return
   printing.value=true;error.value=''
   let frame
   try {
@@ -170,8 +170,8 @@ async function printInvoice() {
         <div class="sos657-tools">
           <div class="sos657-dialoghead"><strong>{{ duplicate ? 'Duplicate invoice copy' : 'Invoice preview' }}</strong><small>{{ invoiceName }} · AL MODINA COMPUTERS LIMITED</small></div>
           <label>Paper <select v-model="paperSize"><option value="A4">A4 Invoice</option><option value="80mm">80mm Receipt</option></select></label>
-          <button type="button" class="sos657-print" :disabled="!invoice || printing" @click="printInvoice">{{ printing?'Preparing…':duplicate?'Print Duplicate Copy':'Print Invoice' }}</button>
-          <button type="button" class="sos659-warranty-action" :disabled="!invoice" @click="warrantyEditing=!warrantyEditing">{{ warrantyEditing ? 'Hide Warranty Fields' : 'Edit Warranty Details' }}</button>
+          <button v-if="!previewOnly" type="button" class="sos657-print" :disabled="!invoice || printing" @click="printInvoice">{{ printing?'Preparing…':duplicate?'Print Duplicate Copy':'Print Invoice' }}</button>
+          <button v-if="!previewOnly" type="button" class="sos659-warranty-action" :disabled="!invoice" @click="warrantyEditing=!warrantyEditing">{{ warrantyEditing ? 'Hide Warranty Fields' : 'Edit Warranty Details' }}</button>
           <button type="button" @click="emit('close')">Close ×</button>
         </div>
         

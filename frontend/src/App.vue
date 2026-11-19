@@ -17,11 +17,12 @@ import CounterRetailTabs697 from './components/CounterRetailTabs697.vue' // SOS_
 import CounterIvory654 from './components/CounterIvory654.vue'
 import CounterInvoiceModal654 from './components/CounterInvoiceModal654.vue'
 import CounterBilling654 from './components/CounterBilling654.vue';
+import CounterInvoices from './components/CounterInvoices.vue'
 import BillingDeliveryCommand700 from './components/BillingDeliveryCommand700.vue' // SOS_BILLING_DELIVERY_700
 const counter649Selection = ref('receive');
 // SERVICING_COUNTER_PATCH_651: select operations inside the Counter workspace.
 function counter649Select(action) {
-  if (!['receive', 'sale', 'repair', 'billing', 'used', 'stock'].includes(action)) return;
+  if (!['receive', 'sale', 'repair', 'billing', 'used', 'stock', 'invoices'].includes(action)) return;
   counter649Selection.value = action;
   activeNav.value = 'Counter';
   if (action === 'receive') activeOperation.value = 'Service Receive';
@@ -41,18 +42,20 @@ const s44ReceiveModalOpen = s44Ref(false);
 const s44ReceiptPending = s44Ref(false);
 let s44ReturnNav = 'Service Jobs';
 let s44ReturnOperation = 'Service Receive';
+let s44ReturnCounterSelection = 'receive';
 let s44LastCreatedJob = '';
 function s44OpenNativeReceive() {
   if (s44ReceiveModalOpen.value || s44ReceiptPending.value) return;
   s44ReturnNav = activeNav.value || 'Service Jobs';
   s44ReturnOperation = activeOperation.value || 'Service Receive';
-  activeNav.value = 'Counter';
-  activeOperation.value = 'Service Receive';
+  s44ReturnCounterSelection = counter649Selection.value;
+  counter649Select('receive');
   s44ReceiveModalOpen.value = true;
 }
 function s44ReturnToJobs() {
   s44ReceiptPending.value = false;
   activeOperation.value = s44ReturnOperation;
+  counter649Selection.value = s44ReturnCounterSelection;
   activeNav.value = s44ReturnNav;
   if (s44LastCreatedJob) {
     window.dispatchEvent(new CustomEvent('servicing-os:service-job-created', { detail: { name: s44LastCreatedJob } }));
@@ -475,8 +478,11 @@ function selectNavigation(item) {
     if (!sosSalesAllowed.includes(next)) return
     sosSalesSection.value = next
     activeNav.value = 'New Sales'
+  } else if (item === 'Counter: Invoices') {
+    counter649Select('invoices')
   } else {
     sosSalesSection.value = 'New Sale'
+    if (item === 'Counter' && counter649Selection.value === 'invoices') counter649Select('receive')
     activeNav.value = item
   }
   message.value = ''
@@ -782,9 +788,23 @@ const sos682TechnicianLoading = ref(false)
 const sos682History = ref([])
 const sos682HistoryPage = ref(1)
 const sos682HistoryNext = ref(false)
+const sos682HistoryTotal = ref(null)
+const sos682HistoryPages = ref(null)
+const sos682HistoryCount = computed(() => {
+  if (sos682HistoryLoading.value || sos682HistoryTotal.value === null) return '— of —'
+  return `${sos682History.value.length} of ${sos682HistoryTotal.value}`
+})
 const sos682HistoryLoading = ref(false)
 const sos682HistoryError = ref('')
 const sos682Search = ref('')
+const sos682HistoryStatus = ref('')
+const sos682HistoryStatusOptions = ref([])
+const sos682HistoryPanel = ref(null)
+const sos682SearchExpanded = ref(false)
+const sos682HistoryPageSize = computed(() => sos682SearchExpanded.value || sos682Search.value.trim() ? 20 : 8)
+const sos682HistoryFrom = ref('')
+const sos682HistoryTo = ref('')
+const sos682HistoryPreset = ref('month')
 const sos682SelectedJob = ref('')
 const sos682HistoryScope = computed(() => selectedCustomerId.value || '')
 let sos682Timer = null
@@ -811,29 +831,65 @@ async function sos682LoadTechnicians() {
   finally { sos682TechnicianLoading.value = false }
 }
 async function sos682LoadHistory() {
+  clearTimeout(sos682Timer)
   const seq = ++sos682Seq
   sos682HistoryLoading.value = true; sos682HistoryError.value = ''
   try {
+    const preset = sos682HistoryPreset.value
+    if (!preset && sos682HistoryFrom.value && sos682HistoryTo.value && sos682HistoryFrom.value > sos682HistoryTo.value) {
+      throw new Error('From date must be on or before To date.')
+    }
     const data = await sos682Api('get_receive_history', {
       q: sos682Search.value.trim(),
+      status: sos682HistoryStatus.value,
       customer: sos682Search.value.trim() ? '' : sos682HistoryScope.value,
       page: sos682HistoryPage.value,
+      page_size: sos682HistoryPageSize.value,
+      preset,
+      from_date: preset ? '' : sos682HistoryFrom.value,
+      to_date: preset ? '' : sos682HistoryTo.value,
     })
     if (seq !== sos682Seq) return
     sos682History.value = data.jobs || []
     sos682HistoryNext.value = !!data.has_next
+    if (Number.isInteger(data.page)) sos682HistoryPage.value = data.page
+    sos682HistoryTotal.value = Number.isInteger(data.total) ? data.total : null
+    sos682HistoryPages.value = Number.isInteger(data.total_pages) ? data.total_pages : null
+    sos682HistoryStatusOptions.value = data.status_options || []
+    if (preset || !sos682HistoryFrom.value) sos682HistoryFrom.value = data.from_date || ''
+    if (preset || !sos682HistoryTo.value) sos682HistoryTo.value = data.to_date || ''
   } catch (error) {
     if (seq !== sos682Seq) return
     sos682History.value = []
+    sos682HistoryTotal.value = sos682HistoryPages.value = null
     sos682HistoryNext.value = false
     sos682HistoryError.value = error.message || 'Unable to load service jobs.'
   } finally { if (seq === sos682Seq) sos682HistoryLoading.value = false }
 }
 function sos682QueueHistory() {
-  if (sos682Timer) clearTimeout(sos682Timer)
+  clearTimeout(sos682Timer)
+  ++sos682Seq
+  sos682HistoryLoading.value = true
   sos682Timer = setTimeout(sos682LoadHistory, 250)
 }
-watch(sos682Search, () => { sos682SelectedJob.value = ''; sos682HistoryPage.value = 1; sos682QueueHistory() })
+function sos682ChangeHistoryDates() {
+  sos682HistoryPreset.value = ''
+  sos682HistoryPage.value = 1
+  sos682QueueHistory()
+}
+function sos682SetHistoryPreset(preset) {
+  sos682HistoryPreset.value = preset
+  sos682HistoryPage.value = 1
+  sos682QueueHistory()
+}
+function sos682LeaveHistory(event) {
+  if (sos682SearchExpanded.value && !sos682HistoryPanel.value?.contains(event.target)) sos682SearchExpanded.value = false
+}
+watch([sos682Search, sos682HistoryPageSize, sos682HistoryStatus], ([query], [previousQuery]) => {
+  if (query !== previousQuery) sos682SelectedJob.value = ''
+  sos682HistoryPage.value = 1
+  sos682QueueHistory()
+})
 watch(sos682HistoryScope, () => { if (!sos682Search.value.trim()) { sos682HistoryPage.value = 1; sos682QueueHistory() } })
 function sos682GoPage(next) {
   const page = sos682HistoryPage.value + next
@@ -863,8 +919,18 @@ function sos682PrintSticker(jobName = '') {
   receiptJobNumber.value = id
   sos632PrintQrSticker()
 }
-onMounted(() => { sos682LoadTechnicians(); sos682LoadHistory() })
-onUnmounted(() => { if (sos682Timer) clearTimeout(sos682Timer); ++sos682Seq })
+onMounted(() => {
+  sos682LoadTechnicians()
+  sos682LoadHistory()
+  document.addEventListener('pointerdown', sos682LeaveHistory, true)
+  document.addEventListener('focusin', sos682LeaveHistory, true)
+})
+onUnmounted(() => {
+  clearTimeout(sos682Timer)
+  ++sos682Seq
+  document.removeEventListener('pointerdown', sos682LeaveHistory, true)
+  document.removeEventListener('focusin', sos682LeaveHistory, true)
+})
 
 // SOS_COUNTER_RECEIVE_EDITOR_686 — same-form edit/delete with optimistic locking.
 const sos686Editing = ref(false)
@@ -1136,7 +1202,8 @@ const sosSalesAllowed = [
     <ServicingSidebar
       :items="servicingExtendedMenu"
       :active="activeNav"
-       :sales-section="sosSalesSection"
+      :sales-section="sosSalesSection"
+      :counter-invoices="activeNav === 'Counter' && counter649Selection === 'invoices'"
       :repair-open="repairManagementOpen"
       :mobile-open="mobileMenuOpen"
       @navigate="(item) => { repairManagementOpen = false; selectNavigation(item); mobileMenuOpen = false }"
@@ -1713,21 +1780,40 @@ const sosSalesAllowed = [
 
 						<section class="xl:col-span-3 space-y-5">
 							<!-- SOS_RECEIVE_INLINE_TECH_HISTORY_682: searchable customer history + receipt/QR -->
-<div class="sos682-aside">
+<div ref="sos682HistoryPanel" class="sos682-aside" data-servicing-control-layout="local">
   <div class="sos682-aside-header">
-    <div><span class="sos682-eyebrow">SERVICE RECEIVE</span><h2>Customer History</h2><p>{{ sos682HistoryScope && !sos682Search ? 'Jobs for selected customer' : 'Recent five service jobs · Search all records' }}</p></div>
+    <div><span class="sos682-eyebrow">SERVICE RECEIVE</span><h2>Customer History</h2><p v-if="sos682HistoryScope && !sos682Search.trim()">Jobs for selected customer</p></div>
     <button type="button" class="sos682-refresh" :disabled="sos682HistoryLoading" @click="sos682LoadHistory" aria-label="Refresh jobs">↻</button>
   </div>
-  <label class="sos682-search-label" for="sos682-receipt-search">Find a saved service job</label>
-  <input id="sos682-receipt-search" v-model="sos682Search" type="search" autocomplete="off"
-    placeholder="Job No. / customer / mobile / serial" class="sos682-lookup"
-    @keydown.enter.prevent="sos682History.length === 1 ? sos682ChooseJob(sos682History[0]) : null" />
+  <div class="sos682-search-row">
+    <label class="sos682-search-label" for="sos682-receipt-search"><span>Find a saved service job</span>
+      <input id="sos682-receipt-search" v-model="sos682Search" type="search" autocomplete="off"
+        placeholder="Job no. / mobile / serial" title="Search by job number, customer, mobile, or serial number" class="sos682-lookup"
+        @focus="sos682SearchExpanded = true"
+        @keydown.enter.prevent="!sos682HistoryLoading && sos682History.length === 1 ? sos682ChooseJob(sos682History[0]) : null" />
+    </label>
+    <label class="sos682-search-label"><span>Status</span>
+      <select v-model="sos682HistoryStatus" class="sos682-lookup" :title="sos682HistoryStatus || 'All statuses'">
+        <option value="">All statuses</option>
+        <option v-for="status in sos682HistoryStatusOptions" :key="status" :value="status">{{ status }}</option>
+      </select>
+    </label>
+  </div>
+  <fieldset class="sos682-history-range">
+    <legend>Received date</legend>
+    <label>From <input v-model="sos682HistoryFrom" type="date" @change="sos682ChangeHistoryDates" /></label>
+    <label>To <input v-model="sos682HistoryTo" type="date" @change="sos682ChangeHistoryDates" /></label>
+    <div class="sos682-history-presets">
+      <button type="button" :aria-pressed="sos682HistoryPreset === 'week'" @click="sos682SetHistoryPreset('week')">Past week</button>
+      <button type="button" :aria-pressed="sos682HistoryPreset === 'month'" @click="sos682SetHistoryPreset('month')">Past month</button>
+    </div>
+  </fieldset>
   <div v-if="sos682HistoryError" role="alert" class="sos682-error">{{ sos682HistoryError }}</div>
   <p v-if="sos689ActionFeedback" class="sos689-history-alert" role="alert">{{ sos689ActionFeedback }}</p>
   <p class="sos687-history-note">Use the pencil to edit or the bin to request deletion. Processed or invoiced jobs cannot be permanently deleted.</p>
-  <div class="sos682-list-head"><strong>{{ sos682Search ? 'Search results' : 'Recent service jobs' }}</strong><span>5 per page</span></div>
-  <div v-if="sos682HistoryLoading && !sos682History.length" class="sos682-empty">Loading records…</div>
-  <div v-else-if="!sos682History.length" class="sos682-empty">No service jobs found.</div>
+  <div class="sos682-list-head"><strong>{{ sos682HistoryPageSize === 20 ? 'Search results' : 'Service jobs' }}</strong><span>{{ sos682HistoryCount }} · {{ sos682HistoryPageSize }} per page</span></div>
+  <div v-if="sos682HistoryLoading" class="sos682-empty" role="status">Loading records…</div>
+  <div v-else-if="!sos682History.length" class="sos682-empty">No jobs match these filters.</div>
   <div v-else class="sos682-job-list">
 <!-- SOS_HISTORY_CARDS_688: compact cards designed for the narrow history sidebar -->
     <article v-for="job in sos682History" :key="job.name" class="sos688-job-card"
@@ -1735,7 +1821,10 @@ const sosSalesAllowed = [
       <button type="button" class="sos688-card-details" :disabled="sos686Busy"
         :title="job.name" :aria-label="`Edit service job ${job.name}`"
         @click="sos689EditHistory(job)">
-        <strong class="sos688-job-number">{{ job.name }}</strong>
+        <span class="sos682-job-heading">
+          <strong class="sos688-job-number">{{ job.name }}</strong>
+          <time v-if="job.creation" class="sos682-card-date" :datetime="job.creation.slice(0, 10)" :title="`Created ${job.creation}`">{{ job.creation.slice(0, 10) }}</time>
+        </span>
         <span class="sos688-customer" :title="[job.customer_name || 'Customer', job.mobile || ''].filter(Boolean).join(' · ')">
           {{ job.customer_name || 'Customer' }}<template v-if="job.mobile"> · {{ job.mobile }}</template>
         </span>
@@ -1775,7 +1864,7 @@ const sosSalesAllowed = [
   </div>
   <div class="sos682-pagination">
     <button type="button" :disabled="sos682HistoryPage <= 1 || sos682HistoryLoading" @click="sos682GoPage(-1)">← Previous</button>
-    <span>Page {{ sos682HistoryPage }}</span>
+    <span>Page {{ sos682HistoryPage }} of {{ sos682HistoryPages ?? '—' }}</span>
     <button type="button" :disabled="!sos682HistoryNext || sos682HistoryLoading" @click="sos682GoPage(1)">Next →</button>
   </div>
   <p class="sos686-history-hint">Select any job to load and edit its original Service Receive form. Delete is available only for eligible jobs.</p>
@@ -1857,6 +1946,9 @@ const sosSalesAllowed = [
     <div class="sos653-embedded-module">
       <ServiceJobsWorkspace guided-handover @handover="openHandover" @receive="sosReceiveFromJobs624B" @manage="sosManageFromJobs624B" />
     </div>
+  </template>
+  <template #invoices="{ openInvoice }">
+    <CounterInvoices @create="openInvoice" @back="counter649Select('receive')" />
   </template>
   <template #billing="{ openInvoice, openHandover }">
     <!-- SOS_BILLING_DELIVERY_700: original Counter billing is preserved in legacy slot -->
@@ -2856,24 +2948,24 @@ main>.sos-fin-reports{display:block!important;width:100%;min-width:0}
 
 <style>
 /* SERVICING_OS_COUNTER_655 — equal-height selects and warm-ivory form controls. */
-.sos652-shell .sos652-workbody :is(select,input,textarea),
-.sos653-embedded-module :is(select,input,textarea),
-.sos649-original-workspace :is(select,input,textarea) {
+.sos652-shell .sos652-workbody :is(select,input,textarea):not(:where([data-servicing-control-layout="local"] *)),
+.sos653-embedded-module :is(select,input,textarea):not(:where([data-servicing-control-layout="local"] *)),
+.sos649-original-workspace :is(select,input,textarea):not(:where([data-servicing-control-layout="local"] *)) {
  box-sizing:border-box!important; min-width:0; max-width:100%;
  border:1px solid #ddc8b5!important; background:#fffdfa!important;
  border-radius:9px!important; color:#3c2c25!important;
 }
-.sos652-shell .sos652-workbody select,
-.sos653-embedded-module select,
-.sos649-original-workspace select {
+.sos652-shell .sos652-workbody select:not(:where([data-servicing-control-layout="local"] *)),
+.sos653-embedded-module select:not(:where([data-servicing-control-layout="local"] *)),
+.sos649-original-workspace select:not(:where([data-servicing-control-layout="local"] *)) {
  width:100%!important; height:43px!important; min-height:43px!important;
  padding:9px 32px 9px 11px!important; line-height:22px!important;
  font-size:13px!important; appearance:auto!important;
 }
-.sos652-shell .sos652-workbody :is(input:not([type=checkbox]):not([type=radio]),textarea),
-.sos649-original-workspace input:not([type=checkbox]):not([type=radio]) {min-height:43px;padding:9px 11px}
+.sos652-shell .sos652-workbody :is(input:not([type=checkbox]):not([type=radio]),textarea):not(:where([data-servicing-control-layout="local"] *)),
+.sos649-original-workspace input:not([type=checkbox]):not([type=radio]):not(:where([data-servicing-control-layout="local"] *)) {min-height:43px;padding:9px 11px}
 .sos652-shell .sos652-workbody label,.sos649-original-workspace label{min-width:0}
-.sos652-shell .sos652-workbody :is(select,input,textarea):focus-visible {outline:2px solid #bd9274;outline-offset:1px}
+.sos652-shell .sos652-workbody :is(select,input,textarea):not(:where([data-servicing-control-layout="local"] *)):focus-visible {outline:2px solid #bd9274;outline-offset:1px}
 /* Embedded native POS remains unmodified. New counter uses a focused product grid. */
 </style>
 
@@ -2887,12 +2979,23 @@ main>.sos-fin-reports{display:block!important;width:100%;min-width:0}
 .sos682-aside-header p{color:#8d735e;font-size:10px;line-height:1.4;margin:2px 0}
 .sos682-eyebrow{font-size:9px;letter-spacing:.12em;font-weight:800;color:#987356}
 .sos682-refresh{flex:0 0 30px;height:30px;border:1px solid #d9c1ab;border-radius:8px;background:#f6eadc;color:#754c36;font-size:18px}
-.sos682-search-label{font-size:10px;font-weight:760;color:#7c604b}
-.sos682-lookup{width:100%;max-width:none;min-width:0;height:37px;border:1px solid #d9c4b1;border-radius:9px;background:#fffdfa;padding:7px 10px;font-size:12px;color:#3c2c25}
+.sos682-search-row{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr);gap:8px}
+.sos682-aside :is(.sos682-search-label,.sos682-history-range label){display:grid;grid-template-rows:14px 38px;gap:5px;min-width:0;margin:0;font-size:10px;font-weight:760;line-height:14px;color:#7c604b}
+.sos682-search-label span{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.sos682-aside :is(.sos682-lookup,.sos682-history-range input){display:block;width:100%;min-width:0;height:38px;min-height:38px;margin:0;border:1px solid #d9c4b1;border-radius:9px;background:#fffdfa;padding:0 8px;color:#3c2c25;font-family:inherit;font-size:12px;font-weight:500;line-height:1.25}
+.sos682-aside select.sos682-lookup{appearance:none;padding-inline-end:19px;text-overflow:ellipsis;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='9' height='6' viewBox='0 0 9 6'%3E%3Cpath d='m1 1 3.5 3.5L8 1' fill='none' stroke='%23765741' stroke-width='1.3'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 7px center}
 .sos682-lookup:focus-visible{outline:2px solid #ac825d;outline-offset:1px}
 .sos682-list-head{display:flex;justify-content:space-between;align-items:center;gap:8px;border-top:1px solid #ebdfd2;padding-top:9px;font-size:10px;color:#765b46}
 .sos682-list-head span{font-weight:600;color:#998371}
-.sos682-job-list{display:flex;flex-direction:column;gap:5px;min-width:0}
+.sos682-job-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:5px;min-width:0}
+.sos682-history-range{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px 8px;min-width:0;margin:0;padding:7px 0 0;border:0;color:#72543d;font-size:11px}
+.sos682-history-range legend{font-weight:760;padding:0}
+.sos682-history-presets{grid-column:1/-1;display:flex;justify-content:flex-end;gap:6px;flex-wrap:wrap}
+.sos682-history-range button{padding:4px 7px;border:1px solid #e6d4c5;border-radius:7px;background:#fffbf6;color:#704c33;font:inherit}
+.sos682-history-range button[aria-pressed="true"]{background:#f0ddca;border-color:#d5b79d}
+.sos682-history-range :is(input,button):focus-visible{outline:2px solid #a77452;outline-offset:2px}
+.sos682-job-heading{display:flex;align-items:baseline;justify-content:space-between;gap:6px;min-width:0}
+.sos682-card-date{flex:none;white-space:nowrap;font-size:10px;font-weight:650;letter-spacing:.025em;font-variant-numeric:tabular-nums;color:#68462e;opacity:.74}
 .sos682-job{display:flex;align-items:start;justify-content:space-between;gap:6px;padding:9px 8px;text-align:left;width:100%;border:1px solid #ece0d4;border-radius:9px;background:#fffaf4;color:#3c2c25;min-width:0}
 .sos682-job:hover,.sos682-job.chosen{background:#f3e5d6;border-color:#b99474}
 .sos682-job-main{min-width:0;display:flex;flex-direction:column;gap:2px}

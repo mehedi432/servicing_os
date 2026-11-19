@@ -63,7 +63,7 @@ def _allowed_statuses(dt):
 
 
 def on_invoice_submit(doc, method=None):
-    if doc.docstatus != 1 or cint(doc.get('is_return')):
+    if doc.docstatus != 1 or cint(doc.get('is_return')) or doc.flags.get('sos_submit_without_handover'):
         return
     shop = _shop(doc.company)
     if not shop or not _stock_handover_recorded(doc):
@@ -199,6 +199,8 @@ def get_branded_invoice(invoice_name=None, doctype='Sales Invoice'):
     delivery = inv.get(STATUS_FIELD) if STATUS_FIELD in _fields(doctype) else ''
     if not delivery:
         delivery = 'Pending Delivery' if inv.docstatus!=1 else 'Not recorded'
+    from servicing_os.api.service_invoice_661 import linked_job
+    from servicing_os.api.invoice_payment import can_receive
     return {
         'name':inv.name,'doctype':inv.doctype,'company':company.company_name or company.name,
         'company_address':shop.get('address') or '', 'company_phone':shop.get('phone') or '',
@@ -208,9 +210,15 @@ def get_branded_invoice(invoice_name=None, doctype='Sales Invoice'):
         'posting_date':str(inv.posting_date or ''),'posting_time':str(inv.get('posting_time') or ''),
         'due_date':str(inv.get('due_date') or ''),
         'currency':inv.currency or company.default_currency or 'BDT',
-        'service_job':inv.get(SERVICE_LINK) if SERVICE_LINK in _fields(doctype) else None,
+        'service_job':linked_job(inv) or None,
         'remarks':str(inv.get('remarks') or '')[:400],
         'status':status,'docstatus':inv.docstatus,'delivery_status':delivery,
+        'modified':str(inv.modified),
+        'can_submit':doctype == 'Sales Invoice' and inv.docstatus == 0 and bool(inv.has_permission('submit')),
+        'can_edit':doctype == 'Sales Invoice' and inv.docstatus == 0 and not cint(inv.get('is_return'))
+                   and bool(inv.has_permission('write')),
+        'can_pay':doctype == 'Sales Invoice' and inv.docstatus == 1 and not cint(inv.get('is_return'))
+                  and flt(inv.outstanding_amount) > 0 and can_receive(),
         'net_total':flt(inv.net_total),'grand_total':flt(inv.grand_total),
         'discount_amount':flt(inv.discount_amount),
         'additional_discount_percentage':flt(inv.get('additional_discount_percentage')),
