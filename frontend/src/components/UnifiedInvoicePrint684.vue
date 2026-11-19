@@ -13,6 +13,7 @@ const emit = defineEmits(['close'])
   <CounterPremiumInvoice681
     v-if="doctype === 'Sales Invoice'"
     :invoice-name="invoiceName"
+    :duplicate="duplicate"
     @close="emit('close')" />
   <InvoicePrint657
     v-else

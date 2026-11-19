@@ -163,8 +163,8 @@ def _invoice_rows(lines, company):
     rows = []
     total = 0
     default_income = frappe.db.get_value("Company", company, "default_income_account")
-    default_cost_center = (frappe.db.get_value("Company", company, "default_cost_center")
-                           if frappe.get_meta("Company").has_field("default_cost_center") else None)
+    company_doc = frappe.get_doc("Company", company)
+    default_cost_center = company_doc.get("cost_center") or company_doc.get("default_cost_center")
     for line in lines:
         if not isinstance(line, dict):
             frappe.throw("Invalid invoice row")

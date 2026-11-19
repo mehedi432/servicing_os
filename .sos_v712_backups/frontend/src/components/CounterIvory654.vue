@@ -1,0 +1,774 @@
+<script setup>
+import CounterTechnician681 from './CounterTechnician681.vue'
+import InvoiceHistory658 from './InvoiceHistory658.vue'
+import UnifiedInvoicePrint684 from './UnifiedInvoicePrint684.vue'
+// SERVICING_COUNTER_EXACT_654: screenshot-accurate, with real parent actions.
+import { computed, nextTick, onMounted, onUnmounted, ref, unref } from 'vue'
+import { currentLanguage } from '../i18n/servicingLanguage.js'
+
+const props = defineProps({
+  active: { type: String, default: '' },
+  company: { type: String, default: 'AL MODINA COMPUTERS LIMITED' },
+  user: { type: String, default: 'Administrator' },
+  currency: { type: String, default: 'BDT' },
+  connected: { type: Boolean, default: false },
+  loading: { type: Boolean, default: false },
+  error: { type: String, default: '' },
+  searchValue: { type: String, default: '' },
+  billingMode: { type: String, default: 'Service Delivery' },
+  selectedServiceJob: {type:String, default:''},
+})
+const emit = defineEmits(['select', 'settings', 'open-menu', 'navigate', 'update:searchValue', 'billing-mode'])
+const brandLetters = computed(() => {
+  const parts = String(props.company || 'AL MODINA').trim().split(/\s+/)
+  return ((parts[0] || 'A')[0] + (parts[1] || 'M')[0]).toUpperCase()
+})
+const bn = computed(() => String(unref(currentLanguage) || 'en').toLowerCase().startsWith('bn'))
+const invoiceMode = ref(false)
+// SERVICING_OS_SERVICE_INVOICE_662: selected job shared with existing invoice modal.
+const sos661Job = ref('')
+const sos661Kind = ref('')
+function sos661StartInvoice(jobName) {
+  sos661Job.value = String(jobName || '').trim()
+  sos661Kind.value = sos661Job.value ? 'service' : ''
+  invoiceMode.value = true
+}
+function sos661ReceiveInvoiceRequest(event) {
+  const job = String(event?.detail?.service_job || '').trim()
+  if (!job) return
+  sos661StartInvoice(job)
+}
+onMounted(() => window.addEventListener('servicing-os-create-service-invoice', sos661ReceiveInvoiceRequest))
+onUnmounted(() => window.removeEventListener('servicing-os-create-service-invoice', sos661ReceiveInvoiceRequest))
+// SOS_SERVICE_WORKFLOW_690: floating invoice may only target selected Service Receive.
+const sos690InvoiceMessage = ref('')
+function sos690CreateSelectedInvoice() {
+  const name = String(props.selectedServiceJob || '').trim()
+  if (!name) {sos690InvoiceMessage.value = 'Select a Service Job in Customer History or receive a device first.';return}
+  if (!/^[A-Za-z0-9._-]{1,140}$/.test(name)) {sos690InvoiceMessage.value = 'Invalid Service Job reference';return}
+  sos690InvoiceMessage.value = ''
+  sos661StartInvoice(name)
+}
+
+// SOS_JOB_FAB_710 — share existing invoice creation and print studio.
+const fab710Busy = ref(false)
+const fab710PrintInvoice = ref('')
+const fab710DeliverOpen = ref(false)
+const fab710Confirm = ref('')
+const fab710Delivered = ref('')
+// SOS_PREMIUM_HANDOVER_711 — read-only readiness and clear audit-friendly errors.
+const fab711Status = ref(null)
+const fab711Checking = ref(false)
+const fab711Error = ref('')
+function fab711ExplainFailure(payload, fallback) {
+  try {
+    const raw = JSON.parse(payload?._server_messages || '[]')
+    for (const entry of raw) {
+      const msg = JSON.parse(entry)?.message
+      if (typeof msg === 'string' && msg.trim()) return msg.replace(/<[^>]*>/g, '').slice(0,450)
+    }
+  } catch (_) {}
+  const msg = payload?.message
+  return typeof msg === 'string' && msg.trim() ? msg.slice(0,450) : fallback
+}
+async function fab711LoadStatus(name) {
+  fab711Status.value = null
+  fab711Checking.value = true
+  fab711Error.value = ''
+  try {
+    const endpoint = new URL('/api/method/servicing_os.api.service_handover_710.get_handover_readiness', window.location.origin)
+    endpoint.searchParams.set('job_name', name)
+    const response = await fetch(endpoint, { credentials: 'same-origin', cache: 'no-store', headers: { Accept: 'application/json' } })
+    const body = await response.json()
+    if (!response.ok || body.exc || body.exception || !body.message?.service_job) throw new Error(fab711ExplainFailure(body, 'Could not check delivery requirements'))
+    fab711Status.value = body.message
+  } catch (error) { fab711Error.value = error?.message || 'Unable to check job' }
+  finally { fab711Checking.value = false }
+}
+function fab711Close() {
+  if (!fab710Busy.value) fab710DeliverOpen.value = false
+}
+
+function fab710CheckJob() {
+  const name=String(props.selectedServiceJob||'').trim()
+  if (!/^[A-Za-z0-9._-]{1,140}$/.test(name)) throw new Error('Select a valid Service Job first.')
+  return name
+}
+async function fab710Print() {
+  if(fab710Busy.value)return
+  fab710Busy.value=true; sos690InvoiceMessage.value=''
+  try {
+    const name=fab710CheckJob()
+    const url=new URL('/api/method/servicing_os.api.service_invoice_661.get_job_context',window.location.origin)
+    url.searchParams.set('job_name',name)
+    const r=await fetch(url,{credentials:'same-origin',cache:'no-store'})
+    const d=await r.json()
+    if(!r.ok||d.exc||d.exception||!d.message?.name)throw new Error(typeof d.message==='string'?d.message:'Cannot verify selected Service Job')
+    const invoices=(d.message.invoices||[]).filter(x=>x.doctype==='Sales Invoice'&&!x.is_return&&x.docstatus!==2)
+    if(invoices.length>1)throw new Error('Multiple invoices exist for this job. Resolve the duplicates before printing.')
+    const existing=invoices[0]
+    if(existing?.docstatus===1){fab710PrintInvoice.value=existing.name;return}
+    if(existing?.docstatus===0)throw new Error('An invoice draft already exists: '+existing.name+'. Finalize it from the Billing Desk before printing; do not create another invoice.')
+    sos661StartInvoice(name)
+  } catch(e){sos690InvoiceMessage.value=e?.message||'Invoice operation failed'}
+  finally{fab710Busy.value=false}
+}
+async function fab710AskDelivery(){
+  try {const job=fab710CheckJob();fab710Confirm.value='';fab710DeliverOpen.value=true;sos690InvoiceMessage.value='';await fab711LoadStatus(job)}
+  catch(e){sos690InvoiceMessage.value=e.message}
+}
+async function fab710Deliver(){
+  if(fab710Busy.value)return
+  fab710Busy.value=true;sos690InvoiceMessage.value=''
+  try{
+    const name=fab710CheckJob()
+    if(fab710Confirm.value.trim()!==name)throw new Error('Type the exact Service Job ID to confirm delivery.')
+    const token=window.frappe?.csrf_token||window.csrf_token||document.querySelector('meta[name="csrf-token"]')?.content||''
+    const res=await fetch('/api/method/servicing_os.api.service_handover_710.deliver_service_job',{
+      method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json',...(token?{'X-Frappe-CSRF-Token':token}:{})},
+      body:JSON.stringify({job_name:name,confirmation:name})
+    })
+    const d=await res.json()
+    if(!res.ok||d.exc||d.exception||d.message?.status!=='Delivered')throw new Error(fab711ExplainFailure(d,'Delivery could not be completed. Please check the repair and invoice requirements.'))
+    fab710Delivered.value=name
+    fab710DeliverOpen.value=false
+    window.dispatchEvent(new CustomEvent('servicing-os-job-delivered',{detail:d.message}))
+  }catch(e){fab711Error.value=e?.message||'Delivery failed';await fab711LoadStatus(fab710CheckJob());if(!fab711Error.value)fab711Error.value=e?.message||'Delivery failed'}
+  finally{fab710Busy.value=false}
+}
+function fab710OnFinalized(e){
+  const data=e?.detail||{}
+  if(data.docstatus===1&&String(data.service_job||'')===String(props.selectedServiceJob||'')){
+    invoiceMode.value=false
+    fab710PrintInvoice.value=String(data.invoice||'')
+  }
+}
+onMounted(()=>window.addEventListener('servicing-os-invoice-finalized',fab710OnFinalized))
+onUnmounted(()=>window.removeEventListener('servicing-os-invoice-finalized',fab710OnFinalized))
+
+const billingTab = ref('invoices')
+function openInvoice() { sos661StartInvoice('') }
+const profileOpen = ref(false)
+const searching = ref(false)
+const logoutBusy = ref(false)
+const logoutError = ref('')
+const profileWrap = ref(null)
+const searchInput = ref(null)
+const actions = [
+  {key:'receive',en:'Service Receive',bn:'ডিভাইস গ্রহণ',help:'New service intake',helpBn:'নতুন সার্ভিস গ্রহণ',paths:['M4 4h11a2 2 0 0 1 2 2v6','M6 17H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2','M10 19H8','M14 15h7v7h-7z','M17 19h1']},
+  {key:'sale',en:'New Sale',bn:'নতুন বিক্রয়',help:'Retail counter',helpBn:'খুচরা বিক্রয়',paths:['M2 3h2l2.2 10.6a2 2 0 0 0 2 1.6H19a2 2 0 0 0 1.96-1.6L22 7H5','M9 21h.01','M19 21h.01']},
+  {key:'repair',en:'Repair Jobs',bn:'মেরামতের কাজ',help:'Track and process',helpBn:'কাজের অগ্রগতি',paths:['M14.7 6.3a5 5 0 0 0-6.4 6.4L3 18l3 3 5.3-5.3a5 5 0 0 0 6.4-6.4l-3.3 2-3-3z']},
+  {key:'billing',en:'Billing & Delivery',bn:'বিল ও ডেলিভারি',help:'Invoice and handover',helpBn:'বিল ও পণ্য হস্তান্তর',paths:['M6 3h12a2 2 0 0 1 2 2v16l-3-2-3 2-3-2-3 2-3-2V5a2 2 0 0 1 2-2z','M9 8h6','M9 12h6','M9 16h3']},
+  {key:'used',en:'Used Laptops',bn:'পুরোনো ল্যাপটপ',help:'Trade and resale',helpBn:'ক্রয় ও পুনর্বিক্রয়',paths:['M4 5h16v12H4z','M2 21h20','M8 17l-1 4','M16 17l1 4']},
+  {key:'stock',en:'Stock & Items',bn:'স্টক ও পণ্য',help:'Inventory lookup',helpBn:'ইনভেন্টরি অনুসন্ধান',paths:['M12 2 3 7l9 5 9-5-9-5z','M3 7v10l9 5 9-5V7','M12 12v10']}
+]
+// SOS_COUNTER_HERO_676 — read-only, permission-aware operational snapshot.
+const hero = ref(null)
+const heroBusy = ref(false)
+const heroError = ref('')
+const heroUpdated = ref('')
+let heroTimer = null
+const heroCards = computed(() => [
+  { key:'sales_total', en:'Today’s Sales', bn:'আজকের বিক্রয়', money:true, note:'Submitted invoices today', noteBn:'আজকের জমা ইনভয়েস' },
+  { key:'received_today', en:'Service Received', bn:'আজ সার্ভিস গ্রহণ', note:'Devices received today', noteBn:'আজ গৃহীত ডিভাইস' },
+  { key:'open_repairs', en:'Active Service Jobs', bn:'চলমান সার্ভিস কাজ', note:'Not delivered or cancelled', noteBn:'ডেলিভারি বাকি' },
+  { key:'ready_delivery', en:'Ready for Delivery', bn:'ডেলিভারির জন্য প্রস্তুত', note:'Ready for collection', noteBn:'হস্তান্তরের অপেক্ষায়' }
+])
+function heroDisplay(card) {
+  const v = hero.value?.metrics?.[card.key]
+  if (v === null || v === undefined || v === '') return '—'
+  const n = Number(v)
+  if (!Number.isFinite(n)) return '—'
+  return card.money ? '৳ ' + n.toLocaleString('en-BD',{minimumFractionDigits:2,maximumFractionDigits:2}) : n.toLocaleString('en-BD')
+}
+async function refreshHero() {
+  if (heroBusy.value || !props.connected) return
+  heroBusy.value = true; heroError.value = ''
+  try {
+    const r = await fetch('/api/method/servicing_os.api.counter_snapshot.get_counter_snapshot', {credentials:'same-origin',cache:'no-store'})
+    if (!r.ok) throw new Error('HTTP '+r.status)
+    const data = await r.json()
+    if (data.exc || !data.message?.metrics) throw new Error('Dashboard data unavailable')
+    hero.value = data.message
+    heroUpdated.value = new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})
+  } catch (e) { heroError.value = e?.message || 'Unable to load metrics' }
+  finally { heroBusy.value = false }
+}
+onMounted(() => { refreshHero(); heroTimer = window.setInterval(refreshHero, 120000) })
+onUnmounted(() => { if (heroTimer) window.clearInterval(heroTimer) })
+// Reload when connectivity is restored without modifying any transaction.
+import { watch } from 'vue'
+watch(() => props.connected, v => { if (v) refreshHero() })
+const isEmpty = computed(() => !props.active)
+const statusLabel = computed(() => props.loading ? (bn.value ? 'সংযোগ হচ্ছে' : 'Connecting') : props.error ? (bn.value ? 'সংযোগ নেই' : 'Offline') : props.connected ? (bn.value ? 'সংযুক্ত' : 'Connected') : (bn.value ? 'সংযোগ নেই' : 'Offline'))
+async function openSearch() {
+  searching.value = !searching.value
+  if (searching.value) { await nextTick(); searchInput.value?.focus() }
+}
+function doSelect(id) { invoiceMode.value = false; profileOpen.value = false; searching.value = false; emit('select', id) }
+function closeProfileOnOutside(event) {
+  if (profileOpen.value && profileWrap.value && !profileWrap.value.contains(event.target)) profileOpen.value = false
+}
+function closeOnEscape(event) {
+  if (event.key === 'Escape') { profileOpen.value = false; searching.value = false; invoiceMode.value = false }
+}
+onMounted(() => { document.addEventListener('pointerdown', closeProfileOnOutside); document.addEventListener('keydown', closeOnEscape) })
+onUnmounted(() => { document.removeEventListener('pointerdown', closeProfileOnOutside); document.removeEventListener('keydown', closeOnEscape) })
+
+async function logout() {
+  if (logoutBusy.value) return
+  logoutBusy.value = true
+  logoutError.value = ''
+  try {
+    const token = window.frappe?.csrf_token || window.csrf_token || document.querySelector('meta[name="csrf-token"]')?.content || ''
+    const headers = token ? {'X-Frappe-CSRF-Token': token} : {}
+    let response = await fetch('/api/method/logout', {method:'POST', credentials:'same-origin', headers, cache:'no-store'})
+    // Existing Frappe installs may expose the logout endpoint as GET only.
+    // Fetch it in-place; never navigate the browser to the JSON/API response.
+    if (!response.ok && (response.status === 403 || response.status === 405)) {
+      response = await fetch('/api/method/logout', {method:'GET', credentials:'same-origin', cache:'no-store'})
+    }
+    if (!response.ok) throw new Error('Logout failed (HTTP '+response.status+')')
+    // Never navigate to the raw /api/method/logout endpoint.
+    // The site's customized /login page retains the original SERVICING OS branding.
+    window.location.replace('/login?redirect-to=%2Fservicing-os')
+  } catch (error) {
+    logoutError.value = error?.message || 'Unable to log out'
+    logoutBusy.value = false
+  }
+}
+
+
+// SOS_COUNTER_TABS_676: arrow/Home/End keys operate the existing Counter actions.
+function sos676TabKeydown(event, currentKey) {
+  const pressed = event.key
+  if (!['ArrowRight', 'ArrowLeft', 'Home', 'End'].includes(pressed)) return
+  const current = actions.findIndex((item) => item.key === currentKey)
+  if (current === -1) return
+  event.preventDefault()
+  let next = current
+  if (pressed === 'ArrowRight') next = (current + 1) % actions.length
+  else if (pressed === 'ArrowLeft') next = (current - 1 + actions.length) % actions.length
+  else if (pressed === 'Home') next = 0
+  else if (pressed === 'End') next = actions.length - 1
+  doSelect(actions[next].key)
+  nextTick(() => {
+    const tabs = document.querySelectorAll('.sos652-shell nav.sos676-tabrail button[role="tab"]')
+    tabs[next]?.focus()
+  })
+}
+
+</script>
+
+<template>
+  <div class="sos652-shell" aria-label="Computer shop counter">
+    <header class="sos652-bar">
+      <div class="sos652-brandgroup">
+        <button class="sos652-mobile" type="button" @click="emit('open-menu')" aria-label="Open navigation">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+        </button>
+        <span class="sos652-logo" aria-hidden="true"><span>{{ brandLetters }}</span></span>
+        <div class="sos652-brandcopy"><strong :title="company">{{ company || 'AL MODINA COMPUTERS LIMITED' }}</strong><small>{{ bn ? 'কম্পিউটার বিক্রয় ও সার্ভিস সেন্টার' : 'Computer sales · Service center' }}</small></div>
+      </div>
+      <div class="sos652-topactions">
+        <span class="sos652-connect" :class="{offline:!connected||!!error, pending:loading}" role="status" :title="error || statusLabel">
+          <svg v-if="!error && connected && !loading" viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/></svg>
+          <span v-else class="sos652-status-dot"></span>{{ statusLabel }}
+        </span>
+        <span class="sos652-currency">{{ currency || 'BDT' }}</span>
+        <div ref="profileWrap" class="sos652-profilewrap">
+          <button type="button" class="sos652-avatar" :aria-expanded="profileOpen" aria-label="User profile" @click="profileOpen=!profileOpen">
+            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="8" r="3.3"/><path d="M5 20a7 7 0 0 1 14 0"/></svg>
+          </button>
+          <div v-if="profileOpen" class="sos652-profilepop">
+            <strong>{{ user || 'Administrator' }}</strong>
+            <small>{{ currency || 'BDT' }} · {{ bn ? 'স্টাফ কনসোল' : 'Staff console' }}</small>
+            <button type="button" @click="profileOpen=false;emit('settings')">{{ bn ? 'সেটিংস' : 'Settings' }}</button>
+            <button type="button" class="sos652-logout" :disabled="logoutBusy" @click="logout">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h4M16 17l5-5-5-5M21 12H9"/></svg>
+              {{ logoutBusy ? (bn ? 'লগ আউট হচ্ছে...' : 'Logging out...') : (bn ? 'লগ আউট' : 'Log out') }}
+            </button>
+            <span v-if="logoutError" class="sos652-logout-error" role="alert">{{ logoutError }}</span>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <div class="sos652-section-title">
+      <div><h1>{{ bn ? 'কাউন্টার' : 'Counter' }}</h1><p>{{ bn ? 'বিক্রয় · সার্ভিস · ডেলিভারি · বিলিং' : 'Sales · Service · Delivery · Billing' }}</p></div>
+      <span class="sos652-ops">{{ bn ? 'অপারেশন' : 'Operations' }}</span>
+    </div>
+
+    <!-- SOS_COUNTER_HERO_676: read-only snapshot; no hard-coded business figures -->
+    <section class="sos676-hero" aria-label="Counter performance overview">
+      <div class="sos676-hero-head">
+        <div class="sos676-hero-title"><span class="sos676-eyebrow">{{ bn ? 'আজকের অপারেশন' : 'TODAY AT A GLANCE' }}</span><h2>{{ bn ? 'কাউন্টার পারফরম্যান্স' : 'Your counter, at a glance' }}</h2><p>{{ bn ? 'বিক্রয়, সার্ভিস ও ডেলিভারি — লাইভ তথ্য' : 'Sales, repairs and handovers · live operational figures' }}</p></div>
+        <button type="button" class="sos676-refresh" :disabled="heroBusy || !connected" @click="refreshHero" :title="bn ? 'হালনাগাদ' : 'Refresh figures'">↻ <span>{{ heroBusy ? (bn ? 'লোড হচ্ছে' : 'Loading') : (bn ? 'রিফ্রেশ' : 'Refresh') }}</span></button>
+      </div>
+      <div class="sos676-metrics">
+        <div v-for="(c,i) in heroCards" :key="c.key" class="sos676-metric">
+          <span class="sos676-metric-top"><span class="sos676-metric-label">{{ bn ? c.bn : c.en }}</span><span class="sos676-index">0{{ i+1 }}</span></span>
+          <strong class="sos676-value">{{ heroBusy && !hero ? '···' : heroDisplay(c) }}</strong>
+          <small>{{ bn ? c.noteBn : c.note }}</small>
+        </div>
+      </div>
+      <div class="sos676-foot"><span>{{ heroError ? (bn ? 'তথ্য লোড করা যায়নি' : 'Metrics unavailable: '+heroError) : heroUpdated ? (bn ? 'সর্বশেষ আপডেট ' : 'Updated ') + heroUpdated : (bn ? 'তথ্য লোড হচ্ছে' : 'Waiting for live data') }}</span><span v-if="hero?.warnings?.length" :title="hero.warnings.join(' • ')">{{ bn ? 'কিছু তথ্য সীমিত' : 'Some figures restricted' }} · {{ hero.warnings.length }}</span><span v-else>{{ bn ? 'লাইভ ইআরপি তথ্য' : 'ERPNext · live data' }}</span></div>
+    </section>
+
+    <nav class="sos652-grid sos676-tabrail" role="tablist" :aria-label="bn ? 'কাউন্টার কাজ' : 'Counter operations'">
+      <button v-for="a in actions" :key="a.key" type="button" role="tab" class="sos652-tile sos676-tab" :class="{'sos652-selected':active===a.key}" :aria-selected="active===a.key" :tabindex="active===a.key || !active ? 0 : -1" aria-controls="sos676-active-workspace" @keydown="sos676TabKeydown($event, a.key)" @click="doSelect(a.key)">
+        <span class="sos652-cardtop"><span class="sos652-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path v-for="(path,i) in a.paths" :key="i" :d="path"/></svg></span><svg class="sos652-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M8 16 16 8M9 8h7v7"/></svg></span>
+        <span class="sos652-label">{{ bn ? a.bn : a.en }}</span>
+        <span class="sos652-sub">{{ bn ? a.helpBn : a.help }}</span>
+      </button>
+    </nav>
+
+    <section id="sos676-active-workspace" class="sos652-workspace" role="tabpanel" aria-label="Active workspace" tabindex="0">
+      <div class="sos652-workbar">
+        <strong>{{ bn ? 'সক্রিয় ওয়ার্কস্পেস' : 'Active workspace' }}</strong>
+        <div class="sos652-searchwrap">
+          <input v-if="searching" ref="searchInput" :value="searchValue" type="search" :placeholder="bn ? 'রেকর্ড খুঁজুন' : 'Search records'" @input="emit('update:searchValue',$event.target.value)" @keydown.esc="searching=false" />
+          <button v-else type="button" class="sos652-searchbtn" @click="openSearch"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m16.2 16.2 4 4"/></svg>{{ bn ? 'রেকর্ড খুঁজুন' : 'Search records' }}</button>
+          <button v-if="searching" type="button" aria-label="Close search" class="sos652-searchclose" @click="searching=false">×</button>
+        </div>
+      </div>
+      <div v-if="isEmpty" class="sos652-empty">
+        <svg viewBox="0 0 24 24" fill="currentColor" width="23" height="23" aria-hidden="true"><path d="M3 6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v2H3V6Zm0 4h18v8a2 2 0 0 1-2 2h-6v-6h-2v6H5a2 2 0 0 1-2-2v-8Z"/></svg>
+        <span>{{ bn ? 'কাজ শুরু করতে উপরের যেকোনো অপশন বেছে নিন' : 'Choose an operation to start working' }}</span>
+      </div>
+      <div v-else class="sos652-workbody sos653-real-workspace">
+        <div class="sos652-workcontext">
+          <span>{{ bn ? 'নির্বাচিত কাজ' : 'Selected task' }}: <strong>{{ bn ? actions.find(a=>a.key===active)?.bn : actions.find(a=>a.key===active)?.en }}</strong></span>
+          <button v-if="active==='repair' || active==='billing'" type="button" class="sos652-new-job" @click="doSelect('receive')">+ {{ bn ? 'নতুন সার্ভিস জব' : 'New Service Job' }}</button>
+        </div>
+        <!-- SOS_COUNTER_TECHNICIAN_681: existing intake form remains intact -->
+        <template v-if="active === 'receive'">
+          <div class="sos681-receive-content">
+            <!-- SOS_RECEIVE_INLINE_TECH_HISTORY_682: technician selected inside intake form -->
+            <slot name="workspace" />
+          </div>
+        </template>
+        <template v-else-if="active === 'sale'"><slot name="sale" /></template>
+        <template v-else-if="active === 'repair'"><slot name="repair" /></template>
+        <template v-else-if="active === 'used'"><slot name="used" /></template>
+        <template v-else-if="active === 'stock'"><slot name="stock" /></template>
+        <template v-else-if="active === 'billing'">
+          <div class="sos653-billing-tabs" role="tablist" aria-label="Billing and delivery">
+            <button type="button" role="tab" :aria-selected="billingTab === 'invoices'" :class="{'active':billingTab === 'invoices'}" @click="billingTab='invoices'">{{ bn ? 'ইনভয়েস' : 'Invoices' }}</button>
+            <button type="button" role="tab" :aria-selected="billingTab === 'handover'" :class="{'active':billingTab === 'handover'}" @click="billingTab='handover'">{{ bn ? 'ডেলিভারি / হস্তান্তর' : 'Delivery & Handover' }}</button>
+          </div>
+          <slot v-if="billingTab === 'invoices'" name="billing" :open-invoice="openInvoice" />
+          <slot v-else name="delivery" />
+        </template>
+        <!-- SERVICING_OS_COUNTER_658: real invoice history beneath live workspaces -->
+        <InvoiceHistory658 v-if="active === 'sale' || active === 'used'" :scope="active" />
+      </div>
+            <!-- SOS_JOB_FAB_710: two contextual actions; no duplicate stock issue -->
+      <div v-if="active === 'receive'" class="sos710-actions">
+        <div class="sos710-fabs">
+          <button type="button" class="sos710-fab sos710-deliver" :disabled="!selectedServiceJob || fab710Busy" @click="fab710AskDelivery" :title="bn?'ডিভাইস ডেলিভারি':'Deliver Device'">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7h11v10H3zM14 10h4l3 3v4h-7"/><circle cx="7" cy="18" r="2"/><circle cx="18" cy="18" r="2"/></svg>
+            {{bn?'ডেলিভারি':'Deliver Device'}}
+          </button>
+          <button type="button" class="sos710-fab sos710-print" :disabled="!selectedServiceJob || fab710Busy" @click="fab710Print" :title="bn?'ইনভয়েস সংরক্ষণ ও প্রিন্ট':'Save & Print Invoice'">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9V3h12v6M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><path d="M6 15h12v6H6zM17 12h.01"/></svg>
+            {{fab710Busy?(bn?'অপেক্ষা করুন':'Working…'):(bn?'ইনভয়েস প্রিন্ট':'Print Invoice')}}
+          </button>
+        </div>
+        <small class="sos710-job">{{selectedServiceJob || (bn?'সার্ভিস জব নির্বাচন করুন':'Select a Service Job')}}</small>
+        <p v-if="sos690InvoiceMessage" class="sos690-error" role="alert">{{sos690InvoiceMessage}}</p>
+        <p v-if="fab710Delivered===selectedServiceJob && fab710Delivered" class="sos710-success" role="status">Device delivery recorded.</p>
+      </div>
+    </section>
+    <Teleport to="body">
+      <!-- SOS_JOB_FAB_710 — deliberate delivery confirmation -->
+      <div v-if="fab710DeliverOpen" class="sos653-modal-backdrop" role="presentation" @click.self="fab710DeliverOpen=false">
+        <section class="sos710-confirm sos711-confirm" role="dialog" aria-modal="true" aria-labelledby="sos711-title" aria-describedby="sos711-description">
+          <div class="sos711-top">
+            <span class="sos711-symbol"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h11v10H3zM14 10h4l3 3v4h-7"/><circle cx="7" cy="18" r="2"/><circle cx="18" cy="18" r="2"/></svg></span>
+            <span class="sos711-eyebrow">SERVICING OS · DEVICE HANDOVER</span>
+            <button type="button" class="sos711-close" aria-label="Close handover" @click="fab711Close">×</button>
+          </div>
+          <h2 id="sos711-title">{{bn?'ডিভাইস হস্তান্তর':'Complete device handover'}}</h2>
+          <p id="sos711-description" class="sos711-subtitle">{{bn?'প্রকৃত জব অবস্থা ও ইনভয়েস যাচাই করে হস্তান্তর করুন।':'Secure delivery with real-time job and invoice verification.'}}</p>
+          <div class="sos711-reference"><span>SELECTED SERVICE JOB</span><strong>{{selectedServiceJob}}</strong></div>
+          <p v-if="fab711Checking" class="sos711-loading" role="status">Checking repair status, permissions and submitted invoice…</p>
+          <div v-else-if="fab711Status" class="sos711-checks">
+            <div class="sos711-check"><span :class="fab711Status.repair_ready?'pass':'fail'">{{fab711Status.repair_ready?'✓':'!'}}</span><div><strong>Repair completed</strong><small>{{fab711Status.status}} · {{fab711Status.repair_ready?'Ready for handover':'Mark this repair Completed or Ready to Deliver first'}}</small></div></div>
+            <div class="sos711-check"><span :class="fab711Status.invoice_ready?'pass':'fail'">{{fab711Status.invoice_ready?'✓':'!'}}</span><div><strong>Submitted Sales Invoice</strong><small>{{fab711Status.invoice_ready?fab711Status.invoice_name:(fab711Status.invoice_hint||'Finalize the service invoice before delivery')}}</small></div></div>
+            <div class="sos711-check"><span :class="fab711Status.can_write?'pass':'fail'">{{fab711Status.can_write?'✓':'!'}}</span><div><strong>Delivery authorization</strong><small>{{fab711Status.can_write?'Your account can update this job':'Your account needs Service Job write permission'}}</small></div></div>
+          </div>
+          <div v-if="fab711Status?.already_delivered" class="sos711-notice" role="status">This device was already delivered. No duplicate handover will be created.</div>
+          <div v-if="fab711Error" class="sos711-alert" role="alert">{{fab711Error}} <button type="button" @click="fab711LoadStatus(selectedServiceJob)">Retry check</button></div>
+          <div v-if="fab711Status?.eligible && !fab711Status?.already_delivered" class="sos711-confirmation">
+            <label for="sos711-confirm-id">Confirm by typing the Service Job ID</label>
+            <input id="sos711-confirm-id" v-model.trim="fab710Confirm" autocomplete="off" :placeholder="selectedServiceJob" :disabled="fab710Busy" />
+            <small>Handover changes the Service Job status only. It does not collect payment or create an invoice.</small>
+          </div>
+          <div class="sos711-dialog-actions">
+            <button type="button" class="sos711-cancel" :disabled="fab710Busy" @click="fab711Close">{{bn?'বন্ধ করুন':'Cancel'}}</button>
+            <button type="button" class="sos711-submit" :disabled="fab710Busy || fab711Checking || !fab711Status?.eligible || fab711Status?.already_delivered || fab710Confirm.trim()!==selectedServiceJob" @click="fab710Deliver">
+              {{fab710Busy?'Recording handover…':fab711Status?.already_delivered?'Already Delivered':bn?'ডেলিভারি নিশ্চিত':'Confirm Device Delivery'}}
+            </button>
+          </div>
+        </section>
+      </div>
+      <UnifiedInvoicePrint684 v-if="fab710PrintInvoice" :invoice-name="fab710PrintInvoice" @close="fab710PrintInvoice=''" />
+
+      <div v-if="invoiceMode" class="sos653-modal-backdrop" role="presentation" @click.self="invoiceMode=false">
+        <section class="sos653-modal" role="dialog" aria-modal="true" aria-label="Create invoice">
+          <div class="sos653-modal-titlebar">
+            <div><strong>{{ bn ? 'নতুন ইনভয়েস' : 'Create Invoice' }}</strong><p>{{ bn ? 'সার্ভিস জবের জন্য খসড়া ইনভয়েস' : 'Retail · Used Laptop · Service · Discounts' }}</p></div>
+            <button type="button" aria-label="Close invoice modal" @click="invoiceMode=false">×</button>
+          </div>
+          <div class="sos653-modal-content"><slot name="invoice" :initial-kind="sos661Kind || (active==='used'?'used':active==='sale'?'retail':'service')" :initial-job="sos661Job" /></div>
+        </section>
+      </div>
+    </Teleport>
+  </div>
+</template>
+
+<style>
+/* SOS_PREMIUM_HANDOVER_711 */
+.sos711-confirm{width:min(560px,calc(100vw - 24px))!important;padding:0!important;overflow:hidden;border:1px solid #d8c4af!important;border-radius:24px!important;background:#fffdf9!important;box-shadow:0 36px 110px #25140e66!important;font-family:Inter,system-ui,sans-serif;color:#36281f!important}
+.sos711-top{display:flex;align-items:center;gap:12px;padding:22px 25px 3px}.sos711-symbol{display:grid;place-items:center;width:48px;height:48px;border-radius:15px;background:#eee1d1;color:#74543f}.sos711-eyebrow{color:#9a7b60;font-size:10px;letter-spacing:1.5px;font-weight:850;flex:1}.sos711-close{font-size:24px;border:0;background:transparent;color:#876f5b;cursor:pointer;padding:4px 8px}
+.sos711-confirm h2{padding:0 25px!important;margin:12px 0 4px!important;font-size:25px!important;letter-spacing:-.8px;color:#37271d!important}.sos711-subtitle{padding:0 25px!important;color:#846e5c!important;font-size:12px!important;margin:0 0 18px!important}
+.sos711-reference{margin:0 25px 17px;padding:14px 18px;background:#f7efe5;border-radius:13px;border:1px solid #e6d9ca;display:flex;align-items:center;justify-content:space-between;gap:10px}.sos711-reference span{font-size:10px;letter-spacing:1.1px;color:#987d66;font-weight:800}.sos711-reference strong{font-size:16px;letter-spacing:.2px;color:#483020;overflow-wrap:anywhere}
+.sos711-checks{display:grid;gap:0;margin:0 25px 15px;border:1px solid #e9ded0;border-radius:13px;overflow:hidden}.sos711-check{display:flex;gap:12px;align-items:center;padding:12px 14px;border-bottom:1px solid #eee4d9}.sos711-check:last-child{border-bottom:0}.sos711-check>span{display:grid;place-items:center;border-radius:50%;width:26px;height:26px;flex:none;font-weight:900}.sos711-check>span.pass{background:#e1efe3;color:#416d4c}.sos711-check>span.fail{background:#f9e8d9;color:#a85d31}.sos711-check div{display:grid;gap:3px;min-width:0}.sos711-check strong{font-size:12px;color:#4a3527}.sos711-check small{font-size:11px;color:#8e7661;overflow-wrap:anywhere}
+.sos711-confirmation{margin:0 25px 20px}.sos711-confirmation label{display:block;font-size:11px;font-weight:800;color:#745743;margin-bottom:8px}.sos711-confirmation input{height:43px!important;width:100%;border:1px solid #c9af96;background:#fff;box-sizing:border-box;border-radius:10px;padding:10px 12px;font-size:13px;font-weight:650;letter-spacing:.5px}.sos711-confirmation small{display:block;margin:7px 0;color:#927d68;font-size:10px;line-height:1.5}
+.sos711-alert,.sos711-notice,.sos711-loading{margin:0 25px 16px!important;border-radius:11px;padding:11px 13px;font-size:12px!important;line-height:1.5}.sos711-alert{background:#fff0e9;color:#903b29!important;border:1px solid #ecc6b5}.sos711-notice{background:#eef4e9;color:#46653c!important}.sos711-loading{background:#f8efe6;color:#7d624a!important}.sos711-alert button{margin-left:7px;border:1px solid currentColor;background:transparent;border-radius:7px;padding:4px 8px;color:inherit;font-size:11px;cursor:pointer}
+.sos711-dialog-actions{display:flex;gap:10px;justify-content:flex-end;padding:17px 25px;background:#f8f1e8;border-top:1px solid #e8d9c7}.sos711-dialog-actions button{border-radius:11px;padding:12px 16px;min-height:42px;font-size:12px;font-weight:750;cursor:pointer}.sos711-cancel{background:#fff;border:1px solid #d7c5b3;color:#5e4532}.sos711-submit{border:1px solid #684731;background:#684731;color:#fffaf4;box-shadow:0 6px 17px #6847312b}.sos711-dialog-actions button:disabled{opacity:.47;cursor:not-allowed}
+@media(max-width:540px){.sos711-top{padding:17px 16px 3px}.sos711-confirm h2,.sos711-subtitle{padding-left:16px!important;padding-right:16px!important}.sos711-reference,.sos711-checks,.sos711-alert,.sos711-notice,.sos711-loading,.sos711-confirmation{margin-left:16px!important;margin-right:16px!important}.sos711-reference{flex-direction:column;align-items:flex-start}.sos711-dialog-actions{padding:13px 16px}.sos711-dialog-actions button{flex:1;padding:10px}}
+
+/* SOS_JOB_FAB_710 — accessible compact dual FABs */
+.sos710-actions{position:fixed;bottom:22px;right:24px;z-index:240;display:flex;flex-direction:column;align-items:flex-end;gap:5px;max-width:calc(100vw - 24px)}
+.sos710-fabs{display:flex;gap:9px;flex-wrap:wrap;justify-content:flex-end}
+.sos710-fab{display:inline-flex!important;align-items:center!important;justify-content:center!important;gap:8px!important;border-radius:999px!important;border:1px solid #73513a!important;background:#815a3f!important;color:#fffaf3!important;box-shadow:0 12px 25px #53371f30!important;padding:11px 15px!important;font-weight:750!important;font-size:12px!important;min-height:44px!important;cursor:pointer!important}
+.sos710-deliver{background:#f2e4d7!important;color:#50382a!important;border-color:#ccb29a!important}
+.sos710-fab:hover{filter:brightness(.95)}.sos710-fab:focus-visible{outline:3px solid #c99c74;outline-offset:3px}
+.sos710-fab:disabled{opacity:.55!important;cursor:not-allowed!important}
+.sos710-job{color:#73543e;background:#fff9f1ed;padding:3px 8px;border-radius:8px}
+.sos710-success{color:#60472e;background:#f5e7d8;padding:6px 10px;border-radius:8px}
+.sos710-confirm{width:min(430px,94vw);background:#fffcf7;color:#50382a;border:1px solid #dbc4b0;border-radius:18px;padding:22px;box-shadow:0 22px 80px #2a160d45}
+.sos710-confirm h2{font-size:20px;font-weight:800;margin:0 0 10px}.sos710-confirm p{font-size:13px;line-height:1.55;margin:9px 0}
+.sos710-confirm label{display:grid;gap:6px;font-size:12px;font-weight:700;margin-top:12px}.sos710-confirm input{border:1px solid #cbb39d;background:#fff;border-radius:9px;padding:10px;color:#3d2c23}
+.sos710-dialog-actions{display:flex;justify-content:flex-end;gap:9px;margin-top:18px}.sos710-dialog-actions button{border:1px solid #cdb49b;border-radius:9px;padding:10px 14px;background:#f5e8db;color:#4b3628;font-weight:700}.sos710-dialog-actions .sos710-confirm-action{background:#805a3e;color:#fff}.sos710-dialog-actions button:disabled{opacity:.5}
+@media(max-width:600px){.sos710-actions{right:12px;bottom:12px}.sos710-fab{padding:10px 12px!important;font-size:11px!important}}
+
+/* SERVICING_COUNTER_652: warm ivory / tan / walnut palette sampled from supplied screenshot.
+   No forest green: #F9F6F2 backdrop, #FFFCF7 cards, #F4E3D3 tile,
+   #E7D6C5 borders, #3C2C25 ink, #8B725E secondary typography. */
+.sos652-shell,.sos652-shell *{box-sizing:border-box}
+.sos652-shell{--sos652-page:#f9f6f2;--sos652-paper:#fffcf7;--sos652-tile:#f4e3d3;--sos652-ink:#3c2c25;--sos652-walnut:#775741;--sos652-muted:#8b725e;--sos652-line:#e7d6c5;--sos652-hover:#f7ece1;
+  width:100%;min-width:0;padding:14px;border-radius:18px;background:var(--sos652-page)!important;color:var(--sos652-ink)!important;font-family:inherit;line-height:1.35;isolation:isolate}
+.sos652-shell button{font-family:inherit;cursor:pointer}
+.sos652-bar{display:flex;align-items:center;justify-content:space-between;gap:13px;min-height:57px;padding:0 0 15px;border-bottom:1px solid var(--sos652-line);background:transparent!important}
+.sos652-brandgroup{display:flex;align-items:center;gap:10px;min-width:0;flex:1}
+.sos652-logo{height:37px;width:37px;flex:0 0 37px;display:grid;place-items:center;background:#8d6245!important;color:#fffaf4!important;border-radius:11px;box-shadow:inset 0 1px 0 #ffffff38}
+.sos652-logo span{font-size:14px;line-height:1;letter-spacing:-.05em;font-weight:800}
+.sos652-brandcopy{display:flex;flex-direction:column;gap:3px;min-width:0;max-width:100%}
+.sos652-brandcopy strong{font-size:14px;line-height:1.22;font-weight:800;letter-spacing:.015em;color:var(--sos652-ink)!important;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
+.sos652-brandcopy small{font-size:10px;line-height:1.18;color:var(--sos652-muted)!important;white-space:nowrap}
+.sos652-topactions{display:flex;align-items:center;gap:10px;flex:0 0 auto}
+.sos652-connect{display:flex;align-items:center;gap:5px;min-height:32px;padding:0 10px;border-radius:50px;background:#eee2d6!important;color:#765441!important;white-space:nowrap;font-size:10px;font-weight:600}
+.sos652-connect.offline{background:#f6e5dd!important;color:#9f4d39!important}.sos652-connect.pending{background:#f2ead9!important;color:#806332!important}
+.sos652-status-dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:currentColor}
+.sos652-currency{color:var(--sos652-walnut)!important;font-size:11px;white-space:nowrap;font-weight:650}
+.sos652-profilewrap{position:relative}.sos652-avatar{display:grid!important;place-items:center!important;height:34px;width:34px;border:0!important;border-radius:50%!important;background:#f1e7db!important;color:#71523f!important;padding:0!important;box-shadow:none!important}
+.sos652-avatar:hover{background:#ead8c7!important}.sos652-profilepop{position:absolute;right:0;top:42px;z-index:2000;display:grid;gap:7px;width:214px;padding:13px;background:var(--sos652-paper)!important;border:1px solid var(--sos652-line)!important;border-radius:12px!important;box-shadow:0 16px 36px #5a3c2b28!important}
+.sos652-profilepop strong{font-size:12px;color:var(--sos652-ink)!important;overflow-wrap:anywhere}.sos652-profilepop small{color:var(--sos652-muted)!important;font-size:10px}
+.sos652-profilepop button{display:flex!important;align-items:center!important;gap:7px!important;text-align:left!important;font-size:11px!important;padding:9px 10px!important;border-radius:8px!important;border:1px solid var(--sos652-line)!important;background:#f8f0e7!important;color:var(--sos652-ink)!important}
+.sos652-profilepop button:hover{background:#f3e2d1!important}.sos652-profilepop button.sos652-logout{background:#fff4ed!important;color:#86402c!important;border-color:#ead1c5!important}.sos652-profilepop button:disabled{opacity:.6;cursor:wait}.sos652-logout-error{font-size:10px;color:#a34130;overflow-wrap:anywhere}
+.sos652-section-title{display:flex;justify-content:space-between;align-items:center;gap:12px;margin:21px 0 10px}
+.sos652-section-title h1{font-size:16px;line-height:1.25;font-weight:750;letter-spacing:-.01em;color:var(--sos652-ink)!important;margin:0 0 5px}
+.sos652-section-title p{font-size:10px;color:var(--sos652-muted)!important;margin:0;line-height:1.3}
+.sos652-ops{background:#f0e7dc!important;color:#8b725e!important;border:0!important;border-radius:7px;padding:4px 9px;font-size:10px;line-height:1.2;white-space:nowrap}
+.sos652-grid{display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:9px!important;margin:0 0 12px!important}
+.sos652-shell .sos652-grid>.sos652-tile{display:flex!important;flex-direction:column!important;align-items:flex-start!important;justify-content:flex-start!important;text-align:left!important;min-width:0;min-height:103px;height:auto!important;padding:12px 13px!important;border:1px solid var(--sos652-line)!important;border-radius:12px!important;background:var(--sos652-paper)!important;color:var(--sos652-ink)!important;box-shadow:0 1px 1px #49312306!important;appearance:none!important;-webkit-appearance:none!important;transition:background .15s,border-color .15s,box-shadow .15s}
+.sos652-shell .sos652-grid>.sos652-tile:hover{background:#fffaf2!important;border-color:#d6b99e!important;box-shadow:0 3px 12px #49312310!important}
+.sos652-shell .sos652-grid>.sos652-tile.sos652-selected{background:#fff8ef!important;border-color:#cda884!important;box-shadow:inset 0 0 0 1px #dec3a9!important}
+.sos652-cardtop{display:flex;justify-content:space-between;align-items:flex-start;width:100%;margin-bottom:10px}
+.sos652-icon{display:grid!important;place-items:center!important;width:35px!important;height:35px!important;border-radius:10px!important;background:var(--sos652-tile)!important;color:#866045!important}
+.sos652-icon svg{width:19px;height:19px;stroke:#866045!important}.sos652-arrow{height:12px;width:12px;margin:8px 2px 0 0;stroke:#aa9480!important;color:#aa9480!important}
+.sos652-label{color:var(--sos652-ink)!important;font-size:14px!important;line-height:1.13!important;font-weight:760!important;margin:0 0 4px;overflow-wrap:anywhere}
+.sos652-sub{color:var(--sos652-muted)!important;font-size:10px!important;line-height:1.18!important;font-weight:400!important;overflow-wrap:anywhere}
+.sos652-workspace{min-height:168px;min-width:0;margin:0;padding:12px;border:1px solid var(--sos652-line)!important;border-radius:12px!important;background:var(--sos652-paper)!important;box-shadow:none!important}
+.sos652-workbar{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:42px;padding:0 0 19px;border-bottom:1px solid #ebddd0}
+.sos652-workbar strong{font-size:14px;line-height:1.2;font-weight:720;color:var(--sos652-ink)!important}
+.sos652-searchwrap{display:flex;align-items:center;gap:4px;min-width:0}.sos652-searchbtn{display:flex!important;align-items:center!important;gap:5px!important;border:0!important;background:transparent!important;color:#8f7a69!important;padding:4px 3px;font-size:10px;white-space:nowrap}
+.sos652-searchbtn svg{height:13px;width:13px}.sos652-searchwrap input{min-width:0;width:190px;max-width:190px;border:1px solid var(--sos652-line)!important;border-radius:8px!important;padding:6px 9px!important;font-size:11px;color:var(--sos652-ink);background:#fff}
+.sos652-searchclose{border:0;background:transparent;color:var(--sos652-muted);font-size:18px}.sos652-empty{min-height:99px;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:10px;color:#a39182;text-align:center;font-size:12px}.sos652-empty svg{color:#b6a18e}
+.sos652-workbody{padding-top:12px;min-width:0;max-width:100%;background:var(--sos652-paper)!important}.sos652-workbody :is(input,textarea,select){max-width:100%}.sos652-workbody .sos627-old-operations,.sos652-workbody .counter-647-actions{display:none!important}
+.sos652-workcontext{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;padding:0 1px 11px;font-size:11px;color:var(--sos652-muted)}.sos652-workcontext strong{color:var(--sos652-ink)!important}
+.sos652-new-job{border:1px solid #dbbfa7!important;background:#f8eadd!important;color:#6c4935!important;border-radius:8px!important;padding:8px 11px!important;font-size:11px!important;font-weight:700!important}
+.sos652-billing-tabs{display:flex;gap:6px;margin:0 0 12px;flex-wrap:wrap}.sos652-billing-tabs button{padding:8px 12px;font-size:11px;border-radius:8px;border:1px solid var(--sos652-line)!important;background:#fff;color:var(--sos652-ink)!important}.sos652-billing-tabs button.on{border-color:#cba786!important;background:#f7e9db!important;color:#67462d!important;font-weight:700!important}
+.sos652-mobile{display:none;width:31px;height:33px;flex-shrink:0;background:#f1e4d6;color:#78583f;border:0;border-radius:8px;padding:7px}.sos652-mobile svg{width:18px;height:18px}
+.sos652-shell :is(.sos652-avatar,.sos652-searchbtn,.sos652-tile,.sos652-new-job):focus-visible{outline:2px solid #a7794d!important;outline-offset:2px}
+@media(max-width:860px){.sos652-shell{padding:12px}.sos652-grid{gap:8px!important}.sos652-brandcopy strong{font-size:12.5px}}
+@media(max-width:680px){.sos652-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important}.sos652-mobile{display:grid;place-items:center}.sos652-section-title{margin-top:15px}}
+@media(max-width:470px){.sos652-shell{padding:10px}.sos652-topactions{gap:6px}.sos652-connect{font-size:0;padding:0 9px}.sos652-connect svg,.sos652-status-dot{width:11px;height:11px}.sos652-brandcopy strong{font-size:11px;max-width:170px}.sos652-brandcopy small{font-size:9px}.sos652-tile{padding:10px!important}.sos652-label{font-size:12px!important}.sos652-sub{font-size:9px!important}.sos652-workbar strong{font-size:12px}.sos652-searchwrap input{width:128px}}
+
+/* STEP 6.52: layout is full width, no unused 12-column space. */
+.sos652-shell{width:100%!important;max-width:none!important;overflow:visible!important}
+.sos652-workspace{position:relative;min-width:0;padding:14px!important}
+.sos652-workbody{min-width:0;width:100%;padding-bottom:6px}
+.sos652-workbody .sos649-original-workspace{width:100%;min-width:0;max-width:none!important}
+.sos652-workbody .sos649-original-workspace > .grid,
+.sos652-workbody .sos649-original-workspace > div.grid{
+  display:grid!important;grid-template-columns:minmax(0,3fr) minmax(245px,1fr)!important;
+  gap:14px!important;align-items:start;width:100%!important;max-width:none!important;min-width:0
+}
+.sos652-workbody .sos649-original-workspace > .grid > section,
+.sos652-workbody .sos649-original-workspace > div.grid > section{
+  min-width:0!important;width:100%!important;max-width:none!important;
+  border:1px solid #e7d6c5!important;border-radius:12px!important;
+  background:#fffcf7!important;color:#3c2c25!important;padding:15px!important;
+  box-shadow:none!important
+}
+.sos652-workbody .sos649-original-workspace > .grid > section:nth-of-type(1),
+.sos652-workbody .sos649-original-workspace > div.grid > section:nth-of-type(1){grid-column:1!important;grid-row:1!important}
+.sos652-workbody .sos649-original-workspace > .grid > section:nth-of-type(2),
+.sos652-workbody .sos649-original-workspace > div.grid > section:nth-of-type(2){grid-column:2!important;grid-row:1!important}
+.sos652-workbody .sos649-original-workspace > .grid > section:nth-of-type(3),
+.sos652-workbody .sos649-original-workspace > div.grid > section:nth-of-type(3){grid-column:1/-1!important;grid-row:2!important}
+.sos652-workbody .sos649-original-workspace > .grid > section:nth-of-type(n+4),
+.sos652-workbody .sos649-original-workspace > div.grid > section:nth-of-type(n+4){grid-column:1/-1!important}
+/* Intake form and embedded operational cards: warm ivory / walnut, without recoloring alerts. */
+.sos652-workbody .sos649-original-workspace :is(h1,h2,h3,.text-slate-900,.text-slate-800){color:#3c2c25!important}
+.sos652-workbody .sos649-original-workspace :is(.text-blue-700,.text-blue-600){color:#835a3f!important}
+.sos652-workbody .sos649-original-workspace :is(.bg-blue-50,.bg-slate-50){background:#f9f1e8!important}
+.sos652-workbody .sos649-original-workspace .border-blue-200{border-color:#e7d6c5!important}
+.sos652-workbody .sos649-original-workspace :is(input,select,textarea){background:#fffdfa!important;border-color:#ddc7b4!important;border-radius:8px!important;color:#3c2c25!important;min-width:0}
+.sos652-workbody .sos649-original-workspace :is(input,select,textarea):focus{outline:2px solid #c99e78!important;outline-offset:1px}
+.sos652-workbody .sos649-original-workspace :is(button.bg-blue-600,button.bg-blue-700,button.bg-slate-900){background:#856044!important;border-color:#856044!important;color:#fffaf2!important}
+.sos652-workbody .sos649-original-workspace :is(.border-slate-200,.border-slate-300){border-color:#e7d6c5!important}
+.sos652-workbody .sos649-original-workspace .text-slate-500{color:#8b725e!important}
+.sos652-invoicebar{display:flex;justify-content:space-between;align-items:center;gap:10px;margin:0 0 14px;padding:6px 0 12px;border-bottom:1px solid #e7d6c5}
+.sos652-invoicebar strong{font-size:14px!important;color:#3c2c25!important}
+.sos652-invoicebar p{font-size:11px;color:#8b725e;margin:3px 0 0}
+.sos652-invoicebar button{background:#f4e3d3!important;border:1px solid #e7d6c5!important;border-radius:8px!important;color:#6b4a35!important;padding:8px 10px!important;font-size:11px}
+.sos652-invoice-action{display:flex;justify-content:flex-end;min-height:58px;align-items:flex-end;pointer-events:none}
+.sos652-shell .sos652-floating-invoice{pointer-events:auto!important;position:fixed;right:24px;bottom:20px;z-index:100;display:inline-flex!important;gap:8px!important;align-items:center!important;justify-content:center!important;min-height:44px;padding:10px 16px!important;border:1px solid #714c33!important;border-radius:100px!important;background:#81583f!important;color:#fffaf4!important;font-size:13px!important;font-weight:750!important;box-shadow:0 7px 21px #52351d26!important}
+.sos652-shell .sos652-floating-invoice:hover{background:#6a4934!important}
+.sos652-shell .sos652-floating-invoice:focus-visible{outline:2px solid #ae8057!important;outline-offset:3px}
+.sos652-full-counter{padding:0!important;margin:0!important;max-width:none!important;width:100%!important}
+.sos652-full-counter > section.sos649-counter-root{width:100%!important;max-width:none!important;margin:0!important}
+@media(max-width:1100px){
+.sos652-workbody .sos649-original-workspace > .grid,
+.sos652-workbody .sos649-original-workspace > div.grid{grid-template-columns:minmax(0,2fr) minmax(235px,1fr)!important}
+}
+@media(max-width:900px){
+.sos652-workbody .sos649-original-workspace > .grid,
+.sos652-workbody .sos649-original-workspace > div.grid{grid-template-columns:minmax(0,1fr)!important}
+.sos652-workbody .sos649-original-workspace > .grid > section,
+.sos652-workbody .sos649-original-workspace > div.grid > section{grid-column:1/-1!important;grid-row:auto!important}
+}
+@media(max-width:600px){.sos652-workspace{padding:10px!important}.sos652-shell .sos652-floating-invoice{right:12px;bottom:12px;width:auto;min-width:170px}}
+
+
+/* 6.53 actual modules, full-width and no placeholder blocks */
+.sos653-real-workspace {width:100%!important;min-width:0!important;max-width:none!important}
+.sos653-embedded-module,.sos653-embedded-module > * {min-width:0;max-width:none;width:100%}
+.sos653-embedded-module {padding:1px 0 4px;color:#3c2c25}
+.sos653-embedded-module :is(input,select,textarea) {max-width:100%;min-width:0;border-color:#decab8;background:#fffcf8;color:#3c2c25}
+.sos653-embedded-module :is(.bg-white,.bg-slate-50){background:#fffcf7!important}
+.sos653-embedded-module :is(.text-blue-700,.text-blue-600){color:#825b41!important}
+.sos653-embedded-module :is(button.bg-blue-600,button.bg-blue-700,button.bg-slate-900) {background:#805a3e!important;border-color:#805a3e!important;color:#fffaf4!important}
+.sos653-billing-tabs{display:flex;gap:8px;flex-wrap:wrap;border-bottom:1px solid #e7d6c5;margin:0 0 16px;padding:0 0 12px}
+.sos653-billing-tabs button{background:#fffaf3!important;border:1px solid #e7d6c5!important;padding:9px 13px!important;color:#765942!important;border-radius:9px!important;font-size:12px!important;font-weight:650!important}
+.sos653-billing-tabs button.active{background:#805a3e!important;border-color:#805a3e!important;color:#fff!important}
+.sos653-invoice-action{height:1px;overflow:visible}
+.sos653-floating-invoice{position:fixed!important;right:25px;bottom:22px;z-index:200;display:inline-flex!important;align-items:center!important;gap:9px!important;background:#805a3e!important;color:#fff!important;border:1px solid #684329!important;border-radius:100px!important;box-shadow:0 12px 30px #5d392c35!important;min-height:47px!important;padding:11px 18px!important;font-size:13px!important;font-weight:750!important}
+.sos653-floating-invoice:hover{background:#69482e!important}
+.sos653-modal-backdrop{position:fixed;inset:0;z-index:11000;display:grid;place-items:center;background:rgba(31,22,17,.54);padding:18px;overflow-y:auto}
+.sos653-modal{width:min(960px,100%);max-height:min(92vh,900px);display:flex;flex-direction:column;background:#f9f6f2;border:1px solid #e7d6c5;border-radius:17px;box-shadow:0 30px 75px #140d0b55;overflow:hidden;color:#3c2c25}
+.sos653-modal-titlebar{padding:17px 21px;border-bottom:1px solid #e7d6c5;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-shrink:0}
+.sos653-modal-titlebar strong{font-size:17px;color:#3c2c25;font-weight:800}
+.sos653-modal-titlebar p{font-size:11px;color:#8b725e;margin-top:4px}
+.sos653-modal-titlebar button{border:1px solid #e7d6c5!important;border-radius:10px;background:#f4e3d3!important;color:#684832!important;width:36px;height:36px;font-size:25px;display:grid;place-items:center}
+.sos653-modal-content{padding:17px;overflow-y:auto;min-height:0;flex:1}
+.sos653-modal-content .sos653-invoice{border:0;border-radius:0;padding:0;background:transparent}
+@media(max-width:650px){.sos653-modal-backdrop{padding:7px;align-items:end}.sos653-modal{max-height:97vh;border-radius:15px 15px 0 0}.sos653-modal-content{padding:11px}.sos653-floating-invoice{right:12px;bottom:12px}}
+
+
+/* SOS_COUNTER_HERO_676 */
+.sos676-hero{background:linear-gradient(125deg,#efe0d0 0%,#f8f0e7 55%,#fffaf4 100%)!important;border:1px solid #e2cdb9!important;border-radius:18px!important;padding:19px!important;margin:0 0 16px!important;box-shadow:0 7px 24px #5e3f2810!important;color:#3c2c25!important}
+.sos676-hero-head{display:flex;justify-content:space-between;align-items:flex-start;gap:15px;margin-bottom:17px}
+.sos676-eyebrow{font-size:10px;letter-spacing:1.6px;color:#8d6648;font-weight:800}
+.sos676-hero-title h2{font-size:23px;line-height:1.16;letter-spacing:-.035em;font-weight:800;color:#3c2c25;margin:6px 0 5px}
+.sos676-hero-title p{font-size:11px;color:#8b725e;margin:0}
+.sos652-shell .sos676-refresh{display:inline-flex!important;align-items:center!important;gap:7px!important;border:1px solid #dac4af!important;background:#fffaf5!important;color:#6d4c37!important;border-radius:10px!important;padding:8px 11px!important;font-size:11px!important;font-weight:700!important;white-space:nowrap!important}
+.sos676-refresh:disabled{opacity:.55;cursor:wait!important}
+.sos676-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+.sos676-metric{min-width:0;display:flex;flex-direction:column;gap:9px;background:#fffcf8;border:1px solid #e8d9c9;border-radius:13px;padding:15px 14px;box-shadow:0 2px 5px #4a2b1708}
+.sos676-metric-top{display:flex;align-items:flex-start;justify-content:space-between;gap:5px}
+.sos676-metric-label{font-size:11px;font-weight:700;color:#705440}
+.sos676-index{font-size:10px;font-weight:800;color:#b9a18d}
+.sos676-value{font-size:clamp(19px,2vw,28px);font-variant-numeric:tabular-nums;line-height:1.1;letter-spacing:-.04em;color:#39271d;overflow-wrap:anywhere}
+.sos676-metric small{font-size:10px;color:#9c8570;line-height:1.3}
+.sos676-foot{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;font-size:10px;color:#8e7159;margin-top:12px}
+@media(max-width:900px){.sos676-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:470px){.sos676-hero{padding:13px!important}.sos676-hero-title h2{font-size:19px}.sos676-metric{padding:12px 10px}.sos676-value{font-size:20px}.sos676-hero-head{gap:7px}}
+</style>
+
+<!-- SERVICING_OS_COUNTER_658 -->
+<style>
+/* SOS_COUNTER_TABS_676: compact, accessible navigation; original actions untouched. */
+.sos652-shell nav.sos652-grid.sos676-tabrail {
+  display: flex !important;
+  grid-template-columns: none !important;
+  align-items: stretch !important;
+  gap: 4px !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+  padding: 5px 6px 0 !important;
+  margin: 1px 0 0 !important;
+  overflow-x: auto !important;
+  overflow-y: hidden !important;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+  scrollbar-color: #d9bfa7 transparent;
+  border: 1px solid #e7d6c5 !important;
+  border-bottom: 0 !important;
+  border-radius: 14px 14px 0 0 !important;
+  background: #f4ebe0 !important;
+  box-shadow: inset 0 1px 1px #ffffff80 !important;
+}
+.sos652-shell nav.sos676-tabrail > button.sos652-tile.sos676-tab {
+  display: grid !important;
+  grid-template-columns: 30px minmax(0, 1fr) !important;
+  grid-template-rows: 20px 17px !important;
+  column-gap: 8px !important;
+  align-content: center !important;
+  align-items: center !important;
+  justify-content: start !important;
+  flex: 1 0 157px !important;
+  min-width: 157px !important;
+  width: auto !important;
+  max-width: none !important;
+  min-height: 61px !important;
+  height: 61px !important;
+  padding: 9px 10px !important;
+  margin: 0 !important;
+  text-align: left !important;
+  border: 1px solid transparent !important;
+  border-bottom: 3px solid transparent !important;
+  border-radius: 10px 10px 0 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: #3c2c25 !important;
+  cursor: pointer !important;
+  appearance: none !important;
+  transition: background 150ms ease, border-color 150ms ease, color 150ms ease;
+  white-space: normal !important;
+}
+.sos652-shell nav.sos676-tabrail > button.sos676-tab:hover {
+  background: #fffbf6 !important;
+  border-color: #e7d6c5 !important;
+  border-bottom-color: #dac0a8 !important;
+  box-shadow: none !important;
+}
+.sos652-shell nav.sos676-tabrail > button.sos676-tab.sos652-selected,
+.sos652-shell nav.sos676-tabrail > button.sos676-tab[aria-selected="true"] {
+  background: #fffcf7 !important;
+  border-color: #e7d6c5 !important;
+  border-bottom-color: #805a3e !important;
+  box-shadow: none !important;
+}
+.sos652-shell nav.sos676-tabrail > button.sos676-tab .sos652-cardtop {
+  display: flex !important;
+  grid-column: 1 !important;
+  grid-row: 1 / span 2 !important;
+  justify-content: center !important;
+  align-items: center !important;
+  width: 30px !important;
+  height: 30px !important;
+  margin: 0 !important;
+}
+.sos652-shell nav.sos676-tabrail > button.sos676-tab .sos652-icon {
+  display: grid !important;
+  place-items: center !important;
+  width: 29px !important;
+  height: 29px !important;
+  min-width: 29px !important;
+  border-radius: 9px !important;
+  background: #ead8c7 !important;
+  color: #78553d !important;
+}
+.sos652-shell nav.sos676-tabrail > button.sos676-tab.sos652-selected .sos652-icon {
+  background: #e6cbb3 !important;
+}
+.sos652-shell nav.sos676-tabrail > button.sos676-tab .sos652-icon svg {
+  display: block;
+  width: 17px !important;
+  height: 17px !important;
+  stroke: #78553d !important;
+}
+.sos652-shell nav.sos676-tabrail > button.sos676-tab .sos652-arrow {
+  display: none !important;
+}
+.sos652-shell nav.sos676-tabrail > button.sos676-tab .sos652-label {
+  display: block !important;
+  grid-column: 2 !important;
+  grid-row: 1 !important;
+  align-self: end !important;
+  margin: 0 !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+  color: #402e24 !important;
+  font-size: 11.6px !important;
+  font-weight: 750 !important;
+  line-height: 17px !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+  overflow-wrap: normal !important;
+}
+.sos652-shell nav.sos676-tabrail > button.sos676-tab .sos652-sub {
+  display: block !important;
+  grid-column: 2 !important;
+  grid-row: 2 !important;
+  align-self: start !important;
+  margin: 0 !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+  color: #907661 !important;
+  font-size: 9.3px !important;
+  font-weight: 400 !important;
+  line-height: 15px !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+  overflow-wrap: normal !important;
+}
+.sos652-shell nav.sos676-tabrail > button.sos676-tab:focus-visible {
+  outline: 2px solid #966a46 !important;
+  outline-offset: -3px !important;
+}
+/* Tabs connect visually with the existing workspace below. */
+.sos652-shell nav.sos676-tabrail + section.sos652-workspace {
+  border-top-left-radius: 0 !important;
+  border-top-right-radius: 0 !important;
+  border-top-color: #e7d6c5 !important;
+}
+@media (max-width: 680px) {
+  .sos652-shell nav.sos652-grid.sos676-tabrail {
+    display: flex !important;
+    grid-template-columns: none !important;
+    padding-left: 4px !important;
+    padding-right: 4px !important;
+  }
+  .sos652-shell nav.sos676-tabrail > button.sos676-tab {
+    flex: 0 0 147px !important;
+    min-width: 147px !important;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sos652-shell nav.sos676-tabrail > button.sos676-tab { transition: none !important; }
+}
+</style>
+
+<style>/* SOS_SERVICE_WORKFLOW_690 */
+.sos690-invoice-action{display:flex;flex-direction:column;align-items:center;gap:6px}.sos690-invoice-action button:disabled{opacity:.5;cursor:not-allowed}.sos690-selection{color:#81634f;font-size:11px;overflow-wrap:anywhere;text-align:center}.sos690-error{color:#983e2c;font-size:11px}
+</style>

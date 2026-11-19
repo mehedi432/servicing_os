@@ -10,46 +10,53 @@ TARGET = "Service Job"
 
 
 def ensure():
-    """Create/repair the ERPNext Link field metadata/column without modifying records."""
-    for dt in (DOCTYPE, TARGET):
-        if not frappe.db.exists("DocType", dt):
-            frappe.throw("SERVICING OS 7.05: required DocType missing: " + dt)
+    """Synchronize the Service Job link on Material Request."""
+    return ensure_service_job_link(
+        DOCTYPE, "material_request_type", in_list_view=1, in_standard_filter=1,
+    )
 
-    frappe.clear_cache(doctype=DOCTYPE)
-    field = frappe.get_meta(DOCTYPE, cached=False).get_field(FIELD)
-    if field and (field.fieldtype != "Link" or field.options != TARGET):
-        frappe.throw(
-            "SERVICING OS 7.05: existing Material Request.custom_service_job "
-            "has incompatible fieldtype/options; refusing to overwrite"
-        )
+
+def ensure_service_job_link(doctype, insert_after, **properties):
+    """Synchronize link metadata and its SQL column without editing records."""
+    for dt in (doctype, TARGET):
+        if not frappe.db.exists("DocType", dt):
+            frappe.throw("SERVICING OS: required DocType missing: " + dt)
+
+    frappe.clear_cache(doctype=doctype)
+    field = get_service_job_link(doctype)
 
     action = "reused"
     if field is None:
         from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
-        create_custom_fields({DOCTYPE: [{
+        create_custom_fields({doctype: [{
             "fieldname": FIELD,
             "label": "Service Job",
             "fieldtype": "Link",
             "options": TARGET,
-            "insert_after": "material_request_type",
-            "in_list_view": 1,
-            "in_standard_filter": 1,
+            "insert_after": insert_after,
             "no_copy": 1,
+            **properties,
         }]}, update=False)
         action = "created"
 
-    frappe.clear_cache(doctype=DOCTYPE)
-    field = frappe.get_meta(DOCTYPE, cached=False).get_field(FIELD)
-    if not field or field.fieldtype != "Link" or field.options != TARGET:
-        frappe.throw("SERVICING OS 7.05: Material Request link field was not synchronized")
+    frappe.clear_cache(doctype=doctype)
+    if not get_service_job_link(doctype):
+        frappe.throw(f"SERVICING OS: {doctype}.{FIELD} was not synchronized")
 
-    if not frappe.db.has_column(DOCTYPE, FIELD):
+    if not frappe.db.has_column(doctype, FIELD):
         # Repair sites where Custom Field metadata was copied but the SQL schema was not.
-        frappe.db.updatedb(DOCTYPE)
+        frappe.db.updatedb(doctype)
         action = "synchronized_column"
 
-    if not frappe.db.has_column(DOCTYPE, FIELD):
-        frappe.throw("SERVICING OS 7.05: Material Request SQL column was not created")
+    if not frappe.db.has_column(doctype, FIELD):
+        frappe.throw(f"SERVICING OS: {doctype}.{FIELD} SQL column was not created")
 
-    return {"status": "OK", "doctype": DOCTYPE, "field": FIELD,
+    return {"status": "OK", "doctype": doctype, "field": FIELD,
             "options": TARGET, "action": action, "business_records_changed": False}
+
+
+def get_service_job_link(doctype):
+    field = frappe.get_meta(doctype, cached=False).get_field(FIELD)
+    if field and (field.fieldtype != "Link" or field.options != TARGET):
+        frappe.throw(f"SERVICING OS: {doctype}.{FIELD} must link to {TARGET}")
+    return field

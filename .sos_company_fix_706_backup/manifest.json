@@ -1,0 +1,16 @@
+{
+  "before": {
+    "repair_progress.py": "f0e8be5b32953544736a189ae242f40700a5c7e92200a34ac892f578f60fbc56",
+    "parts_request.py": "d187e4275b61b101bf2147c51f3675fcf12a2c48b253d9d2d7920e81d618e2fd",
+    "parts_issue.py": "ca01d819a3b91b8729c1cabaece474e53010efc2afb4c9e745e0f84156148daf",
+    "repair_billing.py": "34e99effc26cdf18f9094590af28d20a4081c466544f85828f86dcb911ccd046"
+  },
+  "after": {
+    "repair_progress.py": "99d220d09c6d9b2925c67586b6ccc275fbec5ebe7ca4a46573e8f3b39e6bab42",
+    "parts_request.py": "0dd498cf4903505ed113f2697923afd641e8bd5deecdc891ee09cb7ff3dfec36",
+    "parts_issue.py": "b74f34956bf9bb70503c821bfd022df8373d09cbeddd4e3f4b738824fb3f5e27",
+    "repair_billing.py": "7b165212c59e5e7a3c8baf71cb2c678345fed5a72a31d0e708de2e34829581ba"
+  },
+  "helper_existed": false,
+  "helper_after": "3da042c4a673f0a75b43a9b4cb859c1ea22b90aa60c04fcd07bb407593670ae9"
+}

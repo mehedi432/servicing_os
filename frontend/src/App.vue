@@ -5,6 +5,7 @@ const sos694Received = ref([])
 
 import CounterServiceSteps690 from "./components/CounterServiceSteps690.vue"
 import CounterPartsInline689 from "./components/CounterPartsInline689.vue"
+import PartsWorkbench708 from './components/PartsWorkbench708.vue' // SOS_PARTS_WORKBENCH_708
 import SalesCenter from './components/SalesCenter.vue'
 import InventoryWorkspace from './components/InventoryWorkspace.vue' // SOS_INVENTORY_V1
 
@@ -1697,7 +1698,7 @@ const sosSalesAllowed = [
 <!-- SOS_SERVICE_WORKFLOW_690: Counter supports parts immediately after intake and during editing. -->
 <div v-if="sos690CurrentJob" class="sos689-parts-wrap sos690-jobs">
   <CounterServiceSteps690 :key="sos690CurrentJob" :job-name="sos690CurrentJob" @updated="sos690RepairStepUpdated" />
-  <CounterPartsInline689 :key="sos690CurrentJob" :job-name="sos690CurrentJob" :job-status="viewingServiceJob && viewedServiceJob?.name === sos690CurrentJob ? (viewedServiceJob.status || '') : sos690RecentStatus" />
+  <PartsWorkbench708 :key="sos690CurrentJob" :job-name="sos690CurrentJob" :job-status="viewingServiceJob && viewedServiceJob?.name === sos690CurrentJob ? (viewedServiceJob.status || '') : sos690RecentStatus" />
 </div>
 <p v-else class="sos690-parts-prompt">Save the Service Receive first. Then use Service Steps and Add Required Parts below without leaving Counter.</p>
 
@@ -1825,7 +1826,7 @@ const sosSalesAllowed = [
     <CounterRepairTabs698 @receive="sosReceiveFromJobs624B" @manage="sosManageFromJobs624B" />
   </template>
   <!-- SERVICING_COUNTER_PATCH_652: real ERPNext draft invoice workflow -->
-  <template #invoice="{ initialKind, initialJob }"><CounterInvoiceModal654 :initial-job="initialJob"  :initial-kind="initialKind" /></template>
+  <template #invoice="{ initialKind, initialJob, deliveryMode, closeInvoice }"><CounterInvoiceModal654 :key="initialJob || initialKind" :initial-job="initialJob" :initial-kind="initialKind" :delivery-mode="!!deliveryMode" @close="closeInvoice" /></template>
 
   <!-- SERVICING_COUNTER_PATCH_653: actual source feature components, never placeholders -->
   <template #sale>
@@ -3033,38 +3034,9 @@ main>.sos-fin-reports{display:block!important;width:100%;min-width:0}
   margin:18px 0 0!important;padding:18px 0 0!important;
   border-top:1px solid #e6d7c8;box-sizing:border-box;
 }
-.sos690-jobs > :is(.sos690-steps,.sos689-parts){
+.sos690-jobs > :is(.sos690-steps,.pw708){
   width:100%!important;min-width:0;max-width:100%;margin:0!important;
   box-sizing:border-box;
-}
-.sos690-jobs > .sos690-steps{padding:clamp(14px,2vw,18px)!important;container-type:inline-size}
-.sos690-jobs .sos690-header{display:flex;align-items:flex-start!important;
-  justify-content:space-between;gap:14px!important;margin:0 0 14px!important}
-.sos690-jobs .sos690-header > div{min-width:0;flex:1}
-.sos690-jobs .sos690-header h3{margin:4px 0 5px!important;line-height:1.25}
-.sos690-jobs .sos690-header p{margin:0!important;max-width:55ch}
-.sos690-jobs .sos690-current{margin:0 0 14px!important;padding:12px 14px!important;
-  display:flex;align-items:center;gap:12px}
-.sos690-jobs .sos690-stage-grid{display:grid!important;
-  grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:10px!important}
-.sos690-jobs .sos690-stage{min-height:70px!important;min-width:0;
-  padding:11px 12px!important;justify-content:space-between;align-content:space-between}
-.sos690-jobs .sos690-stage strong{line-height:1.4;overflow-wrap:normal;word-break:normal}
-.sos690-jobs .sos690-action{display:grid!important;
-  grid-template-columns:minmax(0,1fr) auto!important;align-items:center!important;
-  column-gap:14px!important;row-gap:10px!important;
-  margin-top:16px!important;padding-top:16px!important}
-.sos690-jobs .sos690-action > span{min-width:0;line-height:1.5}
-.sos690-jobs .sos690-action > button{min-height:40px;white-space:nowrap;margin:0!important}
-.sos690-jobs .sos690-help{margin:14px 0 0!important;line-height:1.6}
-
-@container (max-width:560px){
-  .sos690-jobs .sos690-stage-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important}
-}
-@container (max-width:370px){
-  .sos690-jobs .sos690-action{grid-template-columns:minmax(0,1fr)!important}
-  .sos690-jobs .sos690-action > button{width:100%}
-  .sos690-jobs .sos690-header{flex-wrap:wrap}
 }
 @media(max-width:540px){
   .sos682-receive-form :is(div,footer):has(> .sos687-primary-save) > button{
@@ -3091,4 +3063,23 @@ main>.sos-fin-reports{display:block!important;width:100%;min-width:0}
 .sos688-actions > .sos23-recent-print{flex:0 0 30px!important;width:30px!important;height:30px!important;min-width:30px!important;min-height:30px!important;padding:5px!important;border-radius:8px!important}
 .sos688-actions > .sos23-recent-print svg{width:16px!important;height:16px!important}
 @media print {.sos688-actions > .sos23-recent-print{display:none!important}}
+</style>
+
+<style>
+
+/* SOS_CHECKOUT_STOCK_COMPACT_712 — service steps + spare parts density */
+.sos690-jobs{gap:10px!important;margin-top:10px!important;padding-top:10px!important}
+.sos690-jobs .pw708{padding:11px!important}
+.sos690-jobs .pw708-top{margin-bottom:6px!important}
+.sos690-jobs .pw708-top h3{font-size:15px!important;margin:0!important}
+.sos690-jobs .pw708-top p{font-size:10px!important}
+.sos690-jobs .pw708-metrics{gap:5px!important;margin:7px 0!important}
+.sos690-jobs .pw708-metrics>div{padding:7px 9px!important}
+.sos690-jobs .pw708-metrics strong{font-size:17px!important}
+.sos690-jobs .pw708-section{padding:9px!important;margin:7px 0!important}
+.sos690-jobs .pw708-table th,.sos690-jobs .pw708-table td{padding:6px!important;font-size:10px!important}
+.sos690-jobs .pw708-tabs button{padding:7px 3px!important}
+.sos690-jobs .pw708-empty{padding:13px!important}
+.sos690-jobs .pw708-disclaimer{padding:5px!important;font-size:9px!important}
+
 </style>

@@ -132,11 +132,11 @@ def create_draft_issue(material_request):
         available=frappe.db.get_value("Bin",{"item_code":code,"warehouse":WAREHOUSE},"actual_qty") or 0
         if flt(available)+1e-7 < qty:
             frappe.throw("Insufficient on-hand stock for " + code + ". Available " + str(available) + ", needed " + str(qty))
-    company=frappe.get_doc("Company", current_company())
-    cost_center=company.default_cost_center
-    expense_account=company.default_expense_account
-    if not expense_account or not frappe.db.exists("Account",expense_account):
-        frappe.throw("Configure Company default expense account before issuing parts.")
+    from servicing_os.api.parts_workbench_708 import issue_accounting_defaults
+
+    expense_account, cost_center = issue_accounting_defaults(current_company())
+    if not expense_account or not cost_center:
+        frappe.throw("Set an active expense account and Default Cost Center on the Company before issuing parts.")
     wh=frappe.get_doc("Warehouse",WAREHOUSE)
     if wh.company!=current_company() or wh.is_group or wh.disabled:
         frappe.throw("Spare Parts warehouse is unavailable.")

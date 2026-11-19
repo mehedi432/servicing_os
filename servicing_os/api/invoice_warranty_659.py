@@ -136,7 +136,14 @@ def update_invoice_warranty(data=None):
 
 
 def setup_warranty_fields():
-    """Idempotent schema setup; does NOT change existing invoice data."""
+    """Install warranty fields from the Bench console."""
+    result = ensure_warranty_fields()
+    frappe.db.commit()
+    return result
+
+
+def ensure_warranty_fields():
+    """Synchronize warranty fields inside the caller's migration transaction."""
     if frappe.session.user != "Administrator" and not frappe.has_permission("Custom Field", "create"):
         frappe.throw("System Manager permissions required to install warranty fields.", frappe.PermissionError)
     installed = []
@@ -160,7 +167,10 @@ def setup_warranty_fields():
             installed.append(child + "." + fieldname)
             frappe.clear_cache(doctype=child)
             anchor = fieldname
-    frappe.db.commit()
+        if any(not frappe.db.has_column(child, fieldname) for fieldname in FIELDS):
+            frappe.db.updatedb(child)
+        if any(not frappe.db.has_column(child, fieldname) for fieldname in FIELDS):
+            frappe.throw("Warranty columns did not synchronize for " + child)
     return {"created": installed, "message": "Warranty entry fields are available. Existing invoices unchanged."}
 
 

@@ -99,7 +99,7 @@ def search_invoice_items(q='', invoice_kind='retail', page=1):
     try: page=max(1,min(10000,int(page)))
     except (TypeError,ValueError): page=1
     filters={'disabled':0,'is_sales_item':1}
-    if kind=='service': filters['is_stock_item']=0
+    if kind=='service': pass  # SOS_REPAIR_PARTS_BILLING_712 · service labour + repair parts
     elif kind=='used': filters['is_stock_item']=1
     opts={
         'filters':filters,
@@ -114,6 +114,8 @@ def search_invoice_items(q='', invoice_kind='retail', page=1):
     rows=frappe.get_list('Item',**opts)
     has_next=len(rows)>20
     warehouse=shop.used_laptop_warehouse if kind=='used' else shop.retail_warehouse
+    if kind=='service':
+        warehouse=frappe.db.get_value('Servicing Shop',shop.name,'spare_parts_warehouse') or shop.retail_warehouse
     results=[]
     for item in rows[:20]:
         record=dict(item)
@@ -217,8 +219,13 @@ def create_unified_invoice_draft(invoice_kind=None, customer=None, job_name=None
         customer=job.customer
         # Serializes this job's invoices without locking unrelated sales.
         frappe.db.sql('SELECT name FROM `tabService Job` WHERE name=%s FOR UPDATE',(job.name,))
-        prior=frappe.db.exists('Sales Invoice',{LINK_FIELD:job.name,'docstatus':['<',2]})
-        if prior:frappe.throw('A draft or submitted invoice already exists for this Service Job: '+str(prior))
+        prior = frappe.db.sql("""
+            SELECT name FROM `tabSales Invoice`
+            WHERE custom_service_job=%s AND docstatus<2 AND is_return=0
+            LIMIT 1 FOR UPDATE
+        """, (job.name,))
+        if prior:
+            frappe.throw('A draft or submitted invoice already exists for this Service Job: '+prior[0][0])
     name=str(customer or '').strip()
     if not name or not frappe.db.exists('Customer',name):frappe.throw('Choose an existing Customer.')
     read_permission('Customer',name)
@@ -226,6 +233,11 @@ def create_unified_invoice_draft(invoice_kind=None, customer=None, job_name=None
     if not isinstance(items,list) or not 1<=len(items)<=35:
         frappe.throw('Include between 1 and 35 invoice items.')
     warehouse=shop.used_laptop_warehouse if kind=='used' else shop.retail_warehouse
+    if kind=='service':
+        warehouse=frappe.db.get_value('Servicing Shop',shop.name,'spare_parts_warehouse')
+        wh=frappe.db.get_value('Warehouse',warehouse,['company','is_group','disabled'],as_dict=True) if warehouse else None
+        if not wh or wh.company!=shop.company or wh.is_group or wh.disabled:
+            frappe.throw('Configure a valid active Spare Parts Warehouse for the Servicing Shop.')
     subtotal=Decimal('0')
     bill_lines=[]
     for pos,line in enumerate(items,1):
@@ -237,8 +249,8 @@ def create_unified_invoice_draft(invoice_kind=None, customer=None, job_name=None
             ['name','disabled','is_sales_item','is_stock_item','has_serial_no','stock_uom'],as_dict=True)
         if not item or item.disabled or not item.is_sales_item:
             frappe.throw('Row '+str(pos)+' is not an active selling item')
-        if kind=='service' and item.is_stock_item:
-            frappe.throw('Service invoices accept non-stock service items only.')
+        if kind=='service' and item.is_stock_item and (item.has_serial_no or frappe.db.get_value('Item',item.name,'has_batch_no')):
+            frappe.throw('Serial/batch repair parts require ERPNext native stock and invoice processing.')
         if kind=='used' and not item.is_stock_item:
             frappe.throw('Used laptop invoice lines must be stock-tracked Items.')
         qty=dec(line.get('qty'),'Quantity',minimum=Decimal('0.01'),maximum=Decimal('10000'))
@@ -253,7 +265,7 @@ def create_unified_invoice_draft(invoice_kind=None, customer=None, job_name=None
         if item.is_stock_item:
             row['warehouse']=warehouse
             available=Decimal(str(frappe.db.get_value('Bin',{'warehouse':warehouse,'item_code':item.name},'actual_qty') or 0))
-            if available<qty:frappe.throw('Insufficient stock in '+warehouse+' for '+item.name)
+            if kind!='service' and available<qty:frappe.throw('Insufficient stock in '+warehouse+' for '+item.name)
             serial=str(line.get('serial_no') or '').strip()
             if item.has_serial_no:
                 parts=[s.strip() for s in re.split(r'[\n,]+',serial) if s.strip()]
@@ -302,7 +314,7 @@ def create_unified_invoice_draft(invoice_kind=None, customer=None, job_name=None
         'doctype':'Sales Invoice','company':shop.company,'customer':name,
         'currency':frappe.db.get_value('Company',shop.company,'default_currency'),
         'posting_date':nowdate(),'due_date':nowdate(),
-        'update_stock':1 if any(x.get('warehouse') for x in bill_lines) else 0,
+        'update_stock':0 if kind=='service' else (1 if any(x.get('warehouse') for x in bill_lines) else 0),
         'remarks':('SERVICING OS | '+{'retail':'RETAIL SALE','used':'USED LAPTOP','service':'SERVICE JOB'}[kind]+
                    (' | '+str(remarks or '').strip()[:360] if remarks else '')),
         'items':bill_lines,

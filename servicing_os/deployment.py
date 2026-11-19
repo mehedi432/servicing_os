@@ -8,14 +8,29 @@ import frappe
 
 def ensure_schema():
     """Synchronize app-owned metadata without changing customer business records."""
+    from servicing_os.api.invoice_warranty_659 import ensure_warranty_fields
     from servicing_os.api.received_components_694 import setup as setup_received_components
+    from servicing_os.parts_request_schema_705 import ensure as setup_parts_link
+    from servicing_os.parts_request_schema_705 import ensure_service_job_link
+    from servicing_os.repair_completed_schema_7071 import ensure as setup_completed_status
+
     if not frappe.db.exists('DocType', 'Service Job'):
         frappe.throw('SERVICING OS: Service Job DocType is missing; cannot initialize schema')
-    return setup_received_components()
+    return {
+        'existing_schema': setup_received_components(),
+        'material_request_link': setup_parts_link(),
+        'completed_status': setup_completed_status(),
+        'sales_invoice_link': ensure_service_job_link('Sales Invoice', 'customer'),
+        'warranty_fields': ensure_warranty_fields(),
+    }
 
 
 def verify():
     """Run: bench --site SITE execute servicing_os.deployment.verify"""
+    from servicing_os.api.invoice_warranty_659 import ALLOWED, FIELDS
+    from servicing_os.parts_request_schema_705 import FIELD, get_service_job_link
+    from servicing_os.repair_completed_schema_7071 import verify as verify_completed_status
+
     name = 'Service Received Component'
     if not frappe.db.exists('DocType', 'Service Job'):
         frappe.throw('Missing Service Job DocType')
@@ -32,19 +47,25 @@ def verify():
     )
     if not child.istable or any(not child.has_field(field) for field in required):
         frappe.throw(name + ' is not a compatible child DocType')
+    for doctype in ('Material Request', 'Sales Invoice'):
+        if not get_service_job_link(doctype) or not frappe.db.has_column(doctype, FIELD):
+            frappe.throw(f'{doctype}.{FIELD} is missing. Run bench migrate.')
+    for doctype in ALLOWED:
+        line_doctype = f'{doctype} Item'
+        line_meta = frappe.get_meta(line_doctype, cached=False)
+        for fieldname, (fieldtype, _, _) in FIELDS.items():
+            field = line_meta.get_field(fieldname)
+            if not field or field.fieldtype != fieldtype or not frappe.db.has_column(line_doctype, fieldname):
+                frappe.throw(f'{line_doctype}.{fieldname} is missing or incompatible. Run bench migrate.')
     return {
         'status': 'OK',
         'child_doctype': name,
         'table_field': 'custom_received_components',
         'components_fields': len(required),
         'existing_service_jobs': frappe.db.count('Service Job'),
+        'material_request_link': True,
+        'sales_invoice_link': True,
+        'completed_status': verify_completed_status(),
+        'warranty_fields': True,
         'note': 'Existing customer/job/invoice data not rewritten by deployment setup',
     }
-
-# BEGIN SOS_PARTS_REQUEST_SCHEMA_705
-_sos705_previous_ensure_schema = ensure_schema
-def ensure_schema():
-    original = _sos705_previous_ensure_schema()
-    from servicing_os.parts_request_schema_705 import ensure as _sos705_parts_ensure
-    return {"existing_schema": original, "material_request_link": _sos705_parts_ensure()}
-# END SOS_PARTS_REQUEST_SCHEMA_705

@@ -55,7 +55,7 @@ def run():
             "default_payable_account",
             "default_income_account",
             "default_expense_account",
-            "default_cost_center",
+            "cost_center",
         ],
     )
 
