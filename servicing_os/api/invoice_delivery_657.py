@@ -124,7 +124,7 @@ def on_invoice_cancel(doc, method=None):
     _set_if_exists('Service Job', job.name, vals)
 
 
-def setup_delivery_fields():
+def ensure_delivery_fields():
     """Idempotent site setup. Creates only supplementary delivery metadata fields."""
     additions = {
         STATUS_FIELD: ('Select', 'Customer Delivery Status', 'Not Delivered\nDelivered to Customer\nDelivery Reversed'),
@@ -154,8 +154,45 @@ def setup_delivery_fields():
             installed.append(dt+' / '+fieldname)
             anchor = fieldname
         frappe.clear_cache(doctype=dt)
+    return {'created': installed}
+
+
+def setup_delivery_fields():
+    result = ensure_delivery_fields()
     frappe.db.commit()
-    return {'created':installed, 'message':'Installed delivery metadata; previous customer transactions unchanged.'}
+    return result
+
+
+def _invoice_serials(invoice, lines):
+    """Resolve only stock bundles posted for this invoice and its exact lines."""
+    sources = {row.get('serial_and_batch_bundle'): row for row in lines if row.get('serial_and_batch_bundle')}
+    if not sources:
+        return {}
+    bundles = frappe.get_all('Serial and Batch Bundle', filters={
+        'name': ['in', list(sources)], 'voucher_type': invoice.doctype,
+        'voucher_no': invoice.name, 'company': invoice.company,
+    }, fields=['name', 'voucher_detail_no', 'item_code'])
+    verified = {bundle.name: sources[bundle.name].name for bundle in bundles
+                if sources[bundle.name].name == bundle.voucher_detail_no
+                and sources[bundle.name].item_code == bundle.item_code}
+    if not verified:
+        return {}
+    serials = {}
+    for entry in frappe.get_all('Serial and Batch Entry', filters={
+        'parenttype': 'Serial and Batch Bundle', 'parent': ['in', list(verified)],
+    }, fields=['parent', 'serial_no'], order_by='idx asc'):
+        if entry.serial_no:
+            serials.setdefault(verified[entry.parent], []).append(entry.serial_no)
+    return {row: '\n'.join(dict.fromkeys(values)) for row, values in serials.items()}
+
+
+def _invoice_service_device(job_name, shop):
+    if not job_name or not frappe.has_permission('Service Job', 'read'):
+        return {}
+    jobs = frappe.get_list('Service Job', filters={'name': job_name, 'shop': shop.name},
+                           fields=['device_type', 'brand', 'device_model', 'serial_number'],
+                           limit_page_length=1)
+    return jobs[0] if jobs else {}
 
 
 @frappe.whitelist(methods=['GET'])
@@ -181,14 +218,16 @@ def get_branded_invoice(invoice_name=None, doctype='Sales Invoice'):
     if inv.customer and frappe.has_permission('Customer','read',inv.customer):
         customer_mobile = frappe.db.get_value('Customer',inv.customer,'mobile_no') or ''
     lines=[]
-    for row in inv.get('items') or []:
+    invoice_items = inv.get('items') or []
+    bundle_serials = _invoice_serials(inv, invoice_items)
+    for row in invoice_items:
         lines.append({
             'item_code':row.item_code,'item_name':row.item_name or row.item_code,
             'description':str(row.description or '')[:400],
             'qty':flt(row.qty),'uom':row.uom or row.stock_uom or 'Nos',
             'rate':flt(row.rate),'amount':flt(row.amount),
             'discount_percentage':flt(row.get('discount_percentage')),
-            'serial_no':str(row.get('serial_no') or ''),
+            'serial_no':bundle_serials.get(row.name) or str(row.get('serial_no') or ''),
         })
     taxes=[{'description':t.description or t.account_head or 'Tax',
             'amount':flt(t.tax_amount)} for t in inv.get('taxes') or []]
@@ -201,6 +240,8 @@ def get_branded_invoice(invoice_name=None, doctype='Sales Invoice'):
         delivery = 'Pending Delivery' if inv.docstatus!=1 else 'Not recorded'
     from servicing_os.api.service_invoice_661 import linked_job
     from servicing_os.api.invoice_payment import can_receive
+    job_name = linked_job(inv)
+    device = _invoice_service_device(job_name, shop)
     return {
         'name':inv.name,'doctype':inv.doctype,'company':company.company_name or company.name,
         'company_address':shop.get('address') or '', 'company_phone':shop.get('phone') or '',
@@ -210,7 +251,9 @@ def get_branded_invoice(invoice_name=None, doctype='Sales Invoice'):
         'posting_date':str(inv.posting_date or ''),'posting_time':str(inv.get('posting_time') or ''),
         'due_date':str(inv.get('due_date') or ''),
         'currency':inv.currency or company.default_currency or 'BDT',
-        'service_job':linked_job(inv) or None,
+        'service_job':job_name or None,
+        'service_device':' '.join(filter(None, (device.get('brand'), device.get('device_model')))) or device.get('device_type'),
+        'service_device_serial':device.get('serial_number') or '',
         'remarks':str(inv.get('remarks') or '')[:400],
         'status':status,'docstatus':inv.docstatus,'delivery_status':delivery,
         'modified':str(inv.modified),

@@ -10,12 +10,9 @@ from decimal import Decimal, InvalidOperation
 
 import frappe
 from frappe.utils import flt, now_datetime
+from servicing_os.api.site_company_706 import cash_account, current_company, current_currency, selling_price_list, used_laptop_warehouse
 
-COMPANY = "AL MODINA COMPUTERS LIMITED"
-WAREHOUSE = "Used Laptops - AMCL"
 GROUP = "Used Laptops"
-CASH = "Cash - AMCL"
-PRICE_LIST = "Standard Selling"
 ITEM_PREFIX = "custom_sos_ul_"
 INVOICE_ITEM_FIELD = "custom_sos_ul_item"
 INVOICE_KEY_FIELD = "custom_sos_ul_checkout_key"
@@ -56,7 +53,7 @@ def _money(value, label="Amount", can_zero=False):
             raise ValueError()
         d = d.quantize(Decimal("0.01"))
     except (InvalidOperation, ValueError, TypeError):
-        frappe.throw(f"{label} must be a valid BDT amount.")
+        frappe.throw(f"{label} must be a valid amount.")
     if d < 0 or d > Decimal("100000000") or (not can_zero and d == 0):
         frappe.throw(f"{label} must be {'zero or positive' if can_zero else 'greater than zero'}.")
     return d
@@ -85,13 +82,13 @@ def _serial_and_qty(item):
                           fields=fields, limit_page_length=100, order_by="creation desc")
     receipt_ids = list(dict.fromkeys(r.parent for r in rows))
     receipts = {r.name: r for r in frappe.get_all("Purchase Receipt",
-        filters={"name": ["in", receipt_ids], "company": COMPANY},
+        filters={"name": ["in", receipt_ids], "company": current_company()},
         fields=["name", "docstatus", "supplier", "posting_date"],
         limit_page_length=100)} if receipt_ids else {}
     chosen = None
     for row in rows:
         p = receipts.get(row.parent)
-        if not p or row.warehouse != WAREHOUSE or p.docstatus == 2:
+        if not p or row.warehouse != used_laptop_warehouse() or p.docstatus == 2:
             continue
         serial = (row.serial_no or "").strip()
         bundle = row.get("serial_and_batch_bundle") or ""
@@ -110,19 +107,19 @@ def _serial_and_qty(item):
         if p.docstatus == 1:
             break
     qty = flt(frappe.db.get_value("Bin", {"item_code": item.name,
-                                            "warehouse": WAREHOUSE}, "actual_qty"))
+                                            "warehouse": used_laptop_warehouse()}, "actual_qty"))
     if chosen:
         serial = chosen["serial"]
         if not serial and chosen["docstatus"] == 1:
             # There is exactly one physical unit per used-laptop Item.
             possible = frappe.get_all("Serial No", filters={"item_code": item.name,
-                "warehouse": WAREHOUSE}, pluck="name", limit_page_length=2)
+                "warehouse": used_laptop_warehouse()}, pluck="name", limit_page_length=2)
             if len(possible) == 1:
                 serial = chosen["serial"] = possible[0]
         sn = frappe.db.get_value("Serial No", serial,
             ["item_code", "warehouse", "status"], as_dict=True) if serial else None
         chosen["serial_in_stock"] = bool(sn and sn.item_code == item.name and
-                                         sn.warehouse == WAREHOUSE and qty >= 1)
+                                         sn.warehouse == used_laptop_warehouse() and qty >= 1)
     return chosen, qty
 
 
@@ -137,10 +134,6 @@ def _validate_sale_stock(item, chosen, qty):
 
 def setup():
     """Create metadata only. Called by installer, not by staff UI."""
-    if not frappe.db.exists("Company", COMPANY):
-        frappe.throw("AMCL company missing.")
-    if not frappe.db.exists("Item Group", GROUP):
-        frappe.throw("Used Laptops Item Group missing; install 6.21–6.23 first.")
     created = []
     entries = [("Item", ITEM_PREFIX + key, label, fieldtype, opts)
                for key, label, fieldtype, opts in FIELDS]
@@ -201,7 +194,7 @@ def get_workspace(search=""):
     hub["stock_only_note"] = "Tracked repair spend is operational, not an accounting expense or capitalized cost."
     if frappe.has_permission("Sales Invoice", "read") and names:
         posted_sales = frappe.get_list("Sales Invoice",
-            filters={"company": COMPANY, "docstatus": 1, INVOICE_ITEM_FIELD: ["in", names]},
+            filters={"company": current_company(), "docstatus": 1, INVOICE_ITEM_FIELD: ["in", names]},
             fields=["name", INVOICE_ITEM_FIELD], limit_page_length=150)
         sold = {d.get(INVOICE_ITEM_FIELD): d.name for d in posted_sales}
         for row in hub.get("items", []):
@@ -281,7 +274,7 @@ def save_service(item_code, status, condition, diagnosis="", work_done="", techn
         f"{status}, grade {condition}. "
         f"Diagnosis: {diagnosis or 'Not specified'}; "
         f"Work: {work_done or 'Not specified'}. "
-        f"Tracked repair spend: BDT {spend}. Asking price: BDT {price}. "
+        f"Tracked repair spend: {current_currency()} {spend}. Asking price: {current_currency()} {price}. "
         f"Repair spend is not a posted accounting expense.")
     frappe.get_doc({"doctype": "Comment", "comment_type": "Comment",
         "reference_doctype": "Item", "reference_name": item.name,
@@ -303,21 +296,21 @@ def _build_invoice(item_code, customer, rate, key=None):
         frappe.throw("This laptop Item is not marked for sale.")
     row = {"item_code": item.name, "qty": 1, "uom": item.stock_uom,
            "conversion_factor": 1, "rate": float(rate), "price_list_rate": float(rate),
-           "warehouse": WAREHOUSE, "serial_no": intake["serial"]}
+           "warehouse": used_laptop_warehouse(), "serial_no": intake["serial"]}
     if frappe.get_meta("Sales Invoice Item").has_field("use_serial_batch_fields"):
         row["use_serial_batch_fields"] = 1
-    invoice = frappe.get_doc({"doctype": "Sales Invoice", "company": COMPANY,
-        "customer": customer, "currency": "BDT", "selling_price_list": PRICE_LIST,
-        "set_warehouse": WAREHOUSE, "update_stock": 1, "is_pos": 0,
+    invoice = frappe.get_doc({"doctype": "Sales Invoice", "company": current_company(),
+        "customer": customer, "currency": current_currency(), "selling_price_list": selling_price_list(),
+        "set_warehouse": used_laptop_warehouse(), "update_stock": 1, "is_pos": 0,
         "ignore_pricing_rule": 1, "items": [row], INVOICE_ITEM_FIELD: item.name})
     if key:
         invoice.set(INVOICE_KEY_FIELD, key)
     invoice.run_method("set_missing_values")
     invoice.run_method("calculate_taxes_and_totals")
-    if not invoice.update_stock or invoice.company != COMPANY or len(invoice.items) != 1:
+    if not invoice.update_stock or invoice.company != current_company() or len(invoice.items) != 1:
         frappe.throw("Invoice defaults changed critical values; checkout stopped.")
     v = invoice.items[0]
-    if (v.item_code != item.name or v.warehouse != WAREHOUSE or
+    if (v.item_code != item.name or v.warehouse != used_laptop_warehouse() or
         v.serial_no != intake["serial"] or _money(v.rate, "Final item rate") != rate):
         frappe.throw("Selected device, serial, warehouse or rate changed; checkout stopped.")
     if _money(invoice.grand_total, "Total") <= 0:
@@ -331,7 +324,7 @@ def quote_cash_sale(item_code, customer, selling_price):
     return {"item_code": item_code, "customer": customer,
         "serial": intake["serial"], "net_total": float(_money(invoice.net_total)),
         "tax_total": float(_money(invoice.total_taxes_and_charges, "Tax", True)),
-        "grand_total": float(_money(invoice.grand_total)), "currency": "BDT",
+        "grand_total": float(_money(invoice.grand_total)), "currency": current_currency(),
         "message": "Amounts may be recalculated at final submission."}
 
 
@@ -351,10 +344,11 @@ def complete_cash_sale(item_code, customer, selling_price, expected_total, check
             return {"success": True, "already_processed": True,
                     "invoice": old.name, "total": flt(old.grand_total)}
         frappe.throw("This sale confirmation was already used. Refresh the screen.")
-    cash = frappe.db.get_value("Account", CASH,
-        ["company", "account_type", "account_currency", "is_group", "disabled"], as_dict=True)
-    if not cash or cash.company != COMPANY or cash.account_type != "Cash" or cash.account_currency != "BDT" or cash.is_group or cash.disabled:
-        frappe.throw("AMCL Cash account is not configured for counter receipts.")
+    cash_ledger = cash_account()
+    cash = frappe.db.get_value("Account", cash_ledger,
+        ["company", "account_type", "account_currency", "is_group", "disabled"], as_dict=True) if cash_ledger else None
+    if not cash or cash.company != current_company() or cash.account_type != "Cash" or cash.account_currency != current_currency() or cash.is_group or cash.disabled:
+        frappe.throw("Company Cash account is not configured for counter receipts.")
     if not frappe.db.exists("Mode of Payment", "Cash"):
         frappe.throw("Cash mode of payment is missing.")
     invoice, intake = _build_invoice(item_code, customer, selling_price, key=token)
@@ -370,12 +364,12 @@ def complete_cash_sale(item_code, customer, selling_price, expected_total, check
     amount = flt(invoice.outstanding_amount)
     if amount <= 0:
         frappe.throw("Invoice outstanding amount is not payable by cash as expected.")
-    payment = get_payment_entry("Sales Invoice", invoice.name, bank_account=CASH, bank_amount=amount)
+    payment = get_payment_entry("Sales Invoice", invoice.name, bank_account=cash_account(), bank_amount=amount)
     if (payment.payment_type != "Receive" or payment.party_type != "Customer" or
-        payment.party != customer or payment.company != COMPANY):
+        payment.party != customer or payment.company != current_company()):
         frappe.throw("Unexpected cash account allocation; checkout rolled back.")
     payment.mode_of_payment = "Cash"
-    payment.paid_to = CASH
+    payment.paid_to = cash_account()
     payment.paid_amount = amount
     payment.received_amount = amount
     refs = [r for r in payment.references if r.reference_doctype == "Sales Invoice" and r.reference_name == invoice.name]
@@ -384,7 +378,7 @@ def complete_cash_sale(item_code, customer, selling_price, expected_total, check
     refs[0].allocated_amount = amount
     payment.insert()
     payment.submit()
-    if payment.docstatus != 1 or payment.paid_to != CASH:
+    if payment.docstatus != 1 or payment.paid_to != cash_account():
         frappe.throw("Cash collection was not confirmed; checkout rolled back.")
     # Service status follows the *posted invoice*; invoice remains source of truth.
     frappe.db.set_value("Item", item_code, ITEM_PREFIX + "service_status", "Sold", update_modified=False)
@@ -400,13 +394,13 @@ def get_sale_receipt(invoice_name):
     _require("Sales Invoice", "read", invoice_name)
     inv = frappe.get_doc("Sales Invoice", invoice_name)
     inv.check_permission("read")
-    if inv.docstatus != 1 or inv.company != COMPANY or not inv.get(INVOICE_ITEM_FIELD):
+    if inv.docstatus != 1 or inv.company != current_company() or not inv.get(INVOICE_ITEM_FIELD):
         frappe.throw("Not a posted SERVICING OS used-laptop sale.")
     if len(inv.items) != 1 or inv.items[0].item_code != inv.get(INVOICE_ITEM_FIELD):
         frappe.throw("Unexpected invoice details; cannot print this receipt.")
     return {"invoice": inv.name, "posting_date": str(inv.posting_date),
-        "company": COMPANY, "customer": inv.customer_name or inv.customer,
+        "company": current_company(), "customer": inv.customer_name or inv.customer,
         "item_code": inv.items[0].item_code, "item_name": inv.items[0].item_name,
         "serial": inv.items[0].serial_no, "rate": inv.items[0].rate,
         "tax_total": inv.total_taxes_and_charges, "grand_total": inv.grand_total,
-        "outstanding": inv.outstanding_amount, "currency": "BDT"}
+        "outstanding": inv.outstanding_amount, "currency": current_currency()}

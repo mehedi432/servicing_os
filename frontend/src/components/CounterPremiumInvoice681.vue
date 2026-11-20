@@ -3,10 +3,14 @@
 import { computed, ref, watch, onUnmounted } from 'vue'
 import InvoiceTransactionPanel from './InvoiceTransactionPanel.vue'
 import SalesInvoiceStudio from './SalesInvoiceStudio.vue'
+import SavedInvoiceCheckout from './SavedInvoiceCheckout.vue'
 const props = defineProps({
   invoiceName: { type: String, required: true },
+  doctype: { type: String, default: 'Sales Invoice' },
+  checkout: Boolean,
   duplicate: { type: Boolean, default: false },
   previewOnly: { type: Boolean, default: false },
+  startPayment: Boolean,
   submitDraft: { type: Boolean, default: false },
 })
 const emit = defineEmits(['close', 'submitted'])
@@ -15,7 +19,7 @@ const error = ref('')
 const submitting = ref(false)
 const submitError = ref('')
 const submitMessage = ref('')
-const view = ref('')
+const view = ref(props.startPayment ? 'pay' : '')
 const transactionBusy = ref(false)
 const actionHeading = computed(() => view.value === 'edit' ? 'Edit sales invoice' :
   view.value === 'pay' ? 'Record invoice payment' : '')
@@ -40,7 +44,7 @@ async function load() {
   try {
     const url = new URL('/api/method/servicing_os.api.invoice_warranty_659.get_invoice_with_warranty', window.location.origin)
     url.searchParams.set('invoice_name', props.invoiceName)
-    url.searchParams.set('doctype', 'Sales Invoice')
+    url.searchParams.set('doctype', props.doctype)
     const response = await fetch(url, { credentials: 'same-origin', cache: 'no-store', headers: { Accept: 'application/json' }, signal: controller.signal })
     const data = await response.json()
     if (!response.ok || data.exc || data.exception || !data.message || !Array.isArray(data.message.items)) {
@@ -77,7 +81,8 @@ async function submitInvoice() {
   submitError.value = ''
   try {
     const token = window.frappe?.csrf_token || window.csrf_token ||
-      document.querySelector('meta[name="csrf-token"]')?.content || ''
+      document.querySelector('meta[name="csrf-token"]')?.content ||
+      decodeURIComponent(document.cookie.match(/(?:^|;\s*)csrf_token=([^;]*)/)?.[1] || '')
     const response = await fetch('/api/method/servicing_os.api.invoice_review.submit_reviewed_invoice', {
       method: 'POST', credentials: 'same-origin',
       headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'X-Frappe-CSRF-Token': token },
@@ -106,15 +111,24 @@ async function submitInvoice() {
     submitting.value = false
   }
 }
-watch(() => props.invoiceName, () => {
+watch(() => [props.invoiceName, props.doctype], () => {
   submitMessage.value = submitError.value = ''
+  view.value = props.startPayment ? 'pay' : ''
   load()
 }, { immediate: true })
 onUnmounted(() => { sequence++; if (controller) controller.abort() })
 </script>
 
 <template>
-  <SalesInvoiceStudio :key="invoiceName" :receipt="receipt" :invoice-name="invoiceName"
+  <SavedInvoiceCheckout v-if="checkout" :invoice-name="invoiceName" :invoice="receipt" :error="error"
+    :action-error="submitError" :message="submitMessage" :busy="submitting || transactionBusy" :mode="view"
+    @close="emit('close')" @retry="refresh" @edit="view = 'edit'" @pay="view = 'pay'" @submit="submitInvoice">
+    <template #transaction>
+      <InvoiceTransactionPanel :key="view" :invoice-name="invoiceName" :mode="view"
+        back-label="Back to checkout" @back="view = ''; refresh()" @busy="transactionBusy = $event" @changed="onTransactionChanged" />
+    </template>
+  </SavedInvoiceCheckout>
+  <SalesInvoiceStudio v-else :key="invoiceName" :receipt="receipt" :invoice-name="invoiceName"
     :duplicate="duplicate" :preview-only="previewOnly && Number(receipt?.docstatus) !== 1" :error="error"
     :draft-action="submitDraft && !view" :can-submit="!!receipt?.can_submit" :submitting="submitting || transactionBusy"
     :action-heading="actionHeading"
@@ -123,7 +137,7 @@ onUnmounted(() => { sequence++; if (controller) controller.abort() })
     <template v-if="submitDraft && !view" #actions>
       <div class="invoice-transaction-actions">
         <button v-if="receipt?.can_edit" type="button" :disabled="submitting" @click="view = 'edit'">Edit Draft</button>
-        <button v-if="receipt?.can_pay" type="button" :disabled="submitting" @click="view = 'pay'">Record Payment</button>
+        <button v-if="receipt?.can_pay" type="button" :disabled="submitting" @click="view = 'pay'">Receive payment</button>
       </div>
     </template>
     <template v-if="view" #workspace>

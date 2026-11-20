@@ -7,8 +7,8 @@ customer charges, stock changes, payments and receipt printing.
 import frappe
 from frappe.utils import cint
 from servicing_os.api.retail_pos import get_retail_pos_hub
+from servicing_os.api.site_company_706 import current_company
 
-COMPANY = "AL MODINA COMPUTERS LIMITED"
 
 
 def _allowed_profile(data):
@@ -22,7 +22,7 @@ def _allowed_profile(data):
 
     profile = frappe.get_doc("POS Profile", name)
     profile.check_permission("read")
-    if profile.company != COMPANY or cint(profile.get("disabled")):
+    if profile.company != current_company() or cint(profile.get("disabled")):
         frappe.throw("This POS Profile is not active for AMCL.")
 
     assigned = [row.get("user") for row in (profile.get("applicable_for_users") or []) if row.get("user")]
@@ -92,7 +92,7 @@ def get_pos_setup(pos_profile=None):
           "Auto print enabled" if receipt["auto_print"] else "Turn on Print Receipt on Order Complete", required=False)
 
     return {
-        "company": COMPANY,
+        "company": current_company(),
         "currency": "BDT",
         "profile": profile.name if profile else None,
         "warehouse": hub.get("warehouse"),

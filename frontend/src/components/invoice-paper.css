@@ -1,0 +1,227 @@
+.invoice-paper {
+  --ip-ink: #251e19;
+  --ip-accent: #69452f;
+  --ip-muted: #56453a;
+  --ip-rule: #d8c6b6;
+  --ip-panel: #f7efe5;
+  --barcode-width: 91mm;
+  --barcode-height: 17mm;
+  --qr-width: 31mm;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 500px;
+  max-width: 960px;
+  min-height: 630px;
+  margin: 0 auto;
+  padding: clamp(18px, 4vw, 38px);
+  background: #fff;
+  color: var(--ip-ink);
+  box-shadow: 0 8px 35px #31261919;
+  font: 13px/1.5 Arial, sans-serif;
+}
+.invoice-paper *, .invoice-paper *::before, .invoice-paper *::after { box-sizing: border-box; }
+.invoice-paper address { font-style: normal; }
+.invoice-paper h2, .invoice-paper h3, .invoice-paper p, .invoice-paper dl, .invoice-paper figure { margin: 0; }
+.invoice-paper .ip-masthead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  border-top: 6px solid var(--ip-accent);
+  padding-top: 15px;
+}
+.invoice-paper .ip-brand { max-width: 65%; min-width: 0; }
+.invoice-paper .ip-brand h2 {
+  margin: 0 0 8px;
+  font: 700 clamp(20px, 3.1vw, 31px)/1.1 Georgia, "Times New Roman", serif;
+  color: var(--ip-ink);
+  overflow-wrap: anywhere;
+}
+.invoice-paper address span { display: block; color: var(--ip-muted); font-size: 12px; overflow-wrap: anywhere; }
+.invoice-paper .ip-heading { text-align: right; }
+.invoice-paper .ip-heading h3 {
+  margin-top: 5px;
+  color: var(--ip-accent);
+  font: 700 clamp(18px, 2.6vw, 28px)/1.1 Georgia, "Times New Roman", serif;
+}
+.invoice-paper .ip-copy, .invoice-paper .ip-label {
+  color: var(--ip-accent);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  font-weight: 750;
+}
+.invoice-paper .ip-copy {
+  display: inline-block;
+  border: 1px solid var(--ip-rule);
+  border-radius: 4px;
+  padding: 3px 8px;
+  background: var(--ip-panel);
+  white-space: nowrap;
+}
+.invoice-paper .ip-reference {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 17px 0 15px;
+  padding: 10px 14px;
+  border-block: 1px solid var(--ip-rule);
+  background: var(--ip-panel);
+  break-inside: avoid;
+}
+.invoice-paper .ip-id { display: grid; gap: 3px; align-content: center; min-width: 0; }
+.invoice-paper .ip-id > strong {
+  color: #211b17;
+  font: 700 16px/1.25 "Courier New", monospace;
+  overflow-wrap: anywhere;
+}
+.invoice-paper .ip-date { color: var(--ip-muted); font-size: 11px; }
+.invoice-paper .ip-barcode {
+  display: block;
+  width: var(--barcode-width);
+  height: var(--barcode-height);
+  max-width: 100%;
+  background: #fff;
+}
+.invoice-paper .ip-qr {
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  gap: 2px;
+  flex-shrink: 0;
+  color: var(--ip-muted);
+  font-size: 10px;
+  font-weight: 700;
+  text-align: center;
+}
+.invoice-paper .ip-qr svg { display: block; width: var(--qr-width); height: var(--qr-width); background: #fff; }
+.invoice-paper .ip-parties {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin: 0 0 16px;
+  color: var(--ip-muted);
+  break-inside: avoid;
+}
+.invoice-paper .ip-parties section {
+  flex: 1 1 130px;
+  min-width: 0;
+  padding: 2px 10px 2px 0;
+  border-right: 1px solid var(--ip-rule);
+  overflow-wrap: anywhere;
+}
+.invoice-paper .ip-parties section:last-child { flex-grow: 0; border-right: 0; }
+.invoice-paper .ip-parties span, .invoice-paper .ip-parties section > strong { display: block; }
+.invoice-paper .ip-parties section > strong { margin: 1px 0; color: var(--ip-ink); font-size: 14px; }
+.invoice-paper .ip-items { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 12px; }
+.invoice-paper .ip-items th, .invoice-paper .ip-items td {
+  padding: 8px 7px;
+  vertical-align: top;
+  text-align: right;
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+}
+.invoice-paper .ip-items thead { color: #fff; background: #503726; }
+.invoice-paper .ip-items th { font-size: 11px; }
+.invoice-paper .ip-items tbody tr { border-bottom: 1px solid #e2d6ca; break-inside: avoid; }
+.invoice-paper .ip-items tbody tr:nth-child(even) { background: #faf5ef; }
+.invoice-paper .ip-items :is(th, td):nth-child(1) { width: 7%; text-align: center; }
+.invoice-paper .ip-items :is(th, td):nth-child(2) { text-align: left; }
+.invoice-paper .ip-items :is(th, td):nth-child(3) { width: 10%; }
+.invoice-paper .ip-items-charges :is(th, td):nth-child(n+4) { width: 18%; }
+.invoice-paper .ip-items small { display: block; margin-top: 4px; color: var(--ip-muted); font-size: 11px; }
+.invoice-paper .ip-serial {
+  display: grid;
+  justify-items: start;
+  gap: 2px;
+  margin: 5px 0 2px;
+  color: #201915;
+  overflow-wrap: anywhere;
+}
+.invoice-paper .ip-serial > span { color: var(--ip-muted); font-size: 10px; font-weight: 700; }
+.invoice-paper .ip-serial > strong {
+  display: block;
+  max-width: 100%;
+  font: 700 13px/1.3 "Courier New", monospace;
+}
+.invoice-paper .ip-totals {
+  width: min(100%, 330px);
+  margin: 14px 0 0 auto;
+  padding: 8px 13px;
+  border: 1px solid var(--ip-rule);
+  border-radius: 7px;
+  break-inside: avoid;
+}
+.invoice-paper .ip-totals > div { display: flex; justify-content: space-between; gap: 8px; padding: 4px 0; }
+.invoice-paper .ip-totals dd { font-weight: 700; font-variant-numeric: tabular-nums; text-align: right; margin: 0; }
+.invoice-paper .ip-totals .ip-grand {
+  margin: 4px -13px;
+  padding: 8px 13px;
+  background: var(--ip-panel);
+  font-size: 17px;
+  font-weight: 800;
+}
+.invoice-paper .ip-due { color: #503726; font-weight: 800; }
+.invoice-paper .ip-acknowledgement { margin-top: 18px; padding: 10px 14px; border: 1px solid var(--ip-rule); break-inside: avoid; }
+.invoice-paper .ip-acknowledgement p { margin-top: 4px; }
+.invoice-paper .ip-footer { margin-top: 15px; padding-top: 6px; border-top: 1px solid var(--ip-rule); color: var(--ip-muted); font-size: 11px; }
+.invoice-paper.ip-a5 {
+  --barcode-width: 73mm;
+  --barcode-height: 15mm;
+  --qr-width: 29mm;
+  max-width: 148mm;
+  min-height: 575px;
+  padding: 22px;
+}
+.invoice-paper.ip-a5 :is(.ip-brand h2, .ip-heading h3) { font-size: 21px; }
+.invoice-paper.ip-a5 .ip-reference { margin-block: 10px; padding: 6px 9px; }
+.invoice-paper.ip-a5 .ip-parties { margin-bottom: 10px; }
+.invoice-paper.ip-a5 .ip-parties section { flex-basis: 100px; }
+.invoice-paper.ip-a5 :is(.ip-items th, .ip-items td) { padding: 5px 4px; font-size: 11px; }
+.invoice-paper.ip-thermal {
+  --ip-ink: #111;
+  --ip-accent: #111;
+  --ip-muted: #222;
+  --ip-rule: #777;
+  --ip-panel: #fff;
+  --barcode-width: 67mm;
+  --barcode-height: 15mm;
+  --qr-width: 29mm;
+  width: 80mm;
+  min-width: 0;
+  max-width: 80mm;
+  min-height: 0;
+  padding: 3mm;
+  font-size: 11px;
+}
+.invoice-paper.ip-thermal .ip-masthead,
+.invoice-paper.ip-thermal .ip-reference { display: grid; justify-content: center; justify-items: center; text-align: center; }
+.invoice-paper.ip-thermal .ip-masthead { gap: 6px; border-top-width: 2px; padding-top: 7px; }
+.invoice-paper.ip-thermal .ip-brand { max-width: none; }
+.invoice-paper.ip-thermal .ip-heading { text-align: center; }
+.invoice-paper.ip-thermal .ip-brand h2, .invoice-paper.ip-thermal .ip-heading h3 { font-size: 16px; }
+.invoice-paper.ip-thermal address span { font-size: 11px; }
+.invoice-paper.ip-thermal .ip-reference { gap: 5px; margin-block: 8px; padding: 6px 0; }
+.invoice-paper.ip-thermal .ip-parties { gap: 5px 8px; margin-bottom: 8px; }
+.invoice-paper.ip-thermal .ip-parties section { flex-basis: 90px; }
+.invoice-paper.ip-thermal .ip-items thead { color: #111; background: #fff; border-block: 1px solid #111; }
+.invoice-paper.ip-thermal :is(.ip-items th, .ip-items td) { padding: 5px 2px; font-size: 10px; }
+.invoice-paper.ip-thermal .ip-items tbody tr { background: white; }
+.invoice-paper.ip-thermal .ip-items small { font-size: 10px; }
+.invoice-paper.ip-thermal .ip-totals { padding: 5px 7px; }
+.invoice-paper.ip-thermal .ip-totals .ip-grand { border-block: 1px solid #111; margin: 3px -7px; padding: 4px 7px; font-size: 14px; }
+@media print {
+  .invoice-paper { min-width: 0; }
+  .invoice-paper .ip-masthead { break-inside: avoid; }
+  .invoice-paper .ip-brand h2, .invoice-paper .ip-heading h3 { font-size: 24px; }
+  .invoice-paper.ip-a5 .ip-brand h2, .invoice-paper.ip-a5 .ip-heading h3 { font-size: 19px; }
+  .invoice-paper.ip-thermal .ip-brand h2, .invoice-paper.ip-thermal .ip-heading h3 { font-size: 16px; }
+}
+@container invoice-preview (max-width: 540px) {
+  .invoice-paper:not(.ip-thermal) { min-width: 0; padding: 15px; }
+  .invoice-paper:not(.ip-thermal) .ip-masthead { gap: 8px; }
+  .invoice-paper:not(.ip-thermal) .ip-reference { display: grid; justify-content: stretch; }
+  .invoice-paper:not(.ip-thermal) .ip-qr { justify-self: start; }
+  .invoice-paper:not(.ip-thermal) :is(.ip-items th, .ip-items td) { padding-inline: 4px; }
+}

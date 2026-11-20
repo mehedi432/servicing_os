@@ -7,11 +7,8 @@ import re
 from decimal import Decimal, InvalidOperation
 import frappe
 from frappe.utils import flt, getdate, nowdate
+from servicing_os.api.site_company_706 import cash_account, current_company, current_currency, retail_warehouse, selling_price_list
 
-COMPANY = "AL MODINA COMPUTERS LIMITED"
-WAREHOUSE = "Stores - AMCL"
-PRICE_LIST = "Standard Selling"
-CASH_ACCOUNT = "Cash - AMCL"
 FIELD = "custom_servicing_counter_key"
 
 
@@ -32,31 +29,36 @@ def _money(value):
 
 def _setup_checks():
     problems = []
-    if not frappe.db.exists("Company", COMPANY):
+    company = current_company()
+    warehouse = retail_warehouse()
+    price_list = selling_price_list()
+    account = cash_account()
+    currency = current_currency(company)
+    if not frappe.db.exists("Company", company):
         problems.append("Shop company is not configured")
-    if not frappe.db.exists("Warehouse", WAREHOUSE):
+    if not warehouse or not frappe.db.exists("Warehouse", warehouse):
         problems.append("Retail warehouse is missing")
     else:
-        wh = frappe.db.get_value("Warehouse", WAREHOUSE,
+        wh = frappe.db.get_value("Warehouse", warehouse,
             ["company", "is_group", "disabled"], as_dict=True)
-        if wh.company != COMPANY or wh.is_group or wh.disabled:
+        if wh.company != company or wh.is_group or wh.disabled:
             problems.append("Retail warehouse is not active for this company")
-    if not frappe.db.exists("Price List", PRICE_LIST):
+    if not price_list or not frappe.db.exists("Price List", price_list):
         problems.append("Standard selling price list is missing")
     else:
-        pl = frappe.db.get_value("Price List", PRICE_LIST,
+        pl = frappe.db.get_value("Price List", price_list,
             ["selling", "enabled", "currency"], as_dict=True)
-        if not pl.selling or not pl.enabled or pl.currency != "BDT":
-            problems.append("Selling price list must be active and use BDT")
-    if not frappe.db.exists("Account", CASH_ACCOUNT):
+        if not pl.selling or not pl.enabled or pl.currency != currency:
+            problems.append("Selling price list must be active and use the company currency")
+    if not account or not frappe.db.exists("Account", account):
         problems.append("Cash ledger is missing")
     else:
-        acc = frappe.db.get_value("Account", CASH_ACCOUNT,
+        acc = frappe.db.get_value("Account", account,
             ["company", "is_group", "account_type", "account_currency", "disabled"],
             as_dict=True)
-        if (acc.company != COMPANY or acc.is_group or acc.disabled
-                or acc.account_type != "Cash" or acc.account_currency != "BDT"):
-            problems.append("Cash account must be an active BDT Cash ledger for this company")
+        if (acc.company != company or acc.is_group or acc.disabled
+                or acc.account_type != "Cash" or acc.account_currency != currency):
+            problems.append("Cash account must be an active Cash ledger in the company currency for this company")
     if not frappe.db.exists("Mode of Payment", "Cash"):
         problems.append("Cash payment mode is missing")
     if not frappe.get_meta("Sales Invoice").has_field(FIELD):
@@ -66,8 +68,6 @@ def _setup_checks():
 
 def setup():
     """Create only a unique checkout ID field. No invoices or stock movements."""
-    if not frappe.db.exists("Company", COMPANY):
-        frappe.throw("Expected company missing: " + COMPANY)
     existing = frappe.get_meta("Sales Invoice").get_field(FIELD)
     if existing:
         if existing.fieldtype != "Data" or not existing.unique:
@@ -84,12 +84,12 @@ def setup():
 
 def _price(item_code, uom):
     rows = frappe.get_all("Item Price",
-        filters={"item_code": item_code, "price_list": PRICE_LIST, "selling": 1},
+        filters={"item_code": item_code, "price_list": selling_price_list(), "selling": 1},
         fields=["price_list_rate", "currency", "uom", "valid_from", "valid_upto"],
         order_by="modified desc", limit_page_length=100)
     today = getdate(nowdate())
     for r in rows:
-        if r.currency != "BDT" or (r.uom and r.uom != uom):
+        if r.currency != current_currency() or (r.uom and r.uom != uom):
             continue
         if r.valid_from and getdate(r.valid_from) > today:
             continue
@@ -102,7 +102,7 @@ def _price(item_code, uom):
 
 
 def _stock(item_code):
-    d = frappe.db.get_value("Bin", {"item_code": item_code, "warehouse": WAREHOUSE},
+    d = frappe.db.get_value("Bin", {"item_code": item_code, "warehouse": retail_warehouse()},
                             ["actual_qty", "reserved_qty"], as_dict=True)
     # This is a preliminary availability check; ERP validates at submission.
     return flt(d.actual_qty) if d else 0
@@ -156,7 +156,7 @@ def get_register(search="", customer_search=""):
         problems.append("Select or create a customer before checkout")
     if not all(perms[d][p] for d in perms for p in perms[d]):
         problems.append("Current cashier needs Sales Invoice and Payment Entry create/submit rights")
-    return {"company": COMPANY, "currency": "BDT", "warehouse": WAREHOUSE,
+    return {"company": current_company(), "currency": current_currency(), "warehouse": retail_warehouse(),
         "items": _catalog_rows(search), "customers": customers,
         "ready": not problems, "checks": problems, "permissions": perms,
         "cash_only": True, "pos_profile_required": False,
@@ -206,27 +206,27 @@ def _prepare(customer, items, key=None):
         if price is None:
             frappe.throw("Selling price not configured for: " + code)
         if Decimal(str(_stock(code))) < qty:
-            frappe.throw(f"Insufficient stock in {WAREHOUSE}: {code} (requested {qty})")
+            frappe.throw(f"Insufficient stock in {retail_warehouse()}: {code} (requested {qty})")
         lines.append({"item_code": code, "item_name": it.item_name,
             "qty": int(qty), "uom": it.stock_uom,
-            "rate": float(price), "warehouse": WAREHOUSE,
+            "rate": float(price), "warehouse": retail_warehouse(),
             "conversion_factor": 1})
     inv = frappe.get_doc({
-        "doctype": "Sales Invoice", "company": COMPANY, "customer": customer,
-        "selling_price_list": PRICE_LIST, "set_warehouse": WAREHOUSE,
-        "currency": "BDT", "update_stock": 1, "is_pos": 0,
+        "doctype": "Sales Invoice", "company": current_company(), "customer": customer,
+        "selling_price_list": selling_price_list(), "set_warehouse": retail_warehouse(),
+        "currency": current_currency(), "update_stock": 1, "is_pos": 0,
         "ignore_pricing_rule": 1, "items": lines,
     })
     if key:
         inv.set(FIELD, key)
     inv.run_method("set_missing_values")
     inv.run_method("calculate_taxes_and_totals")
-    if not inv.update_stock or inv.company != COMPANY or inv.customer != customer:
+    if not inv.update_stock or inv.company != current_company() or inv.customer != customer:
         frappe.throw("Invoice defaults changed critical checkout values")
     for original, computed in zip(lines, inv.items):
         if _money(computed.rate) != _money(original["rate"]):
             frappe.throw("Item rates were altered by another pricing setting. Checkout stopped.")
-        if computed.warehouse != WAREHOUSE:
+        if computed.warehouse != retail_warehouse():
             frappe.throw("Invoice warehouse changed unexpectedly")
     if _money(inv.grand_total) <= 0:
         frappe.throw("Calculated invoice total is invalid")
@@ -236,11 +236,11 @@ def _prepare(customer, items, key=None):
 @frappe.whitelist(methods=["POST"])
 def quote_sale(customer, items):
     inv = _prepare(customer, items)
-    return {"company": COMPANY, "customer": customer,
+    return {"company": current_company(), "customer": customer,
         "net_total": float(_money(inv.net_total)),
         "tax_total": float(_money(inv.total_taxes_and_charges)),
         "grand_total": float(_money(inv.grand_total)),
-        "currency": "BDT", "items": [{"item_code": i.item_code,
+        "currency": current_currency(), "items": [{"item_code": i.item_code,
             "item_name": i.item_name, "qty": i.qty,
             "rate": i.rate, "amount": i.amount} for i in inv.items],
         "message": "Final checkout recalculates prices, tax, and stock."}
@@ -283,12 +283,12 @@ def complete_cash_sale(customer, items, checkout_key, expected_total):
     if amount <= 0:
         frappe.throw("Invoice has no outstanding cash amount; payment mode unexpected")
     payment = get_payment_entry("Sales Invoice", inv.name,
-        bank_account=CASH_ACCOUNT, bank_amount=amount)
+        bank_account=cash_account(), bank_amount=amount)
     if (payment.payment_type != "Receive" or payment.party_type != "Customer"
-            or payment.party != customer or payment.company != COMPANY):
+            or payment.party != customer or payment.company != current_company()):
         frappe.throw("Unexpected payment mapping")
     payment.mode_of_payment = "Cash"
-    payment.paid_to = CASH_ACCOUNT
+    payment.paid_to = cash_account()
     payment.paid_amount = amount
     payment.received_amount = amount
     refs = [r for r in payment.references if
@@ -298,12 +298,12 @@ def complete_cash_sale(customer, items, checkout_key, expected_total):
     refs[0].allocated_amount = amount
     payment.insert()
     payment.submit()
-    if payment.docstatus != 1 or payment.paid_to != CASH_ACCOUNT:
+    if payment.docstatus != 1 or payment.paid_to != cash_account():
         frappe.throw("Cash payment was not confirmed")
     inv.reload()
     return {"success": True, "already_processed": False,
         "invoice": inv.name, "payment_entry": payment.name,
-        "company": COMPANY, "customer": customer,
+        "company": current_company(), "customer": customer,
         "total": float(_money(inv.grand_total)),
         "outstanding": float(_money(inv.outstanding_amount)),
         "items": [{"item_code": r.item_code, "item_name": r.item_name,
@@ -314,7 +314,7 @@ def complete_cash_sale(customer, items, checkout_key, expected_total):
 def recent_sales():
     _require("Sales Invoice", "read")
     return {"sales": [dict(d) for d in frappe.get_list(
-        "Sales Invoice", filters={"company": COMPANY, "docstatus": 1,
+        "Sales Invoice", filters={"company": current_company(), "docstatus": 1,
                                 FIELD: ["is", "set"]},
         fields=["name", "customer", "customer_name", "posting_date",
                 "grand_total", "outstanding_amount"],

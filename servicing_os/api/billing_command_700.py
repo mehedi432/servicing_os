@@ -24,12 +24,11 @@ def _company():
     # Never silently aggregate different companies. Read the active shop config.
     company = ""
     if frappe.has_permission("Servicing Shop", "read"):
-        shops = frappe.get_list(
-            "Servicing Shop", filters={"is_active": 1},
-            fields=["company"], limit_page_length=1
-        )
-        if shops:
-            company = shops[0].get("company") or ""
+        from servicing_os.api.site_company_706 import site_shop_context
+        context = site_shop_context()
+        shop = frappe.get_doc('Servicing Shop', context['shop'])
+        shop.check_permission('read')
+        company = shop.company
     company = company or frappe.defaults.get_user_default("Company")
     if not company:
         permitted = frappe.get_list("Company", fields=["name"], limit_page_length=2)
@@ -217,6 +216,8 @@ def get_invoice_documents(doctype="Sales Invoice", docstatus=None, start_date=No
     fields = ["name", "posting_date", "customer", "docstatus", "currency", "grand_total"]
     fields.extend(field for field in ("customer_name", "status", "is_return", "custom_service_job")
                   if meta.has_field(field))
+    if sales_invoice:
+        fields.append("outstanding_amount")
     output_fields = fields.copy()
     if sales_invoice:
         fields = list(dict.fromkeys([*fields, *classification_fields(meta)]))
@@ -238,10 +239,13 @@ def get_invoice_documents(doctype="Sales Invoice", docstatus=None, start_date=No
         if sales_invoice:
             _label_rows(rows, company, meta)
     output_fields += ["revenue_stream", "revenue_basis"] if sales_invoice else []
+    from servicing_os.api.invoice_payment import can_receive
+
     return {
         "company": company, "rows": [{field: row.get(field) for field in output_fields} for row in rows[:size]],
         "page": page, "page_size": size, "has_next": len(rows) > size,
         "can_label_stream": sales_invoice and meta.has_field(REPORT_STREAM_FIELD) and can_label(),
+        "can_receive_payment": sales_invoice and can_receive(),
     }
 
 

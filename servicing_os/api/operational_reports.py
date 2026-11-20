@@ -1,4 +1,4 @@
-"""Read-only AMCL Service Job operational reports.
+"""Read-only service-job operational reports.
 
 Periods select jobs by received_date. "Completed" and "Delivered" status
 counts are CURRENT statuses, not historical completions during the period.
@@ -11,8 +11,8 @@ import re
 
 import frappe
 from frappe.utils import nowdate
+from servicing_os.api.site_company_706 import current_company
 
-COMPANY = "AL MODINA COMPUTERS LIMITED"
 ACCESS_ROLES = {"System Manager", "Accounts Manager"}
 WORKLOG_PREFIX = "SERVICING_WORK_LOG_614D:"
 VALID_REPORTS = {"register", "technicians", "aging"}
@@ -42,7 +42,7 @@ def _dates(start_value=None, end_value=None):
 
 
 def _filters(start, end_exclusive, technician, status, search, open_only=False):
-    values = {"company": COMPANY, "start": start, "end_exclusive": end_exclusive}
+    values = {"company": current_company(), "start": start, "end_exclusive": end_exclusive}
     clauses = ["sj.received_date >= %(start)s", "sj.received_date < %(end_exclusive)s"]
     if frappe.get_meta("Service Job").has_field("shop"):
         clauses.append("sj.shop = %(company)s")
@@ -110,7 +110,7 @@ def get_report_options():
           FROM `tabService Job` sj
           LEFT JOIN `tabUser` u ON u.name = sj.technician
          WHERE sj.technician IS NOT NULL AND sj.technician != ''
-    """ + shop_condition + " ORDER BY label ASC LIMIT 200", {"company": COMPANY}, as_dict=True)
+    """ + shop_condition + " ORDER BY label ASC LIMIT 200", {"company": current_company()}, as_dict=True)
     return {"statuses": statuses, "technicians": technicians,
             "has_shop_filter": frappe.get_meta("Service Job").has_field("shop")}
 
@@ -138,7 +138,7 @@ def get_operational_report(report="register", from_date=None, to_date=None,
         params, as_dict=True)
     total = int(total_row[0].n or 0)
     common = {
-        "report": report, "company": COMPANY,
+        "report": report, "company": current_company(),
         "from_date": start, "to_date": end, "as_of": today,
         "received_date_filter": True, "total": total,
         "limit": page_limit, "truncated": total > page_limit,

@@ -69,7 +69,7 @@ def suggest_receipt_items(job_name, q=''):
     if not frappe.has_permission('Item', 'read'):
         frappe.throw('Item read permission required.', frappe.PermissionError)
     options = {
-        'filters': {'disabled': 0, 'is_stock_item': 1, 'is_sales_item': 1, 'has_serial_no': 0, 'has_batch_no': 0},
+        'filters': {'disabled': 0, 'is_stock_item': 1, 'has_serial_no': 0, 'has_batch_no': 0},
         'fields': ['name', 'item_name', 'stock_uom'],
         'order_by': 'modified desc, name asc',
         'limit_page_length': 8,

@@ -1,9 +1,9 @@
 """SERVICING OS V7.12: atomic invoice + delivery, no duplicate stock postings."""
 import frappe
-from frappe.utils import flt
+from frappe.utils import cint, flt
 from servicing_os.api import parts_workbench_708 as parts
 from servicing_os.api.site_company_706 import validate_job_shop
-from servicing_os.api.service_invoice_661 import get_job_context
+from servicing_os.api.service_invoice_661 import get_job_context, linked_job
 from servicing_os.api.invoice_final_709 import _requests, finalize_service_invoice
 from servicing_os.api.service_handover_710 import deliver_service_job
 
@@ -33,7 +33,9 @@ def handover_context(job_name):
         issue = 'Set Service Steps to Ready to Deliver before final billing.'
     else:
         issue = ''
-    return {'service_job': job.name, 'status': job.status, 'customer': info.get('customer'),
+    from servicing_os.api.invoice_payment import can_receive
+
+    return {'service_job': job.name, 'allow_payment': can_receive(), 'status': job.status, 'customer': info.get('customer'),
             'customer_name': info.get('customer_name'), 'invoice': active[0] if len(active) == 1 else None,
             'device': {key: job.get(key) for key in ('device_type', 'brand', 'device_model', 'serial_number')},
             'invoice_count': len(active), 'issue': issue,
@@ -127,7 +129,18 @@ def finalize_and_deliver(job_name, invoice_name, confirmation, expected_modified
 
 
 @frappe.whitelist(methods=['POST'])
-def deliver_with_existing_invoice(job_name, confirmation, invoice_name=None, expected_modified=None):
+def submit_for_payment(job_name, invoice_name, expected_modified):
+    """Finalize the reviewed invoice and stock issue while the device stays at the counter."""
+    job = _job(job_name, for_update=True)
+    job.check_permission('write')
+    if job.status != 'Ready to Deliver' or not expected_modified:
+        frappe.throw('Review the saved invoice for a Service Job that is Ready to Deliver.')
+    return finalize_service_invoice(job.name, invoice_name, expected_modified=expected_modified)
+
+
+@frappe.whitelist(methods=['POST'])
+def deliver_with_existing_invoice(job_name, confirmation, invoice_name=None, expected_modified=None,
+                                  expected_outstanding=None, allow_outstanding=0):
     job = _job(job_name, for_update=True)
     job.check_permission('write')
     if job.status not in ('Ready to Deliver', 'Delivered'):
@@ -137,8 +150,18 @@ def deliver_with_existing_invoice(job_name, confirmation, invoice_name=None, exp
             _lock_reviewed_invoice(invoice_name, expected_modified)
         invoice = frappe.get_doc('Sales Invoice', invoice_name)
         invoice.check_permission('read')
-        if invoice.get('custom_service_job') != job.name or invoice.customer != job.customer or invoice.docstatus != 1:
+        if linked_job(invoice) != job.name or invoice.customer != job.customer or invoice.docstatus != 1:
             frappe.throw('The reviewed Sales Invoice changed. Reload the Delivery Desk and review it again.')
+        if job.status != 'Delivered' and expected_outstanding is not None:
+            from servicing_os.api.invoice_payment import _balance
+
+            current = frappe.db.sql(
+                'SELECT outstanding_amount FROM `tabSales Invoice` WHERE name=%s FOR UPDATE', (invoice.name,))
+            due = _balance(invoice, current[0][0])
+            if _balance(invoice, expected_outstanding) != due:
+                frappe.throw('The balance changed. Reload the invoice before handover.')
+            if due > 0 and not cint(allow_outstanding):
+                frappe.throw('Record payment or explicitly confirm handover with an outstanding balance.')
     delivery = deliver_service_job(job.name, confirmation)
     return {'service_job':job.name, 'invoice':delivery.get('invoice') or invoice_name,
             'docstatus':1, 'status':'Delivered', 'already_delivered':delivery.get('already_delivered', False)}

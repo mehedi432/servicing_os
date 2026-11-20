@@ -2,8 +2,7 @@
 import frappe
 from frappe.utils import nowdate, flt
 
-from servicing_os.api.site_company_706 import current_company, validate_job_shop
-WAREHOUSE = "Spare Parts - AMCL"
+from servicing_os.api.site_company_706 import current_company, spare_parts_warehouse, validate_job_shop
 ITEM_GROUP = "Computer Spare Parts"
 
 MANAGER_ROLES = {"System Manager", "Stock Manager"}
@@ -85,10 +84,10 @@ def setup():
     if not frappe.db.exists("Company", current_company()):
         frappe.throw("Company missing: " + current_company())
 
-    if not frappe.db.exists("Warehouse", WAREHOUSE):
-        frappe.throw("Warehouse missing: " + WAREHOUSE)
+    if not frappe.db.exists("Warehouse", spare_parts_warehouse()):
+        frappe.throw("Warehouse missing: " + spare_parts_warehouse())
 
-    wh = frappe.get_doc("Warehouse", WAREHOUSE)
+    wh = frappe.get_doc("Warehouse", spare_parts_warehouse())
 
     if wh.company != current_company() or wh.is_group or wh.disabled:
         frappe.throw("Invalid Spare Parts warehouse.")
@@ -173,7 +172,7 @@ def create_parts_request(
         )
 
     warehouse = frappe.get_doc(
-        "Warehouse", WAREHOUSE
+        "Warehouse", spare_parts_warehouse()
     )
 
     if (
@@ -192,7 +191,7 @@ def create_parts_request(
         "transaction_date": nowdate(),
         "schedule_date": nowdate(),
         "custom_service_job": job_name,
-        "set_warehouse": WAREHOUSE,
+        "set_warehouse": spare_parts_warehouse(),
         "remarks": (
             "Service Job: " + job_name
             + "\nRequested by: " + user
@@ -204,7 +203,7 @@ def create_parts_request(
                 "qty": quantity,
                 "uom": item.stock_uom,
                 "schedule_date": nowdate(),
-                "warehouse": WAREHOUSE,
+                "warehouse": spare_parts_warehouse(),
             }
         ],
     })
@@ -318,7 +317,7 @@ def approve_parts_request(material_request):
         if flt(row.qty) <= 0:
             frappe.throw("Invalid item quantity.")
 
-        if row.warehouse != WAREHOUSE:
+        if row.warehouse != spare_parts_warehouse():
             frappe.throw(
                 "Unexpected warehouse in item row."
             )
@@ -355,7 +354,7 @@ def create_multi_parts_request(job_name, items, remarks=None):
         frappe.throw("Enter between 1 and 100 part lines per request.")
     if not frappe.get_meta("Material Request").has_field("custom_service_job"):
         frappe.throw("Material Request Service Job field is missing.")
-    wh = frappe.get_doc("Warehouse", WAREHOUSE)
+    wh = frappe.get_doc("Warehouse", spare_parts_warehouse())
     if wh.company != current_company() or wh.disabled or wh.is_group:
         frappe.throw("Spare Parts warehouse is unavailable.")
 
@@ -382,7 +381,7 @@ def create_multi_parts_request(job_name, items, remarks=None):
             "qty": float(qty),
             "uom": item.stock_uom,
             "schedule_date": nowdate(),
-            "warehouse": WAREHOUSE,
+            "warehouse": spare_parts_warehouse(),
         })
 
     mr = frappe.get_doc({
@@ -392,7 +391,7 @@ def create_multi_parts_request(job_name, items, remarks=None):
         "transaction_date": nowdate(),
         "schedule_date": nowdate(),
         "custom_service_job": job_name,
-        "set_warehouse": WAREHOUSE,
+        "set_warehouse": spare_parts_warehouse(),
         "remarks": "Service Job: " + job_name + "\nRequested by: "
                    + frappe.session.user
                    + ("\n" + str(remarks)[:500] if remarks else ""),

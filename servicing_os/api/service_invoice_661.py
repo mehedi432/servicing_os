@@ -38,11 +38,11 @@ def _shop():
         frappe.throw('Please sign in to SERVICING OS.', frappe.PermissionError)
     if not frappe.has_permission('Servicing Shop', 'read'):
         frappe.throw('Servicing Shop read permission is required.', frappe.PermissionError)
-    rows = frappe.get_list('Servicing Shop', filters={'is_active': 1},
-                           fields=['name', 'company'], limit_page_length=10)
-    if len(rows) != 1 or not rows[0].get('company'):
-        frappe.throw('Configure exactly one active Servicing Shop.', frappe.ValidationError)
-    return rows[0]
+    from servicing_os.api.site_company_706 import site_shop_context
+
+    shop = frappe.get_doc('Servicing Shop', site_shop_context()['shop'])
+    shop.check_permission('read')
+    return shop
 
 
 def _columns(doctype):
@@ -68,7 +68,7 @@ def _linked_invoices(shop, job_name='', max_results=20):
         link_fields_seen.update(fields)
         if not fields:
             continue
-        wanted = ['name', 'creation', 'posting_date', 'customer', 'currency', 'grand_total',
+        wanted = ['name', 'creation', 'modified', 'posting_date', 'customer', 'currency', 'grand_total',
                   'outstanding_amount', 'status', 'docstatus', 'is_return'] + fields
         selected = [x for x in wanted if x in columns or x in ('name', 'creation', 'docstatus')]
         # One permission-checked query per possible link field. Limit applies to each query
@@ -99,6 +99,7 @@ def _linked_invoices(shop, job_name='', max_results=20):
                     'service_job': matched, 'customer': row.get('customer') or '',
                     'posting_date': str(row.get('posting_date') or ''),
                     'creation': str(row.get('creation') or ''),
+                    'modified': str(row.get('modified') or ''),
                     'currency': row.get('currency') or 'BDT',
                     'grand_total': flt(row.get('grand_total')),
                     'outstanding_amount': flt(row.get('outstanding_amount')) if row.get('outstanding_amount') is not None else None,

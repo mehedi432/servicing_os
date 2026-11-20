@@ -8,25 +8,24 @@ import math
 import frappe
 from decimal import Decimal, InvalidOperation
 from frappe.utils import flt
+from servicing_os.api.site_company_706 import cash_account, current_company, current_currency
 
-COMPANY = "AL MODINA COMPUTERS LIMITED"
-CURRENCY = "BDT"
-CASH_ACCOUNT = "Cash - AMCL"
 INVOICE_JOB_FIELD = "custom_service_job"
 
 
 def _cash_configuration():
+    name = cash_account()
     account = frappe.db.get_value(
-        "Account", CASH_ACCOUNT,
+        "Account", name,
         ["company", "account_type", "is_group", "disabled"], as_dict=True,
-    )
-    if not account or account.company != COMPANY or account.account_type != "Cash" \
+    ) if name else None
+    if not account or account.company != current_company() or account.account_type != "Cash" \
             or account.is_group or account.disabled:
-        frappe.throw("Cash - AMCL is not a usable Cash ledger for AMCL.")
+        frappe.throw("Configure an active company Cash ledger on the Cash Mode of Payment.")
     mode = frappe.db.get_value("Mode of Payment", "Cash", ["enabled", "type"], as_dict=True)
     if not mode or not mode.enabled or mode.type != "Cash":
         frappe.throw("An enabled Cash Mode of Payment is required.")
-    return CASH_ACCOUNT
+    return name
 
 
 def _invoice(invoice_name, *, outstanding_required=False):
@@ -36,11 +35,11 @@ def _invoice(invoice_name, *, outstanding_required=False):
         frappe.throw("Step 6.16A Service Job link field is missing on Sales Invoice.")
     doc = frappe.get_doc("Sales Invoice", invoice_name)
     doc.check_permission("read")
-    if doc.company != COMPANY or not doc.get(INVOICE_JOB_FIELD):
-        frappe.throw("Select an AMCL Service Job Sales Invoice.")
+    if doc.company != current_company() or not doc.get(INVOICE_JOB_FIELD):
+        frappe.throw("Select an service-job Sales Invoice.")
     if doc.docstatus != 1 or doc.is_return:
         frappe.throw("Cash payment requires a submitted non-return Sales Invoice.")
-    if doc.currency != CURRENCY:
+    if doc.currency != current_currency():
         frappe.throw("This first cash workflow handles BDT invoices only.")
     if outstanding_required and flt(doc.outstanding_amount) <= 0:
         frappe.throw("Invoice has no outstanding balance.")
@@ -71,14 +70,14 @@ def get_cash_collection_overview(limit=100):
     limit = max(1, min(limit, 200))
     invoices = frappe.get_list(
         "Sales Invoice",
-        filters={"company": COMPANY, "docstatus": 1, "is_return": 0,
+        filters={"company": current_company(), "docstatus": 1, "is_return": 0,
                  INVOICE_JOB_FIELD: ["is", "set"]},
         fields=["name", "customer", "posting_date", "currency", "grand_total",
                 "outstanding_amount", "status", INVOICE_JOB_FIELD],
         order_by="posting_date desc, creation desc", limit_page_length=limit,
     )
     return {
-        "company": COMPANY, "currency": CURRENCY, "cash_account": CASH_ACCOUNT,
+        "company": current_company(), "currency": current_currency(), "cash_account": cash_account(),
         "invoices": invoices, "count": len(invoices),
         "can_create_payment": bool(frappe.has_permission("Payment Entry", "create")),
         "note": "Submitted invoices only. Outstanding values come from ERPNext, not repair estimates.",
@@ -135,7 +134,7 @@ def create_cash_payment_draft(invoice_name, amount):
     # Preserve ERPNext's mapped customer/receivables and FX details; restrict
     # this first version to same-currency cash transactions.
     if payment.payment_type != "Receive" or payment.party_type != "Customer" \
-            or payment.party != inv.customer or payment.company != COMPANY:
+            or payment.party != inv.customer or payment.company != current_company():
         frappe.throw("Unexpected native Payment Entry mapping; no document saved.")
 
     payment.mode_of_payment = "Cash"
@@ -157,7 +156,7 @@ def create_cash_payment_draft(invoice_name, amount):
     return {
         "success": True, "payment_entry": payment.name, "docstatus": 0,
         "sales_invoice": inv.name, "service_job": inv.get(INVOICE_JOB_FIELD),
-        "amount": float(amount), "currency": CURRENCY,
+        "amount": float(amount), "currency": current_currency(),
         "submitted": False, "ledger_posted": False,
         "message": "Draft only. Review and submit in ERPNext Desk after actually collecting cash.",
     }

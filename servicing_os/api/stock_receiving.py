@@ -1,9 +1,8 @@
 
 import frappe
 from frappe.utils import flt
+from servicing_os.api.site_company_706 import current_company, spare_parts_warehouse
 
-COMPANY = "AL MODINA COMPUTERS LIMITED"
-WAREHOUSE = "Spare Parts - AMCL"
 
 
 @frappe.whitelist()
@@ -14,7 +13,7 @@ def get_stock_overview():
     if not frappe.has_permission("Warehouse", "read"):
         frappe.throw("Warehouse read permission required", frappe.PermissionError)
 
-    warehouse = frappe.get_doc("Warehouse", WAREHOUSE)
+    warehouse = frappe.get_doc("Warehouse", spare_parts_warehouse())
     warehouse.check_permission("read")
 
     items = frappe.get_list(
@@ -36,7 +35,7 @@ def get_stock_overview():
             "Bin",
             {
                 "item_code": item.name,
-                "warehouse": WAREHOUSE,
+                "warehouse": spare_parts_warehouse(),
             },
             ["actual_qty", "reserved_qty"],
             as_dict=True,
@@ -56,8 +55,8 @@ def get_stock_overview():
         })
 
     return {
-        "company": COMPANY,
-        "warehouse": WAREHOUSE,
+        "company": current_company(),
+        "warehouse": spare_parts_warehouse(),
         "items": result,
         "count": len(result),
     }
@@ -85,8 +84,8 @@ def create_draft_purchase_receipt(supplier, items):
     if not isinstance(items, list) or not 1 <= len(items) <= 100:
         frappe.throw("Provide between 1 and 100 part rows.")
 
-    warehouse = frappe.get_doc("Warehouse", WAREHOUSE)
-    if warehouse.company != COMPANY or warehouse.is_group or warehouse.disabled:
+    warehouse = frappe.get_doc("Warehouse", spare_parts_warehouse())
+    if warehouse.company != current_company() or warehouse.is_group or warehouse.disabled:
         frappe.throw("Invalid receiving warehouse.")
 
     receipt_items = []
@@ -126,14 +125,14 @@ def create_draft_purchase_receipt(supplier, items):
             "uom": item.stock_uom,
             "stock_uom": item.stock_uom,
             "conversion_factor": 1,
-            "warehouse": WAREHOUSE,
+            "warehouse": spare_parts_warehouse(),
         })
 
     receipt = frappe.get_doc({
         "doctype": "Purchase Receipt",
         "supplier": supplier,
-        "company": COMPANY,
-        "set_warehouse": WAREHOUSE,
+        "company": current_company(),
+        "set_warehouse": spare_parts_warehouse(),
         "items": receipt_items,
     })
 

@@ -1,17 +1,20 @@
 <script setup>
-import { nextTick, onBeforeUnmount, ref, useId, watch } from 'vue'
+import { nextTick, onMounted, onBeforeUnmount, ref, useId, watch } from 'vue'
 
 const props = defineProps({
   modelValue: { type: String, default: '' },
   label: { type: String, required: true },
   placeholder: { type: String, default: 'Search by product name or item code' },
   lookup: { type: Function, required: true },
+  emptyMessage: { type: String, default: 'No matching products.' },
+  autofocus: Boolean,
   disabled: Boolean,
   selected: Boolean,
 })
 const emit = defineEmits(['update:modelValue', 'select'])
 const id = useId()
 const listId = `${id}-products`
+const input = ref(null)
 const visible = ref(false)
 const loading = ref(false)
 const products = ref([])
@@ -87,6 +90,7 @@ function keyboard(event) {
 }
 
 watch(() => props.disabled, disabled => { if (disabled) close() })
+onMounted(() => { if (props.autofocus) input.value?.focus() })
 onBeforeUnmount(clearRequest)
 </script>
 
@@ -94,7 +98,7 @@ onBeforeUnmount(clearRequest)
   <div class="sos-product-picker">
     <label class="sos-product-label" :for="id">
       <span>{{ label }}</span>
-      <input :id="id" :value="modelValue" :placeholder="placeholder" :disabled="disabled"
+      <input ref="input" :id="id" :value="modelValue" :placeholder="placeholder" :disabled="disabled"
         type="search" autocomplete="off" role="combobox" aria-autocomplete="list"
         :aria-expanded="visible" :aria-controls="visible ? listId : undefined"
         :aria-activedescendant="visible && active >= 0 ? `${listId}-${active}` : undefined"
@@ -103,7 +107,7 @@ onBeforeUnmount(clearRequest)
     <div v-if="visible" class="sos-product-panel">
       <p v-if="loading" role="status">Loading products…</p>
       <p v-else-if="message" role="alert">{{ message }}</p>
-      <p v-else-if="!products.length" role="status">No matching products.</p>
+      <p v-else-if="!products.length" role="status">{{ emptyMessage }}</p>
       <div :id="listId" class="sos-product-grid" role="listbox" aria-label="Product suggestions" :aria-busy="loading">
         <button v-for="(product, index) in products" :id="`${listId}-${index}`" :key="product.code"
           type="button" role="option" tabindex="-1" :aria-selected="active === index"

@@ -8,10 +8,8 @@ import json
 from decimal import Decimal, InvalidOperation
 import frappe
 from frappe.utils import flt, nowdate
+from servicing_os.api.site_company_706 import current_company, current_currency, selling_price_list, shop_warehouses
 
-COMPANY = 'AL MODINA COMPUTERS LIMITED'
-WAREHOUSES = ('Stores - AMCL', 'Spare Parts - AMCL', 'Used Laptops - AMCL')
-PRICE_LIST = 'Standard Selling'
 
 
 def _need(dt, perm, doc=None):
@@ -30,10 +28,10 @@ def _value(v, label, minimum=0):
 
 
 def _warehouse(name):
-    if name not in WAREHOUSES:
+    if name not in tuple(shop_warehouses().values()):
         frappe.throw('Choose one of the configured shop warehouses.')
     w = frappe.db.get_value('Warehouse', name, ['company', 'is_group', 'disabled'], as_dict=True)
-    if not w or w.company != COMPANY or w.is_group or w.disabled:
+    if not w or w.company != current_company() or w.is_group or w.disabled:
         frappe.throw('This warehouse is not an enabled stock warehouse for the shop.')
     return name
 
@@ -65,18 +63,18 @@ def _get_item(code):
 @frappe.whitelist()
 def get_shop_home():
     """Non-privileged view: every number is permission-checked and based on real records."""
-    result = {'company': COMPANY, 'shops': [], 'warehouses': [], 'recent_jobs': [],
+    result = {'company': current_company(), 'shops': [], 'warehouses': [], 'recent_jobs': [],
               'job_total': None, 'pending_jobs': None, 'customer_count': None,
               'item_count': None, 'warnings': []}
     if frappe.db.exists('DocType', 'Servicing Shop') and frappe.has_permission('Servicing Shop', 'read'):
         result['shops'] = [dict(r) for r in frappe.get_list('Servicing Shop',
                 fields=['name', 'shop_name', 'company', 'is_active', 'retail_warehouse',
                         'spare_parts_warehouse', 'used_laptop_warehouse'],
-                filters={'company': COMPANY}, limit_page_length=10)]
+                filters={'company': current_company()}, limit_page_length=10)]
     if not result['shops']:
         result['warnings'].append('No accessible Servicing Shop record. Check shop setup and user permissions.')
     if frappe.has_permission('Warehouse', 'read'):
-        for name in WAREHOUSES:
+        for name in tuple(shop_warehouses().values()):
             w = frappe.db.get_value('Warehouse', name, ['name', 'is_group', 'disabled'], as_dict=True)
             if w and not w.is_group:
                 result['warehouses'].append({'name': name, 'enabled': not bool(w.disabled)})
@@ -114,7 +112,7 @@ def get_product_setup():
     if frappe.has_permission('Supplier','read'):
         suppliers = [dict(r) for r in frappe.get_list('Supplier',
             fields=['name','supplier_name'],filters={'disabled':0},limit_page_length=250)]
-    return {'company':COMPANY,'warehouses':[_warehouse(w) for w in WAREHOUSES if frappe.db.exists('Warehouse',w)
+    return {'company':current_company(),'warehouses':[_warehouse(w) for w in tuple(shop_warehouses().values()) if frappe.db.exists('Warehouse',w)
                                              and not frappe.db.get_value('Warehouse',w,'is_group')
                                              and not frappe.db.get_value('Warehouse',w,'disabled')],
             'groups':groups, 'uoms':uoms,'brands':brands,'suppliers':suppliers,
@@ -123,7 +121,7 @@ def get_product_setup():
             'can_create_price':bool(frappe.has_permission('Item Price','create')),
             'can_create_receipt':bool(frappe.has_permission('Purchase Receipt','create')),
             'can_submit_receipt':bool(frappe.has_permission('Purchase Receipt','submit')),
-            'price_list':PRICE_LIST}
+            'price_list':selling_price_list()}
 
 
 @frappe.whitelist()
@@ -207,11 +205,11 @@ def create_product(data):
         amount = _value(rate,'selling price',0)
         if not frappe.has_permission('Item Price',ptype='create'):
             frappe.throw('Item Price creation permission is needed when you provide a selling price.')
-        if not frappe.db.exists('Price List',PRICE_LIST):
+        if not frappe.db.exists('Price List',selling_price_list()):
             frappe.throw('Standard Selling price list does not exist.')
-        currency = frappe.db.get_value('Price List',PRICE_LIST,'currency')
-        price = frappe.get_doc({'doctype':'Item Price','item_code':doc.name,'price_list':PRICE_LIST,
-                               'price_list_rate':float(amount),'currency':currency or 'BDT',
+        currency = frappe.db.get_value('Price List',selling_price_list(),'currency')
+        price = frappe.get_doc({'doctype':'Item Price','item_code':doc.name,'price_list':selling_price_list(),
+                               'price_list_rate':float(amount),'currency':currency or current_currency(),
                                'selling':1,'uom':uom})
         price.insert()
     return {'item_code':doc.name,'item_name':doc.item_name,'serialized':bool(serial),
@@ -252,7 +250,7 @@ def create_receipt_draft(data):
         if not frappe.get_meta('Purchase Receipt Item').has_field('serial_no'):
             frappe.throw('This version does not expose a serial number field on receipt items.')
         detail['serial_no']='\n'.join(nums)
-    doc = frappe.get_doc({'doctype':'Purchase Receipt','company':COMPANY,'supplier':supplier,
+    doc = frappe.get_doc({'doctype':'Purchase Receipt','company':current_company(),'supplier':supplier,
                'posting_date':nowdate(),'set_warehouse':warehouse,'items':[detail],
                'remarks':'SERVICING OS quick stock intake. Confirm the physical goods before submitting.'})
     doc.insert()
@@ -285,11 +283,11 @@ def _prepare_serial_bundle(doc, row):
         if frappe.db.exists('Serial No', physical):
             frappe.throw('Serial number already exists: ' + physical)
         sn = frappe.get_doc({'doctype':'Serial No','serial_no':physical,
-                             'item_code':row.item_code,'company':COMPANY})
+                             'item_code':row.item_code,'company':current_company()})
         sn.insert()  # actual warehouse/status are set by the receipt's stock ledger
         internal_ids.append(sn.name)
     obj = SerialBatchCreation({'item_code':row.item_code,'warehouse':row.warehouse,
-         'company':COMPANY,'voucher_type':'Purchase Receipt','voucher_no':doc.name,
+         'company':current_company(),'voucher_type':'Purchase Receipt','voucher_no':doc.name,
          'voucher_detail_no':row.name,'type_of_transaction':'Inward',
          'qty':float(row.qty),'incoming_rate':float(row.rate),'do_not_submit':True})
     bundle = obj.make_serial_and_batch_bundle(serial_nos=internal_ids)
@@ -305,8 +303,8 @@ def confirm_receipt(receipt):
     _need('Purchase Receipt','submit')
     doc = frappe.get_doc('Purchase Receipt',str(receipt or '').strip())
     _need('Purchase Receipt','read',doc)
-    if doc.company != COMPANY or doc.docstatus != 0 or len(doc.items)!=1:
-        frappe.throw('Only one-line, draft AMCL receipts can be confirmed from this screen.')
+    if doc.company != current_company() or doc.docstatus != 0 or len(doc.items)!=1:
+        frappe.throw('Only one-line, draft company receipts can be confirmed from this screen.')
     if doc.owner != frappe.session.user and frappe.session.user != 'Administrator' and 'System Manager' not in frappe.get_roles():
         frappe.throw('Only the receipt creator or manager may submit this receipt.')
     # Savepoint protects any newly generated SN/SABB docs if version-specific checks fail.

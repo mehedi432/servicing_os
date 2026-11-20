@@ -1,9 +1,9 @@
 import frappe
 from frappe.utils import flt
+from servicing_os.api.site_company_706 import current_company, spare_parts_warehouse
 
 # SERVICING_PARTS_615C2
 GROUP = "Computer Spare Parts"
-WAREHOUSE = "Spare Parts - AMCL"
 
 
 def _access():
@@ -35,25 +35,25 @@ def search_spare_parts(search=""):
     codes = [item.name for item in items]
     quantities = {}
     if codes:
-        bins = frappe.get_all("Bin", filters={"warehouse": WAREHOUSE,
+        bins = frappe.get_all("Bin", filters={"warehouse": spare_parts_warehouse(),
                          "item_code": ["in", codes]},
                          fields=["item_code", "actual_qty"])
         quantities = {row.item_code: flt(row.actual_qty) for row in bins}
     return {"items": [{"item_code": item.name, "item_name": item.item_name,
                        "uom": item.stock_uom,
                        "available_qty": quantities.get(item.name, 0)} for item in items],
-            "warehouse": WAREHOUSE}
+            "warehouse": spare_parts_warehouse()}
 
 
 @frappe.whitelist()
 def get_request_lines(material_request):
     """Read only lines for a request, gated by existing job-level permission checks."""
     _access()
-    from servicing_os.api.parts_request import check_job_access, COMPANY
+    from servicing_os.api.parts_request import check_job_access
     if not material_request:
         frappe.throw("Material Request is required")
     mr = frappe.get_doc("Material Request", material_request)
-    if (mr.company != COMPANY or mr.material_request_type != "Material Issue"
+    if (mr.company != current_company() or mr.material_request_type != "Material Issue"
             or not mr.get("custom_service_job")):
         frappe.throw("Not a Service Job parts request", frappe.PermissionError)
     check_job_access(mr.custom_service_job)

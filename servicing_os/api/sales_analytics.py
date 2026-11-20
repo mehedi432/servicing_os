@@ -12,8 +12,8 @@ import calendar
 import frappe
 from frappe import _
 from frappe.utils import flt, getdate, nowdate
+from servicing_os.api.site_company_706 import current_company
 
-COMPANY = "AL MODINA COMPUTERS LIMITED"
 PERIODS = {"daily": 366, "weekly": 156, "monthly": 60, "yearly": 10}
 PAGE_SIZE = 750
 MAX_INVOICES = 30000
@@ -131,13 +131,13 @@ def period_report(granularity='daily', from_date=None, to_date=None):
     _need('Sales Invoice')
     if granularity not in PERIODS:
         frappe.throw(_('Invalid period.'))
-    if not frappe.has_permission('Company', 'read', COMPANY):
+    if not frappe.has_permission('Company', 'read', current_company()):
         frappe.throw(_('You cannot report on this company.'), frappe.PermissionError)
     first, last, bucket, from_bucket, to_bucket = _bounds(granularity, from_date, to_date)
     records = defaultdict(_empty)
     # Submitted invoice base currency amount is net of taxes; return totals are negative.
     inv_count = 0
-    for inv in _pages('Sales Invoice', {'company': COMPANY, 'docstatus': 1,
+    for inv in _pages('Sales Invoice', {'company': current_company(), 'docstatus': 1,
                   'posting_date': ['between', [str(first), str(last)]]},
                   ['name', 'posting_date', 'base_net_total', 'is_return'], MAX_INVOICES):
         row = records[bucket(getdate(inv.posting_date))]
@@ -157,7 +157,7 @@ def period_report(granularity='daily', from_date=None, to_date=None):
     gl_count = 0
     if pnl_visible:
         account_lookup = {}
-        for acc in _pages('Account', {'company': COMPANY, 'is_group': 0},
+        for acc in _pages('Account', {'company': current_company(), 'is_group': 0},
                           ['name','root_type','account_type','report_type'], 10000):
             if acc.root_type in ('Income','Expense') and acc.report_type == 'Profit and Loss':
                 account_lookup[acc.name] = (acc.root_type, acc.account_type)
@@ -165,7 +165,7 @@ def period_report(granularity='daily', from_date=None, to_date=None):
             pnl_visible = False
             explanation = 'No accessible Profit and Loss accounts configured.'
         else:
-            for gl in _pages('GL Entry', {'company': COMPANY,'is_cancelled': 0,
+            for gl in _pages('GL Entry', {'company': current_company(),'is_cancelled': 0,
                        'posting_date': ['between', [str(first), str(last)]],
                        'voucher_type': ['!=', 'Period Closing Voucher']},
                        ['name','posting_date','account','debit','credit','is_opening'], MAX_GL):
@@ -208,7 +208,7 @@ def period_report(granularity='daily', from_date=None, to_date=None):
             totals[key] += row[key]
         rows.append(dict(period_key=d.isoformat(), label=_period_label(d,granularity),
                          **_round(row,pnl_visible)))
-    return {'company': COMPANY, 'currency': frappe.db.get_value('Company',COMPANY,'default_currency') or 'BDT',
+    return {'company': current_company(), 'currency': frappe.db.get_value('Company',current_company(),'default_currency') or 'BDT',
             'granularity': granularity, 'from_date': str(first), 'to_date': str(last),
             'pnl_visible': bool(pnl_visible), 'pnl_note': explanation,
             'totals': _round(totals,pnl_visible), 'rows': list(reversed(rows)),

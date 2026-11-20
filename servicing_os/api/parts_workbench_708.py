@@ -179,13 +179,17 @@ def overview(job_name):
 def search_items(job_name, search=""):
     _, _, warehouse = _scope(job_name)
     term = str(search or "").strip()[:80]
-    if len(term) < 2:
-        return {"items": []}
-    pat = "%" + term + "%"
-    rows = frappe.get_all(
-        "Item", filters={"disabled":0, "is_stock_item":1, "is_sales_item":1},
-        or_filters=[["Item","name","like",pat], ["Item","item_name","like",pat]],
-        fields=["name", "item_name", "stock_uom"], order_by="item_name asc", limit_page_length=25,
+    if not frappe.has_permission("Item", "read"):
+        frappe.throw("You do not have permission to read stock items.", frappe.PermissionError)
+    query = {}
+    if term:
+        escaped = term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        pattern = f"%{escaped}%"
+        query["or_filters"] = [["name", "like", pattern], ["item_name", "like", pattern]]
+    rows = frappe.get_list(
+        "Item", filters={"disabled": 0, "is_stock_item": 1},
+        fields=["name", "item_name", "stock_uom"], order_by="item_name asc, name asc",
+        limit_page_length=8, **query,
     )
     if not rows:
         return {"items":[]}
@@ -215,8 +219,8 @@ def create_request(job_name, items, remarks=""):
         if not code or code in seen:
             frappe.throw("Select unique Item Codes for every row")
         seen.add(code)
-        data=frappe.db.get_value("Item", code, ["disabled","is_stock_item","is_sales_item","stock_uom"], as_dict=True)
-        if not data or data.disabled or not data.is_stock_item or not data.is_sales_item:
+        data=frappe.db.get_value("Item", code, ["disabled","is_stock_item","stock_uom"], as_dict=True)
+        if not data or data.disabled or not data.is_stock_item:
             frappe.throw("Invalid stock part: " + code)
         lines.append({"item_code":code,"qty":_positive_qty(line.get("qty")),
                      "uom":data.stock_uom,"schedule_date":nowdate(),"warehouse":warehouse})

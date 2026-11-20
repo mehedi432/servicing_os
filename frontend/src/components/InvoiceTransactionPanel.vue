@@ -4,6 +4,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 const props = defineProps({
   invoiceName: { type: String, required: true },
   mode: { type: String, required: true },
+  backLabel: { type: String, default: 'Back to invoice' },
 })
 const emit = defineEmits(['back', 'busy', 'changed'])
 const context = ref(null)
@@ -30,7 +31,8 @@ async function rpc(module, action, payload) {
   if (payload) {
     headers['Content-Type'] = 'application/json'
     headers['X-Frappe-CSRF-Token'] = window.frappe?.csrf_token || window.csrf_token ||
-      document.querySelector('meta[name="csrf-token"]')?.content || ''
+      document.querySelector('meta[name="csrf-token"]')?.content ||
+      decodeURIComponent(document.cookie.match(/(?:^|;\s*)csrf_token=([^;]*)/)?.[1] || '')
     options.method = 'POST'
     options.body = JSON.stringify({ invoice_name: props.invoiceName, ...payload })
   } else {
@@ -121,7 +123,7 @@ onBeforeUnmount(() => controller.abort())
   <article class="invoice-transaction">
     <header class="transaction-header">
       <div><h3>{{ isDraft ? 'Edit draft' : 'Record payment' }}</h3><p>{{ invoiceName }}</p></div>
-      <button type="button" :disabled="saving" @click="emit('back')">Back to invoice</button>
+      <button type="button" :disabled="saving" @click="emit('back')">{{ backLabel }}</button>
     </header>
     <p v-if="loading" role="status">Loading…</p>
     <p v-if="error" class="transaction-error" role="alert">{{ error }}</p>

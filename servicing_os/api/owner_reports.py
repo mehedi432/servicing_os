@@ -1,16 +1,14 @@
-"""Owner reports for AMCL. Read-only ERPNext documents; no ledger posting.
+"""Owner reports for the active shop. Read-only ERPNext documents; no ledger posting.
 
 Period service jobs are grouped by RECEIVED date and current status (not historical
 status change date). Invoice revenue is based on submitted invoice POSTING dates.
-Collections are submitted Payment Entry allocations to AMCL repair invoices by
+Collections are submitted Payment Entry allocations to company repair invoices by
 PAYMENT posting date. Current dues include all historical open service invoices.
 """
 import frappe
 from frappe.utils import getdate, nowdate, get_first_day, add_days
+from servicing_os.api.site_company_706 import current_company, current_currency, site_shop_context, spare_parts_warehouse
 
-COMPANY = "AL MODINA COMPUTERS LIMITED"
-CURRENCY = "BDT"
-WAREHOUSE = "Spare Parts - AMCL"
 SERVICE_LINK = "custom_service_job"
 MANAGER_ROLES = {"System Manager", "Accounts Manager"}
 
@@ -49,15 +47,15 @@ def get_owner_dashboard(from_date=None, to_date=None):
     if not frappe.get_meta('Sales Invoice').has_field(SERVICE_LINK):
         frappe.throw('Sales Invoice Service Job link missing; install Step 6.16A first.')
     start, end, end_exclusive = _range(from_date, to_date)
-    args = {'company': COMPANY, 'start': start, 'end': end,
-            'end_exclusive': end_exclusive, 'warehouse': WAREHOUSE,
-            'currency': CURRENCY}
+    args = {'company': current_company(), 'start': start, 'end': end,
+            'end_exclusive': end_exclusive, 'warehouse': spare_parts_warehouse(),
+            'currency': current_currency(), 'shop': site_shop_context()['shop']}
 
     # Service Jobs received IN the date range, grouped by their CURRENT statuses.
     stage_rows = frappe.db.sql("""
         SELECT COALESCE(NULLIF(status, ''), 'Unknown') AS status, COUNT(*) AS qty
           FROM `tabService Job`
-         WHERE received_date >= %(start)s
+         WHERE shop = %(shop)s AND received_date >= %(start)s
            AND received_date < %(end_exclusive)s
          GROUP BY status ORDER BY qty DESC, status ASC
     """, args, as_dict=True)
@@ -73,10 +71,10 @@ def get_owner_dashboard(from_date=None, to_date=None):
                SUM(CASE WHEN sj.status = 'Waiting for Parts' THEN 1 ELSE 0 END) AS waiting_parts
           FROM `tabService Job` sj
           LEFT JOIN `tabUser` u ON u.name = sj.technician
-         WHERE sj.status NOT IN ('Delivered', 'Cancelled')
+         WHERE sj.shop = %(shop)s AND sj.status NOT IN ('Delivered', 'Cancelled')
          GROUP BY sj.technician, u.full_name
          ORDER BY active_jobs DESC, technician ASC
-    """, as_dict=True)
+    """, args, as_dict=True)
 
     # Submitted repair Sales Invoices only. Credit notes reduce signed net revenue.
     invoice_finance = _one("""
@@ -159,7 +157,7 @@ def get_owner_dashboard(from_date=None, to_date=None):
     """, args, as_dict=True)
 
     return {
-        'company': COMPANY, 'currency': CURRENCY,
+        'company': current_company(), 'currency': current_currency(),
         'from_date': start, 'to_date': end,
         'service_jobs': {'received_in_period': jobs_total,
                          'current_stage_for_received_jobs': stage_counts},
@@ -187,7 +185,7 @@ def get_owner_dashboard(from_date=None, to_date=None):
             'submitted_pending_in_period': int(requests.submitted_pending or 0),
         },
         'stock_now': {
-            'warehouse': WAREHOUSE,
+            'warehouse': spare_parts_warehouse(),
             'skus_with_bin': int(stock.stocked_skus or 0),
             'on_hand_units': float(stock.quantity_on_hand or 0),
             'reserved_units': float(stock.reserved_quantity or 0),

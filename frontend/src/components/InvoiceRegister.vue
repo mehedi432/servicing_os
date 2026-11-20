@@ -92,8 +92,8 @@ function switchType(doctype) {
   apply()
 }
 
-function showInvoice(row) {
-  preview.value = { name: row.name, doctype: selectedType.value, previewOnly: Number(row.docstatus) !== 1 }
+function showInvoice(row, checkout = false, pay = false) {
+  preview.value = { name: row.name, doctype: selectedType.value, previewOnly: Number(row.docstatus) !== 1, checkout, pay }
 }
 
 function startLabel(row) {
@@ -201,17 +201,21 @@ onBeforeUnmount(() => {
       <p v-else-if="!rows.length" class="invoice-message" role="status">No invoices match these filters.</p>
       <div v-else class="invoice-table-scroll" tabindex="0" role="region" aria-label="Invoice records">
         <table class="invoice-table">
-          <thead><tr><th scope="col">Invoice</th><th scope="col">Customer</th><th scope="col">Posting date</th><th scope="col">Status</th><th v-if="showStream" scope="col">Revenue stream</th><th scope="col" class="amount">Total</th><th scope="col">View</th></tr></thead>
+          <thead><tr><th scope="col">Invoice</th><th scope="col">Customer</th><th scope="col">Posting date</th><th scope="col">Status</th><th v-if="showStream" scope="col">Revenue stream</th><th scope="col" class="amount">Total</th><th scope="col">Actions</th></tr></thead>
           <tbody>
             <tr v-for="row in rows" :key="row.name">
               <td>
-                <button type="button" class="invoice-link" @click="showInvoice(row)">{{ row.name }}</button>
+                <button type="button" class="invoice-link" @click="showInvoice(row, true)">{{ row.name }}</button>
                 <small v-if="row.custom_service_job">{{ row.custom_service_job }}</small>
                 <small v-if="row.is_return">Return</small>
               </td>
               <td>{{ row.customer_name || row.customer || '—' }}</td>
               <td><time v-if="row.posting_date" :datetime="row.posting_date">{{ row.posting_date }}</time></td>
-              <td><span class="invoice-status">{{ row.status || documentStates[row.docstatus] || '—' }}</span></td>
+              <td><span class="invoice-status">{{ row.status || documentStates[row.docstatus] || '—' }}</span>
+                <small v-if="showStream && Number(row.docstatus) === 1 && Number(row.outstanding_amount) > 0">
+                  Due {{ row.currency }} {{ formatAmount.format(row.outstanding_amount) }}
+                </small>
+              </td>
               <td v-if="showStream">
                 <span>{{ row.revenue_stream || 'Unclassified' }}</span>
                 <small v-if="row.revenue_basis === 'historical'">From invoice history</small>
@@ -232,7 +236,11 @@ onBeforeUnmount(() => {
                   type="button" @click="startLabel(row)">{{ row.revenue_basis === 'manual' ? 'Change label' : 'Classify' }}</button>
               </td>
               <td class="amount">{{ row.currency }} {{ formatAmount.format(row.grand_total ?? 0) }}</td>
-              <td><button type="button" class="invoice-button" :aria-label="'Preview ' + row.name" @click="showInvoice(row)">Preview</button></td>
+              <td><div class="row-invoice-actions">
+                <button type="button" class="invoice-button" :aria-label="'Preview ' + row.name" @click="showInvoice(row)">Preview</button>
+                <button v-if="result?.can_receive_payment && Number(row.docstatus) === 1 && !Number(row.is_return) && Number(row.outstanding_amount) > 0"
+                  type="button" class="invoice-button primary" :aria-label="'Receive payment for ' + row.name" @click="showInvoice(row, true, true)">Receive payment</button>
+              </div></td>
             </tr>
           </tbody>
         </table>
@@ -244,7 +252,7 @@ onBeforeUnmount(() => {
       </footer>
     </div>
     <UnifiedInvoicePrint684 v-if="preview" :key="preview.doctype + preview.name" :invoice-name="preview.name"
-      :doctype="preview.doctype" :preview-only="preview.previewOnly" submit-draft @close="preview = null" />
+      :doctype="preview.doctype" :preview-only="preview.previewOnly" :checkout="preview.checkout" :start-payment="preview.pay" :submit-draft="preview.checkout" @close="preview = null" />
   </section>
 </template>
 
@@ -260,6 +268,7 @@ onBeforeUnmount(() => {
 .invoice-filters label{display:grid;gap:5px;min-width:0;font-size:.76rem;font-weight:650;color:#624a38}
 .invoice-filters input,.invoice-filters select,.invoice-button{min-width:0;min-height:38px;background:#fffdf9;border:1px solid #d9c4af;border-radius:8px;padding:7px 11px;color:#382820;font-size:.82rem}
 .invoice-filters input,.invoice-filters select{width:100%;height:38px;margin:0;font:inherit;font-size:.82rem;font-weight:450;line-height:1.25}
+.row-invoice-actions{display:flex;flex-wrap:wrap;gap:6px}
 .invoice-button{font-weight:650;white-space:nowrap}
 .invoice-button:not(:disabled):hover{border-color:#795337}
 .invoice-button:focus-visible,.invoice-filters input:focus-visible,.invoice-filters select:focus-visible,.invoice-link:focus-visible,.invoice-label-editor select:focus-visible{outline:2px solid #8b5d3c;outline-offset:2px}

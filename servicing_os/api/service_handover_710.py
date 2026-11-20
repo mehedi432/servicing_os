@@ -1,6 +1,7 @@
 """SERVICING OS 7.10: authorized, idempotent Service Job handover."""
 import frappe
 from servicing_os.api.site_company_706 import validate_job_shop
+from servicing_os.api.service_invoice_661 import active_sale_invoice_names, linked_job
 
 @frappe.whitelist(methods=['POST'])
 def deliver_service_job(job_name, confirmation):
@@ -13,21 +14,21 @@ def deliver_service_job(job_name, confirmation):
     job=frappe.get_doc('Service Job',name)
     job.check_permission('read')
     job.check_permission('write')
-    validate_job_shop(job)
+    context = validate_job_shop(job)
     if job.status=='Delivered':
         return {'service_job':name,'status':'Delivered','already_delivered':True}
     if job.status not in ('Completed','Ready to Deliver'):
         frappe.throw('Complete the repair before delivery.')
-    if not frappe.db.has_column('Sales Invoice','custom_service_job'):
-        frappe.throw('Sales Invoice Service Job link missing; run schema migration.')
-    invoices=frappe.get_all('Sales Invoice',filters={
-        'custom_service_job':name,'company':frappe.db.get_value('Servicing Shop',job.shop,'company'),
-        'is_return':0,'docstatus':['!=',2]},fields=['name','docstatus','customer'],limit_page_length=10)
-    if len(invoices)!=1 or invoices[0].docstatus!=1 or invoices[0].customer!=job.customer:
+    invoices = active_sale_invoice_names(name, context['company'])
+    if len(invoices) != 1:
+        frappe.throw('Exactly one submitted Sales Invoice for this Service Job is required before delivery.')
+    invoice = frappe.get_doc('Sales Invoice', invoices[0])
+    invoice.check_permission('read')
+    if invoice.docstatus != 1 or invoice.customer != job.customer or linked_job(invoice) != name:
         frappe.throw('Exactly one submitted Sales Invoice for this Service Job is required before delivery.')
     job.status='Delivered'
     job.save()
-    return {'service_job':name,'status':'Delivered','invoice':invoices[0].name,'already_delivered':False}
+    return {'service_job':name,'status':'Delivered','invoice':invoice.name,'already_delivered':False}
 
 
 # SOS_PREMIUM_HANDOVER_711 — permission-aware, read-only prerequisites.

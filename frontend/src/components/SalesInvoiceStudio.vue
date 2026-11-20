@@ -1,485 +1,280 @@
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
-import QRCode from './invoice_qr_682/index.js'
-import QRErrorCorrectLevel from './invoice_qr_682/QRErrorCorrectLevel.js'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import JsBarcode from 'jsbarcode'
+import QRCode from 'qrcode'
+import invoicePaperCss from './invoice-paper.css?raw'
+
 const props = defineProps({
-  receipt: { type: Object, default: null },
+  receipt: Object,
   invoiceName: { type: String, default: '' },
-  error: { type: String, default: '' },
-  duplicate: { type: Boolean, default: false },
-  previewOnly: { type: Boolean, default: false },
-  draftAction: { type: Boolean, default: false },
-  actionHeading: { type: String, default: '' },
-  canSubmit: { type: Boolean, default: false },
-  submitting: { type: Boolean, default: false },
-  submitError: { type: String, default: '' },
-  submitMessage: { type: String, default: '' },
+  error: String,
+  duplicate: Boolean,
+  previewOnly: Boolean,
+  draftAction: Boolean,
+  actionHeading: String,
+  canSubmit: Boolean,
+  submitting: Boolean,
+  submitError: String,
+  submitMessage: String,
 })
 const emit = defineEmits(['close', 'retry', 'submit'])
-const format=ref('a4')
-const sos7111Copy=ref(props.duplicate ? 'duplicate' : 'customer')
+const format = ref('a4')
+const copy = ref(props.duplicate ? 'duplicate' : 'customer')
 const dialog = ref(null)
-const paper=ref(null)
+const paper = ref(null)
 const printError = ref('')
 const formats = [
-  { id: 'a4', label: 'A4', size: '210 × 297 mm' },
-  { id: 'a5', label: 'A5', size: '148 × 210 mm' },
-  { id: 'thermal', label: '80 mm Thermal', size: 'Receipt roll' },
-  { id: 'delivery', label: 'Delivery Note', size: 'A4 · No prices' },
+  { id: 'a4', label: 'A4', size: '210 × 297 mm', barcodeLimit: 330 },
+  { id: 'a5', label: 'A5', size: '148 × 210 mm', barcodeLimit: 285 },
+  { id: 'thermal', label: '80 mm Thermal', size: 'Receipt roll', barcodeLimit: 265 },
+  { id: 'delivery', label: 'Delivery Note', size: 'A4 · No prices', barcodeLimit: 330 },
 ]
 onMounted(() => dialog.value.showModal())
 onBeforeUnmount(() => dialog.value?.close())
-const r=computed(()=>props.receipt||{})
-const draftOrCancelled=computed(()=>['0','2'].includes(String(r.value.docstatus)))
-const canPrint=computed(()=>!props.actionHeading && !props.previewOnly && !draftOrCancelled.value)
-const heading=computed(()=>props.actionHeading || (canPrint.value?'Print / Reprint Invoice':'Invoice Preview'))
-const documentStamp=computed(()=>{
- if(String(r.value.docstatus)==='0')return 'DRAFT'
- if(String(r.value.docstatus)==='2')return 'CANCELLED'
- return sos7111Copy.value==='duplicate'?'DUPLICATE / REPRINT':'CUSTOMER COPY'
-})
-const items=computed(()=>Array.isArray(r.value.items)?r.value.items:[])
-const val=(...keys)=>{for(const k of keys){const v=r.value[k];if(v!==undefined&&v!==null&&v!=='')return v}return null}
-const num=v=>v===null||v===undefined||v===''?null:Number(v)
-const money=v=>'৳'+Number(v||0).toLocaleString('en-BD',{minimumFractionDigits:2,maximumFractionDigits:2})
-const amount=i=>num(i.amount)??((num(i.qty)||0)*(num(i.rate)||0))
-const unit=i=>num(i.rate)??(Number(i.qty)?amount(i)/Number(i.qty):null)
-const subtotal=computed(()=>num(val('net_total','subtotal'))??items.value.reduce((s,i)=>s+amount(i),0))
-const total=computed(()=>num(val('grand_total','total'))??subtotal.value)
-const discount=computed(()=>num(val('discount_amount','discount')))
-const tax=computed(()=>num(val('total_taxes_and_charges','tax_amount','tax')))
-const paid=computed(()=>num(val('paid_amount','paid')))
-const outstanding=computed(()=>num(val('outstanding_amount','outstanding')))
-const invoice=computed(()=>val('invoice','name')||props.invoiceName||'—')
-const customer=computed(()=>val('customer_name','customer')||'Customer')
-const date=computed(()=>val('posting_date','invoice_date','date'))
-const financial=computed(()=>format.value!=='delivery')
-const itemSerial=i=>[i.serial_no,i.serial_number,i.serial_code,i.serial_numbers,i.serial].filter(v=>v!==undefined&&v!==null&&String(v).trim()).map(String).join(', ')
-const itemWarranty=i=>i.warranty_days??i.manual_warranty_days??i.warranty_period_days??null
 
-// SOS_INVOICE_LUXE_682 — real, offline-generated QR and Code39 barcode.
-// QR contains invoice ID (not an unverified public verification claim).
-const qrText=computed(()=>String(val('verification_url')||invoice.value||'').trim())
-const qrMatrix=computed(()=>{
- if(!qrText.value||qrText.value==='—')return []
- try{const qr=new QRCode(-1,QRErrorCorrectLevel.M);qr.addData(qrText.value);qr.make();return qr.modules.map(row=>row.map(Boolean))}
- catch(e){console.warn('Invoice QR unavailable',e);return []}
+const r = computed(() => props.receipt || {})
+const draft = computed(() => String(r.value.docstatus) === '0')
+const cancelled = computed(() => String(r.value.docstatus) === '2')
+const canPrint = computed(() => Boolean(props.receipt) && !props.actionHeading && !props.previewOnly && !draft.value && !cancelled.value)
+const heading = computed(() => props.actionHeading || (canPrint.value ? 'Print / Reprint Invoice' : 'Invoice Preview'))
+const stamp = computed(() => draft.value ? 'Draft' : cancelled.value ? 'Cancelled' : copy.value === 'duplicate' ? 'Duplicate / Reprint' : 'Customer copy')
+const financial = computed(() => format.value !== 'delivery')
+const title = computed(() => !financial.value ? 'Delivery Note' : r.value.doctype === 'POS Invoice' ? 'POS Invoice' : 'Sales Invoice')
+const items = computed(() => Array.isArray(r.value.items) ? r.value.items : [])
+const value = (...keys) => keys.map(key => r.value[key]).find(val => val != null && val !== '')
+const number = val => val == null || val === '' ? null : Number(val)
+const invoice = computed(() => value('invoice', 'name') || props.invoiceName)
+const customer = computed(() => value('customer_name', 'customer') || 'Customer')
+const company = computed(() => value('company') || 'AL MODINA COMPUTERS LTD')
+const isAlModina = computed(() => /^AL MODINA COMPUTERS (?:LTD|LIMITED)$/i.test(company.value))
+const companyAddress = computed(() => value('company_address') || (isAlModina.value ? 'Mawna Chowrasta, Sreepur, Gazipur, Bangladesh' : ''))
+const companyPhone = computed(() => value('company_phone') || (isAlModina.value ? '+8801911179837' : ''))
+const currency = computed(() => value('currency') || 'BDT')
+const money = val => (currency.value === 'BDT' ? '৳' : currency.value + ' ') + Number(val || 0).toLocaleString('en-BD', {
+  minimumFractionDigits: 2, maximumFractionDigits: 2,
 })
-const qrRects=computed(()=>{
- const a=[];const m=qrMatrix.value
- for(let y=0;y<m.length;y++)for(let x=0;x<m[y].length;x++)if(m[y][x])a.push({x:x+4,y:y+4})
- return a
+const amount = item => number(item.amount) ?? ((number(item.qty) || 0) * (number(item.rate) || 0))
+const unit = item => number(item.rate) ?? (Number(item.qty) ? amount(item) / Number(item.qty) : null)
+const subtotal = computed(() => number(value('net_total', 'subtotal')) ?? items.value.reduce((sum, item) => sum + amount(item), 0))
+const total = computed(() => number(value('grand_total', 'total')) ?? subtotal.value)
+const discount = computed(() => number(value('discount_amount', 'discount')))
+const tax = computed(() => number(value('total_taxes_and_charges', 'tax_amount', 'tax')))
+const paid = computed(() => number(value('paid_amount', 'paid')))
+const outstanding = computed(() => number(value('outstanding_amount', 'outstanding')))
+const serials = item => [...new Set([item.serial_no, item.serial_number, item.serial_code, item.serial_numbers, item.serial]
+  .flat().filter(Boolean).flatMap(serial => String(serial).split(/[\r\n,]+/)).map(serial => serial.trim()).filter(Boolean))]
+const warranty = item => {
+  const days = item.warranty_days ?? item.manual_warranty_days ?? item.warranty_period_days
+  return item.warranty_type !== 'No Warranty' && Number(days) > 0 ? days : null
+}
+
+const qrText = computed(() => String(value('verification_url') || invoice.value || '').trim())
+const qr = computed(() => {
+  if (!qrText.value || qrText.value === '—') return null
+  try {
+    const { modules } = QRCode.create(qrText.value, { errorCorrectionLevel: 'M' })
+    // Four modules of white space are included on every side within the SVG.
+    const path = []
+    for (let row = 0; row < modules.size; row += 1) {
+      for (let col = 0; col < modules.size; col += 1) {
+        if (modules.get(row, col)) path.push(`M${col + 4} ${row + 4}h1v1h-1z`)
+      }
+    }
+    return { path: path.join(''), size: modules.size + 8 }
+  } catch {
+    return null
+  }
 })
-const qrSize=computed(()=>qrMatrix.value.length+8)
-// SOS_MINIMAL_PREMIUM_685 — Code 128 Set B with checksum
-const code128Patterns = {"0":"BaBbBb","1":"BbBaBb","2":"BbBbBa","3":"AbAbBc","4":"AbAcBb","5":"AcAbBb","6":"AbBbAc","7":"AbBcAb","8":"AcBbAb","9":"BbAbAc","10":"BbAcAb","11":"BcAbAb","12":"AaBbCb","13":"AbBaCb","14":"AbBbCa","15":"AaCbBb","16":"AbCaBb","17":"AbCbBa","18":"BbCbAa","19":"BbAaCb","20":"BbAbCa","21":"BaCbAb","22":"BbCaAb","23":"CaBaCa","24":"CaAbBb","25":"CbAaBb","26":"CbAbBa","27":"CaBbAb","28":"CbBaAb","29":"CbBbAa","30":"BaBaBc","31":"BaBcBa","32":"BcBaBa","33":"AaAcBc","34":"AcAaBc","35":"AcAcBa","36":"AaBcAc","37":"AcBaAc","38":"AcBcAa","39":"BaAcAc","40":"BcAaAc","41":"BcAcAa","42":"AaBaCc","43":"AaBcCa","44":"AcBaCa","45":"AaCaBc","46":"AaCcBa","47":"AcCaBa","48":"CaCaBa","49":"BaAcCa","50":"BcAaCa","51":"BaCaAc","52":"BaCcAa","53":"BaCaCa","54":"CaAaBc","55":"CaAcBa","56":"CcAaBa","57":"CaBaAc","58":"CaBcAa","59":"CcBaAa","60":"CaDaAa","61":"BbAdAa","62":"DcAaAa","63":"AaAbBd","64":"AaAdBb","65":"AbAaBd","66":"AbAdBa","67":"AdAaBb","68":"AdAbBa","69":"AaBbAd","70":"AaBdAb","71":"AbBaAd","72":"AbBdAa","73":"AdBaAb","74":"AdBbAa","75":"BdAbAa","76":"BbAaAd","77":"DaCaAa","78":"BdAaAb","79":"AcDaAa","80":"AaAbDb","81":"AbAaDb","82":"AbAbDa","83":"AaDbAb","84":"AbDaAb","85":"AbDbAa","86":"DaAbAb","87":"DbAaAb","88":"DbAbAa","89":"BaBaDa","90":"BaDaBa","91":"DaBaBa","92":"AaAaDc","93":"AaAcDa","94":"AcAaDa","95":"AaDaAc","96":"AaDcAa","97":"DaAaAc","98":"DaAcAa","99":"AaCaDa","100":"AaDaCa","101":"CaAaDa","102":"DaAaCa","103":"BaAdAb","104":"BaAbAd","105":"BaAbCb","106":"BcCaAaB"}
-const barcodeValue=computed(()=>String(invoice.value||'').trim())
-const barcodeValid=computed(()=>barcodeValue.value.length>0&&barcodeValue.value.length<=60&&[...barcodeValue.value].every(c=>c.charCodeAt(0)>=32&&c.charCodeAt(0)<=126))
-const barcodeBars=computed(()=>{
- if(!barcodeValid.value)return []
- const codes=[104];let checksum=104
- for(let i=0;i<barcodeValue.value.length;i++){const c=barcodeValue.value.charCodeAt(i)-32;codes.push(c);checksum+=c*(i+1)}
- codes.push(checksum%103,106)
- const bars=[];let x=10
- for(const code of codes){for(const char of code128Patterns[String(code)]){const w='ABCD'.indexOf(char.toUpperCase())+1;if(char===char.toUpperCase())bars.push({x,w});x+=w}}
- return bars
+
+const barcode = computed(() => {
+  if (!invoice.value || !/^[ -~]{1,70}$/.test(invoice.value)) return null
+  try {
+    const encoded = {}
+    JsBarcode(encoded, invoice.value, { format: 'CODE128', displayValue: false })
+    const modules = encoded.encodings.map(part => part.data).join('')
+    const path = []
+    for (const match of modules.matchAll(/1+/g)) {
+      const width = match[0].length
+      path.push(`M${match.index + 12} 0h${width}v48h-${width}z`)
+    }
+    return { path: path.join(''), size: modules.length + 24 }
+  } catch {
+    return null
+  }
 })
-const barcodeWidth=computed(()=>barcodeBars.value.length?Math.max(...barcodeBars.value.map(b=>b.x+b.w))+10:0)
-const printableCss="\n.shell{max-width:1200px;margin:auto;padding:28px}.top{display:flex;justify-content:space-between;gap:16px;align-items:center;margin-bottom:22px}.eyebrow{font-size:11px;font-weight:800;letter-spacing:2px;color:#947454}.top h1{margin:5px 0;font-size:28px}.muted{color:#917e69;font-size:13px}.toolbar{display:flex;align-items:center;gap:9px;flex-wrap:wrap;background:#fffaf3;border:1px solid #e5d7c5;border-radius:16px;padding:12px;margin-bottom:20px}.toolbar button{border:1px solid #dacbb9;background:white;border-radius:10px;padding:10px 14px;color:#614c37;font-weight:700;cursor:pointer}.toolbar button.active{background:#5c4432;color:white;border-color:#5c4432}.toolbar .print{background:#5c4432;color:white;margin-left:auto}.layout{display:grid;grid-template-columns:1fr 260px;gap:20px;align-items:start}.sheet{background:#fff;box-shadow:0 12px 45px #48321b1b;margin:auto;padding:35px 39px;width:100%;min-height:700px}.brand{display:flex;justify-content:space-between;gap:24px;align-items:flex-start;border-bottom:2px solid #5c4432;padding-bottom:20px}.brand h2{margin:5px 0 7px;font-size:25px;letter-spacing:-.7px}.brand address{font-style:normal;font-size:11px;line-height:1.7;color:#756454}.seal{font-size:10px;font-weight:800;letter-spacing:2px;color:#9e7c55}.invoice-title{text-align:right}.invoice-title h3{font-size:24px;letter-spacing:2px;margin:0 0 9px}.invoice-title small{font-size:11px;color:#82715e}.details{display:grid;grid-template-columns:1fr 1fr;gap:25px;padding:24px 0}.label{font-size:10px;font-weight:800;letter-spacing:1.5px;color:#92765a;margin-bottom:9px}.details strong{font-size:13px}.details p{font-size:12px;color:#756454;line-height:1.7;margin:4px 0}.meta{display:grid;grid-template-columns:1fr 1fr;gap:7px;font-size:12px}.meta span{color:#85715d}.meta b{text-align:right}table{width:100%;border-collapse:collapse;font-size:12px}th{text-align:left;background:#f4eee5;color:#6d533b;text-transform:uppercase;letter-spacing:.7px;font-size:10px;padding:12px 9px}td{padding:14px 9px;border-bottom:1px solid #eee7dd;vertical-align:top}td small{display:block;color:#94816e;margin-top:5px}.right{text-align:right}.totals{margin:23px 0 0 auto;width:min(300px,100%)}.totals div{display:flex;justify-content:space-between;padding:9px 0;font-size:12px}.totals .grand{border-top:2px solid #5c4432;font-size:18px;font-weight:800;padding-top:15px}.bottom{display:flex;justify-content:space-between;gap:20px;margin-top:55px;border-top:1px solid #e9dfd2;padding-top:20px}.bottom p{font-size:11px;color:#82715f;max-width:380px;line-height:1.6}.qr{width:75px;height:75px;border:5px solid #fff;outline:1px solid #ded3c4;background:repeating-linear-gradient(90deg,#483727 0 4px,#fff 4px 7px,#483727 7px 9px,#fff 9px 13px);display:grid;place-items:center}.qr span{background:white;padding:3px;font-size:8px;color:#4e3826;font-weight:800}.aside{background:#fffaf3;border:1px solid #e6d9c9;border-radius:16px;padding:20px}.aside h3{margin:0 0 10px;font-size:15px}.aside p,.aside li{font-size:12px;color:#7e6a54;line-height:1.6}.aside ul{padding-left:18px}.paper-thermal .sheet{width:340px;padding:20px 14px;min-height:0}.paper-thermal .brand{display:block;text-align:center}.paper-thermal .brand h2{font-size:17px}.paper-thermal .invoice-title{text-align:center;margin-top:17px}.paper-thermal .invoice-title h3{font-size:17px}.paper-thermal .details{display:block;padding:16px 0}.paper-thermal .details>div{margin-bottom:12px}.paper-thermal th,.paper-thermal td{padding:8px 3px;font-size:10px}.paper-thermal .totals{width:100%}.paper-thermal .bottom{margin-top:22px}.paper-thermal .qr{width:55px;height:55px}.paper-a5 .sheet{max-width:610px;min-height:770px;padding:27px}.paper-a5 .brand h2{font-size:20px}.paper-a5 .invoice-title h3{font-size:19px}.paper-delivery .invoice-title h3:after{content:' \u00b7 DELIVERY';font-size:12px;letter-spacing:1px}.paper-delivery .totals{display:none}.paper-delivery .deliverynote{display:block!important}.deliverynote{display:none;margin-top:25px;background:#f8f2e9;padding:15px;font-size:12px}.disclaimer{font-size:10px;color:#9a8976;margin-top:10px}@media(max-width:850px){.layout{grid-template-columns:1fr}.aside{order:-1}.shell{padding:12px}.sheet{padding:22px}.top{align-items:flex-start}.top h1{font-size:23px}}@media(max-width:540px){.brand{display:block}.invoice-title{text-align:left;margin-top:17px}.details{grid-template-columns:1fr}.toolbar .print{margin-left:0}.sheet{padding:16px}.brand h2{font-size:20px}.invoice-title h3{font-size:20px}}"
-const executivePrintCss=`.amci683-document{font-family:Inter,Arial,sans-serif!important;color:#25211e}.amci683-topline{display:flex;justify-content:space-between;gap:8px;border-bottom:1px solid #d8c8b5;padding-bottom:10px;margin-bottom:19px;font-size:9px;font-weight:800;letter-spacing:1.3px;color:#79604b}.amci683-reference{display:flex;justify-content:space-between;gap:18px;background:#f3eee7;border:1px solid #dfd0be;padding:17px 19px;margin:20px 0 0;break-inside:avoid}.amci683-reference>div:first-child{min-width:0}.amci683-reference strong{display:block;font-size:22px;letter-spacing:-.6px;overflow-wrap:anywhere;color:#30251d;margin:5px 0}.amci683-kicker{font-size:9px;font-weight:850;letter-spacing:1.4px;color:#8c6a4e}.amci683-reference small{display:block;font-size:9px;color:#786553}.amci683-refside{text-align:right;min-width:110px}.amci683-refside span{display:block;font-size:10px;letter-spacing:1px;font-weight:850}.amci683-refside b{display:block;margin:7px 0;font-size:12px}.amci683-sl{width:36px!important;text-align:center!important;white-space:nowrap!important;font-weight:800!important}.amci683-document .brand{border-bottom:3px solid #3f3024!important;padding-bottom:21px}.amci683-document .brand h2{font-size:25px!important;letter-spacing:-.8px!important;font-weight:900!important}.amci683-document .seal{letter-spacing:2.5px!important}.amci683-document .invoice-title h3{font-size:19px!important;letter-spacing:2.2px!important}.amci683-document .details{padding:25px 0 23px!important}.amci683-document .label{font-size:9px!important;letter-spacing:1.8px!important}.amci683-document table{border-top:2px solid #45372c!important}.amci683-document th{background:#ece3d7!important;color:#423226!important;font-size:9px!important;padding:12px 9px!important}.amci683-document td{padding:13px 9px!important}.amci683-document tbody tr:nth-child(even){background:#fbf8f3}.amci683-document .totals .grand{background:#eee5da!important;padding:14px 12px!important;margin-top:7px!important;border-top:2px solid #45372c!important}.amci683-document .amci682-footer{margin-top:34px!important}.paper-thermal .amci683-topline{font-size:7px;letter-spacing:0}.paper-thermal .amci683-reference{display:block;text-align:center;padding:9px 4px;margin:12px 0}.paper-thermal .amci683-reference strong{font-size:15px}.paper-thermal .amci683-refside{display:none}.paper-thermal .amci683-document th{padding:5px 2px!important}.paper-thermal .amci683-document td{padding:6px 2px!important}.paper-thermal .amci683-sl{width:23px!important;font-size:9px!important}.paper-thermal .amci683-document .brand h2{font-size:15px!important}@media print{.amci683-reference,.amci683-topline{break-inside:avoid}}`
-const luxePrintCss=`.amci682-footer{display:flex;align-items:flex-end;justify-content:space-between;gap:18px;margin-top:30px;border-top:1px solid #ded3c4;padding-top:14px}.amci682-thanks{flex:1}.amci682-thanks>b{font-size:11px}.amci682-thanks p{font-size:10px}.amci682-codes{display:flex;gap:12px;align-items:flex-end;justify-content:flex-end;flex-wrap:wrap}.amci682-qrblock,.amci682-barblock{display:flex;flex-direction:column;align-items:center;gap:4px}.amci682-qr{width:88px;height:88px;background:#fff}.amci682-barcode{width:155px;height:46px;background:#fff}.amci682-codes small{font-size:8px;text-align:center;overflow-wrap:anywhere}.paper-thermal .amci682-footer{display:flex;flex-direction:column;align-items:center;gap:12px}.paper-thermal .amci682-codes{justify-content:center;max-width:100%}.paper-thermal .amci682-thanks{text-align:center}.paper-thermal .amci682-qr{width:90px;height:90px}.paper-thermal .amci682-barcode{width:185px;height:46px}@media print{.amci682-footer,.amci682-codes,.amci682-qrblock,.amci682-barblock{break-inside:avoid}}`
-const minimalPrintCss="\n.amci683-document{font-family:Inter,Arial,sans-serif!important;color:#25221f!important}\n.amci683-document .brand{display:flex!important;align-items:flex-start!important;justify-content:space-between!important;gap:20px!important;border-bottom:1.5px solid #3f332b!important;padding-bottom:20px!important}\n.amci683-document .seal{display:none!important}\n.amci683-document .brand h2{font-size:22px!important;font-weight:850!important;letter-spacing:-.5px!important;margin:0 0 6px!important}\n.amci683-document .brand address{font-size:10px!important;line-height:1.6!important;color:#665b50!important}\n.amci683-document .invoice-title{min-width:175px!important;text-align:right!important}\n.amci683-document .invoice-title h3{font-size:17px!important;font-weight:800!important;letter-spacing:.6px!important;margin:8px 0 5px!important;white-space:nowrap!important}\n.amci685-invoice-ref{display:block!important;font-size:10px!important;color:#4c3c30!important;overflow-wrap:anywhere!important}\n.amci685-topbarcode{width:190px;max-width:100%;margin-left:auto;display:flex;flex-direction:column;align-items:flex-end;gap:2px}\n.amci685-topbarcode svg{display:block;width:100%;height:42px;background:#fff}\n.amci685-topbarcode small{font:600 9px/1.2 monospace!important;letter-spacing:.25px!important;color:#111!important}\n.amci683-document .details{padding:22px 0!important;border-bottom:0!important}\n.amci683-document .label{font-size:9px!important;letter-spacing:1px!important;color:#786958!important}\n.amci683-document table{margin-top:4px!important}\n.amci683-document th{background:#f5f1eb!important;color:#3b332d!important;font-size:10px!important;font-weight:750!important;padding:11px 9px!important}\n.amci683-document td{font-size:11px!important;padding:11px 9px!important;border-bottom:1px solid #e9e4dd!important}\n.amci683-document .totals .grand{background:#f5f1eb!important;border:0!important;padding:13px!important}\n.amci683-document .bottom{border-top:1px solid #ddd5ca!important;margin-top:26px!important;padding-top:13px!important}\n.amci683-document .amci682-thanks>b{font-size:10px!important;letter-spacing:0!important}\n.amci683-document .amci682-thanks p{font-size:9px!important}\n.amci683-document .amci682-qr{width:65px!important;height:65px!important;border:0!important}\n.amci683-document .amci682-codes{max-width:90px!important}\n.paper-thermal .amci683-document .brand{display:block!important;text-align:center!important}\n.paper-thermal .amci683-document .invoice-title{text-align:center!important;margin:12px auto 0!important;min-width:0!important}\n.paper-thermal .amci685-topbarcode{width:195px!important;margin:0 auto!important;align-items:center!important}\n.paper-thermal .amci683-document .invoice-title h3{font-size:14px!important}\n.paper-thermal .amci683-document .brand h2{font-size:14px!important}\n.paper-thermal .amci683-document .amci682-qr{width:60px!important;height:60px!important}\n"
-const fitPrintCss = "\n/* SOS_INVOICE_FIT_686_SAFE */\n\n/* Keep the entire invoice inside its paper container. */\n.amci-paper-wrap,\n.print-root,\n.amci-paper-wrap .sheet,\n.print-root .sheet {\n    box-sizing: border-box !important;\n    min-width: 0 !important;\n}\n\n.amci-paper-wrap .sheet,\n.print-root .sheet {\n    width: 100% !important;\n    max-width: 100% !important;\n    overflow: hidden !important;\n}\n\n.amci-paper-wrap .sheet table,\n.print-root .sheet table {\n    width: 100% !important;\n    max-width: 100% !important;\n    min-width: 0 !important;\n    table-layout: fixed !important;\n    border-collapse: collapse !important;\n}\n\n/* Five-column sales invoice. */\n.amci-paper-wrap .sheet th,\n.amci-paper-wrap .sheet td,\n.print-root .sheet th,\n.print-root .sheet td {\n    box-sizing: border-box !important;\n    min-width: 0 !important;\n    padding: 8px 4px !important;\n    font-size: 10px !important;\n    letter-spacing: 0 !important;\n    overflow-wrap: anywhere !important;\n    white-space: normal !important;\n    vertical-align: top !important;\n}\n\n.amci-paper-wrap .sheet th:first-child,\n.amci-paper-wrap .sheet td:first-child,\n.print-root .sheet th:first-child,\n.print-root .sheet td:first-child {\n    width: 7% !important;\n}\n\n.amci-paper-wrap .sheet th:nth-child(2),\n.amci-paper-wrap .sheet td:nth-child(2),\n.print-root .sheet th:nth-child(2),\n.print-root .sheet td:nth-child(2) {\n    width: 43% !important;\n}\n\n.amci-paper-wrap .sheet th:nth-child(3),\n.amci-paper-wrap .sheet td:nth-child(3),\n.print-root .sheet th:nth-child(3),\n.print-root .sheet td:nth-child(3) {\n    width: 9% !important;\n}\n\n.amci-paper-wrap .sheet th:nth-child(4),\n.amci-paper-wrap .sheet td:nth-child(4),\n.print-root .sheet th:nth-child(4),\n.print-root .sheet td:nth-child(4) {\n    width: 20% !important;\n}\n\n.amci-paper-wrap .sheet th:nth-child(5),\n.amci-paper-wrap .sheet td:nth-child(5),\n.print-root .sheet th:nth-child(5),\n.print-root .sheet td:nth-child(5) {\n    width: 21% !important;\n}\n\n/* Delivery note has only three columns. */\n.amci-paper-wrap .sheet table:not(:has(th:nth-child(4))) th:nth-child(2),\n.amci-paper-wrap .sheet table:not(:has(th:nth-child(4))) td:nth-child(2),\n.print-root .sheet table:not(:has(th:nth-child(4))) th:nth-child(2),\n.print-root .sheet table:not(:has(th:nth-child(4))) td:nth-child(2) {\n    width: 78% !important;\n}\n\n.amci-paper-wrap .sheet table:not(:has(th:nth-child(4))) th:nth-child(3),\n.amci-paper-wrap .sheet table:not(:has(th:nth-child(4))) td:nth-child(3),\n.print-root .sheet table:not(:has(th:nth-child(4))) th:nth-child(3),\n.print-root .sheet table:not(:has(th:nth-child(4))) td:nth-child(3) {\n    width: 15% !important;\n}\n\n/* Prevent long item names and warranty details from expanding columns. */\n.amci-paper-wrap .sheet td *,\n.print-root .sheet td * {\n    max-width: 100% !important;\n    overflow-wrap: anywhere !important;\n}\n\n/* 80mm thermal-specific typography and spacing. */\n.amci-paper-wrap.paper-thermal .sheet,\n.print-root.paper-thermal .sheet {\n    width: 80mm !important;\n    max-width: 80mm !important;\n    min-width: 0 !important;\n    padding: 8px 5px !important;\n}\n\n.amci-paper-wrap.paper-thermal .sheet th,\n.amci-paper-wrap.paper-thermal .sheet td,\n.print-root.paper-thermal .sheet th,\n.print-root.paper-thermal .sheet td {\n    padding: 5px 2px !important;\n    font-size: 8px !important;\n}\n\n.amci-paper-wrap.paper-thermal .sheet th,\n.print-root.paper-thermal .sheet th {\n    font-size: 7px !important;\n}\n\n/* Compact modal interface \u2014 does not shrink the printed document. */\n.amci-modal {\n    font-size: 12px !important;\n}\n\n.amci-header {\n    padding: 10px 15px !important;\n}\n\n.amci-header h2 {\n    font-size: 16px !important;\n    line-height: 1.3 !important;\n}\n\n.amci-header small {\n    font-size: 10px !important;\n}\n\n.amci-eyebrow {\n    font-size: 9px !important;\n}\n\n.amci-toolbar {\n    padding: 9px 13px !important;\n    gap: 6px !important;\n}\n\n.amci-toolbar button,\n.amci-header button {\n    font-size: 11px !important;\n    min-height: 32px !important;\n    padding: 6px 9px !important;\n}\n"
-const thermalMonoCss=`.paper-thermal .sheet{color:#111!important;background:#fff!important;max-width:80mm!important;min-height:0!important}.paper-thermal .brand{border-bottom:2px solid #111!important}.paper-thermal .brand h2{font-size:15px!important;letter-spacing:0!important}.paper-thermal .seal,.paper-thermal .label,.paper-thermal th,.paper-thermal td small{color:#111!important}.paper-thermal .label{border-bottom:1px solid #111!important;padding-bottom:5px!important}.paper-thermal th{background:white!important;border-top:1px solid #111!important;border-bottom:1px solid #111!important;padding:6px 3px!important;font-size:9px!important}.paper-thermal td{padding:7px 3px!important;font-size:10px!important;border-bottom:1px dashed #aaa!important;overflow-wrap:anywhere}.paper-thermal td small{overflow-wrap:anywhere}.paper-thermal .totals .grand{border-color:#111!important}.paper-thermal .bottom{border-top:1px dashed #111!important}`
-const sos7111PrintCss = `/* SOS_PREMIUM_PRINT_7111 — warm ivory invoice, preview and print */
-.sos7111-premium{background:#fffefa!important;color:#322820!important;font-family:Inter,Arial,sans-serif!important}
-.sos7111-premium:before{content:'';display:block;height:5px;background:linear-gradient(90deg,#34271e 0%,#8d6246 65%,#dbc4ab 100%);margin:-1px 0 18px}
-.sos7111-premium .brand{border-bottom:2px solid #4d3828!important;padding-bottom:20px!important}
-.sos7111-premium .brand h2{font-family:Georgia,'Times New Roman',serif!important;font-size:25px!important;letter-spacing:-.6px!important;color:#35281e!important;font-weight:700!important}
-.sos7111-premium .seal{color:#976c4b!important;letter-spacing:2px!important;font-size:9px!important}
-.sos7111-premium .brand address{font-size:11px!important;color:#604f3f!important;line-height:1.65!important}
-.sos7111-premium .sos7111-phone{display:block;margin:7px 0 0;font-family:Arial,sans-serif;font-size:11px;font-weight:800;letter-spacing:.1px;color:#513a2c}
-.sos7111-premium .invoice-title h3{font-family:Georgia,'Times New Roman',serif!important;font-size:22px!important;letter-spacing:.3px!important}
-.sos7111-premium .amci683-reference{border-color:#d9c5b0!important;background:#f8f2eb!important}
-.sos7111-premium .amci683-reference strong{font-family:Georgia,'Times New Roman',serif!important}
-.sos7111-premium table{border-top:2px solid #4e3828!important}
-.sos7111-premium table th{background:#55402f!important;color:#fffaf4!important;font-size:9px!important;letter-spacing:.7px!important}
-.sos7111-premium table tbody tr:nth-child(even){background:#fbf7f2!important}
-.sos7111-premium table td{border-color:#e8dccc!important}
-.sos7111-premium .totals .grand{background:#f2e7dc!important;border-top:2px solid #4d3828!important;color:#3e2c21!important;border-radius:6px;padding:14px!important}
-.sos7111-copytag{font-family:Arial,sans-serif;display:inline-flex;align-items:center;border:1px solid #d7be9f;border-radius:4px;background:#f5e8d9;padding:5px 9px;margin-bottom:18px;font-size:9px;font-weight:800;letter-spacing:1.3px;color:#735336}
-.sos7111-choice{display:inline-flex;align-items:center;gap:6px;color:#795d45;font-size:11px;font-weight:800}
-.sos7111-choice select{border:1px solid #d8c5af;border-radius:7px;background:#fff;padding:6px 8px;color:#513d2e;font-weight:700;max-width:155px}
-.paper-thermal .sos7111-premium:before{height:3px;background:#111;margin-bottom:8px}
-.paper-thermal .sos7111-premium .brand h2{font-family:Arial,sans-serif!important;font-size:14px!important}
-.paper-thermal .sos7111-premium .invoice-title h3{font-family:Arial,sans-serif!important;font-size:13px!important}
-.paper-thermal .sos7111-premium table th{background:#fff!important;color:#111!important;border-top:1px solid #111!important;border-bottom:1px solid #111!important}
-.paper-thermal .sos7111-copytag{background:#fff;color:#111;border-color:#111;padding:2px 4px;font-size:8px}
-@media print{.sos7111-premium,.sos7111-premium *{-webkit-print-color-adjust:exact;print-color-adjust:exact}.sos7111-premium .brand,.sos7111-copytag{break-inside:avoid}}
-`
-function printInvoice(){
- if(!paper.value || !canPrint.value)return
- printError.value = ''
- const w=window.open('','_blank','width=980,height=880')
- if(!w){printError.value='Allow pop-ups for this site, then select Print / Reprint again.';return}
- const size=format.value==='thermal'?'auto':format.value==='a5'?'A5':'A4'
- const margin=format.value==='thermal'?'2mm':'10mm'
- const printCss=`@page{size:${size};margin:${margin}}html,body{margin:0;background:white!important} .sheet{box-shadow:none!important;min-height:0!important;width:100%!important;max-width:none!important;padding:0!important} .print-root{display:block!important;width:100%!important;max-width:none!important} .brand,.bottom,tr{break-inside:avoid} .paper-thermal .sheet{width:100%!important} .paper-thermal .details{display:block} .paper-thermal .brand{display:block;text-align:center} .paper-thermal .invoice-title{text-align:center;margin-top:12px} .paper-thermal .bottom{margin-top:18px} .paper-delivery .totals{display:none!important} @media print{*{-webkit-print-color-adjust:exact;print-color-adjust:exact}}`
- w.document.open()
- w.document.write('<!doctype html><html><head><meta charset="utf-8"><title>Invoice '+String(invoice.value).replace(/[<>&"']/g,'')+'</title><style>'+printableCss+'\n'+printCss+'\n'+thermalMonoCss+'\n'+luxePrintCss+'\n'+executivePrintCss+'\n'+minimalPrintCss+'\n'+fitPrintCss+sos7111PrintCss+'</style></head><body><div class="print-root paper-'+format.value+'">'+paper.value.outerHTML+'</div></body></html>')
- w.document.close()
- w.focus()
- w.setTimeout(()=>w.print(),450)
+const showBarcode = computed(() => barcode.value && barcode.value.size <= formats.find(option => option.id === format.value).barcodeLimit)
+
+function printInvoice() {
+  if (!paper.value || !canPrint.value) return
+  printError.value = ''
+  const popup = window.open('', '_blank', 'width=980,height=880')
+  if (!popup) {
+    printError.value = 'Allow pop-ups for this site, then select Print / Reprint again.'
+    return
+  }
+  const size = format.value === 'thermal' ? 'auto' : format.value === 'a5' ? 'A5' : 'A4'
+  const margin = format.value === 'thermal' ? '0' : '10mm'
+  // The same sheet markup and CSS are used in preview and in the print window.
+  popup.document.open()
+  popup.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Invoice</title><style>${invoicePaperCss}
+@page{size:${size};margin:${margin}} html,body{margin:0;background:white}
+body .invoice-paper{margin:0;min-height:0;box-shadow:none;width:100%;max-width:none;padding:0}
+body .invoice-paper.ip-thermal{width:76mm;padding:2mm}
+@media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
+</style></head><body>${paper.value.outerHTML}</body></html>`)
+  popup.document.close()
+  popup.focus()
+  popup.setTimeout(() => popup.print(), 450)
 }
 </script>
+
 <template>
-<Teleport to="body">
- <dialog ref="dialog" class="amci-modal" :class="{ 'amci-pending': !receipt }" :aria-label="heading" @cancel.prevent="!submitting && emit('close')">
-  <header class="amci-header">
-    <div><h2>{{ heading }}</h2><small>{{ invoice }}<template v-if="receipt"> · {{ customer }}</template></small></div>
-    <button type="button" autofocus :disabled="submitting" @click="emit('close')">Close</button>
-  </header>
-  <div v-if="!receipt" class="amci-load">
-    <template v-if="error"><p role="alert">{{ error }}</p><button type="button" @click="emit('retry')">Retry</button></template>
-    <p v-else role="status">Loading invoice…</p>
-  </div>
-  <div v-else class="amci-content">
-   <section class="amci-print-controls" aria-label="Invoice actions">
-    <div v-if="submitMessage" class="amci-submit-message" role="status">{{ submitMessage }}</div>
-    <div v-if="draftAction && String(receipt.docstatus) === '0'" class="amci-draft-actions">
-      <p>Review the customer, items, quantities and total before submitting.</p>
-      <button v-if="canSubmit" class="amci-print" type="button" :disabled="submitting" @click="emit('submit')">
-        {{ submitting ? 'Submitting…' : 'Submit Draft Invoice' }}
-      </button>
-      <p v-else>Sales Invoice submit permission is required.</p>
-      <p v-if="submitError" class="amci-print-error" role="alert">{{ submitError }}</p>
-      <button v-if="submitError" type="button" :disabled="submitting" @click="emit('retry')">Refresh invoice</button>
-    </div>
-    <slot name="actions" />
-    <div v-if="!actionHeading" class="amci-formats" role="group" aria-label="Paper format">
-      <button v-for="option in formats" :key="option.id" type="button"
-        :aria-pressed="format === option.id" @click="format = option.id">
-        <strong>{{ option.label }}</strong><small>{{ option.size }}</small>
-      </button>
-    </div>
-    <label v-if="canPrint" class="amci-copy">Copy
-      <select v-model="sos7111Copy"><option value="customer">Customer copy</option><option value="duplicate">Duplicate / Reprint</option></select>
-    </label>
-    <button v-if="canPrint" class="amci-print" type="button" @click="printInvoice">Print / Reprint</button>
-    <p v-if="printError" role="alert" class="amci-print-error">{{ printError }}</p>
-   </section>
-   <section class="amci-preview" :aria-label="actionHeading || 'Invoice preview'" tabindex="0"><slot name="workspace"><div class="amci-paper-wrap" :class="'paper-'+format">
-   <article ref="paper" class="sheet amci683-document sos7111-premium">
-    <div class="sos7111-copytag">{{documentStamp}}</div>
-    <div class="brand"><div><div class="seal">AL MODINA · COMPUTERS</div><h2>{{val('company')||'AL MODINA COMPUTERS LTD'}}</h2><address>Mawna Chowrasta, Sreepur, Gazipur, Bangladesh<span class="sos7111-phone">Mobile: +8801911179837</span></address></div><div class="invoice-title amci685-invoice-title"><div v-if="barcodeValid" class="amci685-topbarcode"><svg xmlns="http://www.w3.org/2000/svg" :viewBox="`0 0 ${barcodeWidth} 52`" preserveAspectRatio="none" shape-rendering="crispEdges" role="img" :aria-label="`Code 128 barcode for invoice ${barcodeValue}`"><rect :width="barcodeWidth" height="52" fill="#fff"/><rect v-for="(bar,n) in barcodeBars" :key="n" :x="bar.x" y="2" :width="bar.w" height="48" fill="#111"/></svg><small>{{barcodeValue}}</small></div><h3>{{format==='delivery'?'DELIVERY NOTE':'SALES INVOICE'}}</h3><small class="amci685-invoice-ref">Invoice No. <b>{{invoice}}</b></small><small v-if="date">{{date}}</small></div></div>
-    <div class="details"><div><div class="label">BILL TO</div><strong>{{customer}}</strong><p v-if="val('customer_mobile','mobile_no','contact_mobile')">Mobile: {{val('customer_mobile','mobile_no','contact_mobile')}}</p></div><div><div class="label">INVOICE DETAILS</div><div class="meta"><template v-if="val('mode_of_payment','payment_method')"><span>Payment</span><b>{{val('mode_of_payment','payment_method')}}</b></template><span>Currency</span><b>{{val('currency')||'BDT'}}</b></div></div></div>
-    <table><thead><tr><th class="amci683-sl">S/L</th><th>Item / Description</th><th class="right">Qty</th><th v-if="financial" class="right">Unit Price</th><th v-if="financial" class="right">Amount</th></tr></thead><tbody><tr v-for="(i,idx) in items" :key="idx"><td class="amci683-sl">{{String(idx+1).padStart(2,'0')}}</td><td><b>{{i.item_name||i.description||i.item_code||i.code||'Item'}}</b><small v-if="itemSerial(i)"><b>Serial / SN:</b> {{itemSerial(i)}}</small><small v-if="itemWarranty(i)!=null">Warranty: {{itemWarranty(i)}} days</small></td><td class="right">{{i.qty}}</td><td v-if="financial" class="right">{{unit(i)==null?'—':money(unit(i))}}</td><td v-if="financial" class="right">{{money(amount(i))}}</td></tr></tbody></table>
-    <div v-if="financial" class="totals"><div><span>Subtotal</span><b>{{money(subtotal)}}</b></div><div v-if="discount!=null"><span>Discount</span><b>−{{money(discount)}}</b></div><div v-if="tax!=null"><span>Tax</span><b>{{money(tax)}}</b></div><div class="grand"><span>Grand Total</span><span>{{money(total)}}</span></div><div v-if="paid!=null"><span>Paid</span><b>{{money(paid)}}</b></div><div v-if="outstanding!=null"><span>Outstanding</span><b>{{money(outstanding)}}</b></div></div>
-    <div v-if="format==='delivery'" class="deliverynote" style="display:block"><b>DELIVERY ACKNOWLEDGEMENT</b><p>Received the items listed above in satisfactory visible condition.</p><p>Received by: __________________ &nbsp; Date: ________________</p></div>
-    <div class="bottom amci682-footer">
-      <div class="amci682-thanks"><b>THANK YOU FOR CHOOSING AL MODINA</b><p>Retain this invoice for warranty and service.</p></div>
-      <div class="amci682-codes">
-        <div v-if="qrRects.length" class="amci682-qrblock"><svg xmlns="http://www.w3.org/2000/svg" class="amci682-qr" :viewBox="`0 0 ${qrSize} ${qrSize}`" shape-rendering="crispEdges" role="img" :aria-label="`QR for invoice ${invoice}`"><rect :width="qrSize" :height="qrSize" fill="#fff"/><rect v-for="(cell,n) in qrRects" :key="n" :x="cell.x" :y="cell.y" width="1" height="1" fill="#111"/></svg><small>{{val('verification_url')?'Scan invoice link':'Scan invoice number'}}</small></div>
-        
+  <Teleport to="body">
+    <dialog ref="dialog" class="invoice-studio" :aria-label="heading" @cancel.prevent="!submitting && emit('close')">
+      <header class="invoice-studio-head">
+        <div><h2>{{ heading }}</h2><p>{{ invoice }}<template v-if="receipt"> · {{ customer }}</template></p></div>
+        <button type="button" autofocus :disabled="submitting" @click="emit('close')">Close</button>
+      </header>
+      <div v-if="!receipt" class="invoice-studio-load">
+        <template v-if="error"><p role="alert">{{ error }}</p><button type="button" @click="emit('retry')">Retry</button></template>
+        <p v-else role="status">Loading invoice…</p>
       </div>
-    </div>
-   </article>
-   </div></slot></section>
-  </div>
- </dialog>
-</Teleport>
+      <div v-else class="invoice-studio-content" :class="{ 'invoice-studio-transaction': actionHeading }">
+        <aside v-if="!actionHeading" class="invoice-studio-controls" aria-label="Invoice actions">
+          <p v-if="submitMessage" role="status">{{ submitMessage }}</p>
+          <template v-if="draftAction && draft">
+            <button v-if="canSubmit" type="button" class="studio-primary" :disabled="submitting" @click="emit('submit')">
+              {{ submitting ? 'Submitting…' : 'Submit Draft Invoice' }}
+            </button>
+            <p v-else>Sales Invoice submit permission is required.</p>
+          </template>
+          <p v-if="submitError" role="alert">{{ submitError }}</p>
+          <slot name="actions" />
+          <div class="invoice-studio-formats" role="group" aria-label="Paper format">
+            <button v-for="option in formats" :key="option.id" type="button"
+              :aria-pressed="format === option.id" @click="format = option.id">
+              <strong>{{ option.label }}</strong><small>{{ option.size }}</small>
+            </button>
+          </div>
+          <label v-if="canPrint">Copy
+            <select v-model="copy"><option value="customer">Customer copy</option><option value="duplicate">Duplicate / Reprint</option></select>
+          </label>
+          <button v-if="canPrint" class="studio-primary" type="button" @click="printInvoice">Print / Reprint</button>
+          <p v-if="printError" role="alert">{{ printError }}</p>
+        </aside>
+        <section class="invoice-studio-preview" :aria-label="actionHeading || 'Invoice preview'" tabindex="0">
+          <slot name="workspace">
+            <article ref="paper" class="invoice-paper" :class="'ip-' + format">
+              <header class="ip-masthead">
+                <div class="ip-brand">
+                  <h2>{{ company }}</h2>
+                  <address v-if="companyAddress || companyPhone || value('company_email')">
+                    <span v-if="companyAddress">{{ companyAddress }}</span>
+                    <span v-if="companyPhone">{{ companyPhone }}</span>
+                    <span v-if="value('company_email')">{{ value('company_email') }}</span>
+                  </address>
+                </div>
+                <div class="ip-heading"><span class="ip-copy">{{ stamp }}</span><h3>{{ title }}</h3></div>
+              </header>
+
+              <div class="ip-reference">
+                <div class="ip-id">
+                  <span class="ip-label">Invoice number</span><strong>{{ invoice || '—' }}</strong>
+                  <svg v-if="showBarcode" class="ip-barcode" xmlns="http://www.w3.org/2000/svg"
+                    :viewBox="`0 0 ${barcode.size} 48`" preserveAspectRatio="none" shape-rendering="crispEdges"
+                    role="img" :aria-label="`Code 128 barcode for invoice ${invoice}`">
+                    <rect :width="barcode.size" height="48" fill="white" /><path :d="barcode.path" fill="#000" />
+                  </svg>
+                  <div v-if="value('posting_date', 'invoice_date', 'date')" class="ip-date">{{ value('posting_date', 'invoice_date', 'date') }}</div>
+                </div>
+                <figure v-if="qr" class="ip-qr">
+                  <svg xmlns="http://www.w3.org/2000/svg" :viewBox="`0 0 ${qr.size} ${qr.size}`" shape-rendering="crispEdges"
+                    role="img" :aria-label="`QR code for invoice ${invoice}`">
+                    <rect :width="qr.size" :height="qr.size" fill="white" /><path :d="qr.path" fill="#000" />
+                  </svg>
+                  <figcaption>{{ value('verification_url') ? 'Scan invoice link' : 'Scan invoice number' }}</figcaption>
+                </figure>
+              </div>
+
+              <div class="ip-parties">
+                <section><span class="ip-label">Bill to</span><strong>{{ customer }}</strong>
+                  <span v-if="value('customer_mobile', 'customer_phone', 'mobile_no', 'contact_mobile')">{{ value('customer_mobile', 'customer_phone', 'mobile_no', 'contact_mobile') }}</span>
+                </section>
+                <section v-if="value('service_job')">
+                  <span class="ip-label">Service Job</span><strong>{{ value('service_job') }}</strong>
+                  <span v-if="value('service_device')">{{ value('service_device') }}</span>
+                  <div v-if="value('service_device_serial')" class="ip-serial"><span>Device serial</span><strong>{{ value('service_device_serial') }}</strong></div>
+                </section>
+                <section v-if="financial">
+                  <span class="ip-label">Currency</span><strong>{{ currency }}</strong>
+                  <span v-if="!draft && !cancelled && outstanding > 0 && value('due_date')">Due {{ value('due_date') }}</span>
+                </section>
+              </div>
+
+              <table class="ip-items" :class="{ 'ip-items-charges': financial }">
+                <thead><tr><th scope="col">No.</th><th scope="col">Item / Description</th><th scope="col">Qty</th><th v-if="financial" scope="col">Unit price</th><th v-if="financial" scope="col">Amount</th></tr></thead>
+                <tbody>
+                  <tr v-for="(item, index) in items" :key="index">
+                    <td>{{ index + 1 }}</td>
+                    <td>
+                      <strong>{{ item.item_name || item.description || item.item_code || item.code || 'Item' }}</strong>
+                      <div v-if="serials(item).length" class="ip-serial"><span>Serial</span><strong v-for="serial in serials(item)" :key="serial">{{ serial }}</strong></div>
+                      <small v-if="warranty(item) != null">Warranty {{ warranty(item) }} days</small>
+                    </td>
+                    <td>{{ item.qty }}</td><td v-if="financial">{{ unit(item) == null ? '—' : money(unit(item)) }}</td><td v-if="financial">{{ money(amount(item)) }}</td>
+                  </tr>
+                </tbody>
+              </table>
+
+              <dl v-if="financial" class="ip-totals">
+                <div><dt>Subtotal</dt><dd>{{ money(subtotal) }}</dd></div>
+                <div v-if="discount"><dt>Discount</dt><dd>{{ money(discount) }}</dd></div>
+                <div v-if="tax"><dt>Tax</dt><dd>{{ money(tax) }}</dd></div>
+                <div class="ip-grand"><dt>Grand total</dt><dd>{{ money(total) }}</dd></div>
+                <template v-if="!draft && !cancelled">
+                  <div v-if="paid != null"><dt>Paid</dt><dd>{{ money(paid) }}</dd></div>
+                  <div v-if="outstanding != null" class="ip-due"><dt>Outstanding</dt><dd>{{ money(outstanding) }}</dd></div>
+                </template>
+              </dl>
+              <div v-else class="ip-acknowledgement">
+                <strong>Delivery acknowledgement</strong><p>Received the items listed above in satisfactory visible condition.</p>
+                <p>Received by ____________________ &nbsp; Date ____________________</p>
+              </div>
+              <footer class="ip-footer">Retain this document for warranty and service.</footer>
+            </article>
+          </slot>
+        </section>
+      </div>
+    </dialog>
+  </Teleport>
 </template>
+
+<style src="./invoice-paper.css"></style>
 <style scoped>
-.amci-draft-actions,.amci-submit-message{grid-column:1/-1;margin:0 0 9px;padding:10px;border:1px solid #e4d2c1;border-radius:8px}
-.amci-draft-actions p{margin:0 0 6px}
-.amci-draft-actions button{min-height:34px;padding:6px 9px;cursor:pointer;border:1px solid #dbc6b0;border-radius:8px}
-.amci-draft-actions .amci-print-error{margin-top:8px}
-.amci-submit-message{background:#f8eee0;color:#624634}
-
-
-.shell{max-width:1200px;margin:auto;padding:28px}.top{display:flex;justify-content:space-between;gap:16px;align-items:center;margin-bottom:22px}.eyebrow{font-size:11px;font-weight:800;letter-spacing:2px;color:#947454}.top h1{margin:5px 0;font-size:28px}.muted{color:#917e69;font-size:13px}.toolbar{display:flex;align-items:center;gap:9px;flex-wrap:wrap;background:#fffaf3;border:1px solid #e5d7c5;border-radius:16px;padding:12px;margin-bottom:20px}.toolbar button{border:1px solid #dacbb9;background:white;border-radius:10px;padding:10px 14px;color:#614c37;font-weight:700;cursor:pointer}.toolbar button.active{background:#5c4432;color:white;border-color:#5c4432}.toolbar .print{background:#5c4432;color:white;margin-left:auto}.layout{display:grid;grid-template-columns:1fr 260px;gap:20px;align-items:start}.sheet{background:#fff;box-shadow:0 12px 45px #48321b1b;margin:auto;padding:35px 39px;width:100%;min-height:700px}.brand{display:flex;justify-content:space-between;gap:24px;align-items:flex-start;border-bottom:2px solid #5c4432;padding-bottom:20px}.brand h2{margin:5px 0 7px;font-size:25px;letter-spacing:-.7px}.brand address{font-style:normal;font-size:11px;line-height:1.7;color:#756454}.seal{font-size:10px;font-weight:800;letter-spacing:2px;color:#9e7c55}.invoice-title{text-align:right}.invoice-title h3{font-size:24px;letter-spacing:2px;margin:0 0 9px}.invoice-title small{font-size:11px;color:#82715e}.details{display:grid;grid-template-columns:1fr 1fr;gap:25px;padding:24px 0}.label{font-size:10px;font-weight:800;letter-spacing:1.5px;color:#92765a;margin-bottom:9px}.details strong{font-size:13px}.details p{font-size:12px;color:#756454;line-height:1.7;margin:4px 0}.meta{display:grid;grid-template-columns:1fr 1fr;gap:7px;font-size:12px}.meta span{color:#85715d}.meta b{text-align:right}table{width:100%;border-collapse:collapse;font-size:12px}th{text-align:left;background:#f4eee5;color:#6d533b;text-transform:uppercase;letter-spacing:.7px;font-size:10px;padding:12px 9px}td{padding:14px 9px;border-bottom:1px solid #eee7dd;vertical-align:top}td small{display:block;color:#94816e;margin-top:5px}.right{text-align:right}.totals{margin:23px 0 0 auto;width:min(300px,100%)}.totals div{display:flex;justify-content:space-between;padding:9px 0;font-size:12px}.totals .grand{border-top:2px solid #5c4432;font-size:18px;font-weight:800;padding-top:15px}.bottom{display:flex;justify-content:space-between;gap:20px;margin-top:55px;border-top:1px solid #e9dfd2;padding-top:20px}.bottom p{font-size:11px;color:#82715f;max-width:380px;line-height:1.6}.qr{width:75px;height:75px;border:5px solid #fff;outline:1px solid #ded3c4;background:repeating-linear-gradient(90deg,#483727 0 4px,#fff 4px 7px,#483727 7px 9px,#fff 9px 13px);display:grid;place-items:center}.qr span{background:white;padding:3px;font-size:8px;color:#4e3826;font-weight:800}.aside{background:#fffaf3;border:1px solid #e6d9c9;border-radius:16px;padding:20px}.aside h3{margin:0 0 10px;font-size:15px}.aside p,.aside li{font-size:12px;color:#7e6a54;line-height:1.6}.aside ul{padding-left:18px}.paper-thermal .sheet{width:340px;padding:20px 14px;min-height:0}.paper-thermal .brand{display:block;text-align:center}.paper-thermal .brand h2{font-size:17px}.paper-thermal .invoice-title{text-align:center;margin-top:17px}.paper-thermal .invoice-title h3{font-size:17px}.paper-thermal .details{display:block;padding:16px 0}.paper-thermal .details>div{margin-bottom:12px}.paper-thermal th,.paper-thermal td{padding:8px 3px;font-size:10px}.paper-thermal .totals{width:100%}.paper-thermal .bottom{margin-top:22px}.paper-thermal .qr{width:55px;height:55px}.paper-a5 .sheet{max-width:610px;min-height:770px;padding:27px}.paper-a5 .brand h2{font-size:20px}.paper-a5 .invoice-title h3{font-size:19px}.paper-delivery .totals{display:none}.paper-delivery .deliverynote{display:block!important}.deliverynote{display:none;margin-top:25px;background:#f8f2e9;padding:15px;font-size:12px}.disclaimer{font-size:10px;color:#9a8976;margin-top:10px}@media(max-width:850px){.layout{grid-template-columns:1fr}.aside{order:-1}.shell{padding:12px}.sheet{padding:22px}.top{align-items:flex-start}.top h1{font-size:23px}}@media(max-width:540px){.brand{display:block}.invoice-title{text-align:left;margin-top:17px}.details{grid-template-columns:1fr}.toolbar .print{margin-left:0}.sheet{padding:16px}.brand h2{font-size:20px}.invoice-title h3{font-size:20px}}
-.amci-modal{position:fixed;inset:0;width:min(1120px,calc(100% - 28px));height:min(820px,calc(100dvh - 28px));max-width:none;max-height:none;margin:auto;padding:0;overflow:hidden;border:1px solid #decab7;border-radius:17px;background:#faf3eb;color:#3e3025;box-shadow:0 24px 80px #24170c66;font:13px/1.5 Inter,system-ui,sans-serif}
-.amci-modal[open]{display:flex;flex-direction:column}
-.amci-modal::backdrop{background:#271a13ab}
-.amci-modal.amci-pending{width:min(510px,calc(100% - 28px));height:auto}
-.amci-header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:13px 18px;background:#fffaf4;border-bottom:1px solid #e4d2c1}
-.amci-header h2{margin:0;font-size:19px;line-height:1.25;font-weight:750}
-.amci-header small{display:block;margin-top:3px;color:#775b44;overflow-wrap:anywhere}
-.amci-header button,.amci-load button,.amci-formats button,.amci-print,.amci-copy select{min-height:36px;border:1px solid #dbc6b0;border-radius:8px;background:#fffaf4;color:#593d2b;font:inherit;font-weight:650}
-.amci-header button,.amci-load button,.amci-print{padding:6px 12px;cursor:pointer}
-.amci-load{padding:14px 18px}
-.amci-load p{margin:0 0 8px}
-.amci-content{display:grid;grid-template-columns:205px minmax(0,1fr);flex:1;min-height:0;overflow:hidden}
-.amci-print-controls{padding:13px;overflow:auto;border-right:1px solid #e4d2c1;background:#fffaf4}
-.amci-formats{display:grid;gap:6px}
-.amci-formats button{display:grid;gap:1px;text-align:left;padding:7px 9px;cursor:pointer;line-height:1.3}
-.amci-formats small{font-size:11px;font-weight:500}
-.amci-formats button[aria-pressed=true]{background:#f0dfcc;border-color:#9f7454;color:#4e3220}
-.amci-copy{display:grid;gap:4px;margin:12px 0 8px;font-size:12px;font-weight:700}
-.amci-copy select{min-width:0;padding:4px 7px}
-.amci-print{width:100%;background:#6e4b32;color:#fff;border-color:#6e4b32}
-.amci-print-error{color:#963b2d;margin:7px 0 0}
-.amci-preview{padding:15px;overflow:auto;min-width:0;min-height:0;background:#f1e8dd}
-.amci-paper-wrap .sheet{box-sizing:border-box;max-width:795px}
-.amci-paper-wrap.paper-a5 .sheet{max-width:550px}
-.amci-paper-wrap.paper-thermal .sheet{max-width:340px}
-.amci-paper-wrap.paper-delivery .totals{display:none}
-@media(max-width:720px){
- .amci-content{grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr)}
- .amci-print-controls{padding:8px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px;border-right:0;border-bottom:1px solid #e4d2c1;align-items:end}
- .amci-formats{grid-column:1/-1;grid-template-columns:repeat(4,minmax(0,1fr))}
- .amci-formats button{font-size:11px;padding:4px;text-align:center;min-height:38px}
- .amci-formats small{display:none}
- .amci-copy{margin:0}
- .amci-print-error{grid-column:1/-1}
- .amci-preview{padding:8px}
- .amci-paper-wrap .sheet{min-height:0;padding:15px}
+.invoice-studio{color:#33261e;background:#fffcf6;border:1px solid #e0cbb7;border-radius:17px;padding:0;width:min(1170px,calc(100vw - 24px));max-height:calc(100dvh - 24px);box-shadow:0 22px 94px #2b201660;font:14px/1.4 system-ui,sans-serif}
+.invoice-studio::backdrop{background:#30251fb2}
+.invoice-studio-head{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:14px 18px;background:#f8efe4;border-bottom:1px solid #e2cfbc}
+.invoice-studio-head h2{margin:0;font:1.4rem/1.2 Georgia,serif}.invoice-studio-head p{margin:3px 0 0;color:#6d5140;font-size:12px}
+.invoice-studio-content{display:grid;grid-template-columns:190px minmax(0,1fr);max-height:calc(100dvh - 108px)}
+.invoice-studio-controls{min-width:0;padding:14px;overflow:auto;border-right:1px solid #e2cfbc;display:grid;align-content:start;gap:11px}
+.invoice-studio button,.invoice-studio select{color:#513822;border:1px solid #d6bba0;border-radius:7px;background:#fffaf3;padding:7px 9px;min-height:36px;font:inherit;font-weight:650}
+.invoice-studio button{cursor:pointer}.invoice-studio button:disabled{opacity:.55;cursor:default}
+.invoice-studio-controls label{display:grid;gap:4px;font-weight:650}
+.invoice-studio-controls p{margin:0;font-size:12px}
+.invoice-studio-formats{display:grid;gap:6px}.invoice-studio-formats button{text-align:left}
+.invoice-studio-formats small{display:block;font-size:11px;font-weight:500}
+.invoice-studio-formats button[aria-pressed=true]{background:#efe0ce;border-color:#aa7753}
+.invoice-studio .studio-primary{background:#735038;border-color:#735038;color:white}
+.invoice-studio-load{padding:16px}
+.invoice-studio-preview{container:invoice-preview / inline-size;overflow:auto;padding:18px;background:#f0e7db;min-width:0}
+.invoice-studio-transaction{grid-template-columns:minmax(0,1fr)}
+@media(max-width:680px){
+  .invoice-studio-content{grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr)}
+  .invoice-studio-transaction{grid-template-rows:minmax(0,1fr)}
+  .invoice-studio-controls{border-right:0;border-bottom:1px solid #e2cfbc;padding:8px;gap:6px;grid-template-columns:minmax(0,1fr) auto}
+  .invoice-studio-formats{grid-column:1/-1;grid-template-columns:repeat(4,minmax(0,1fr));gap:4px}
+  .invoice-studio-formats button{font-size:11px;padding:5px}
+  .invoice-studio-formats small{display:none}
+  .invoice-studio-preview{padding:9px}
 }
-</style>
-
-<style>
-/* v6.75: monochrome 80mm receipt styling based on supplied thermal sample */
-.amci-paper-wrap.paper-thermal .sheet{color:#111!important;background:#fff!important;border:0!important;box-shadow:none!important;max-width:80mm!important;min-height:0!important;padding:12px 9px!important}
-.amci-paper-wrap.paper-thermal .brand{border-bottom:2px solid #111!important;padding-bottom:12px!important}
-.amci-paper-wrap.paper-thermal .seal{color:#111!important}
-.amci-paper-wrap.paper-thermal .brand h2{color:#111!important;font-size:15px!important;letter-spacing:0!important}
-.amci-paper-wrap.paper-thermal .brand address,.amci-paper-wrap.paper-thermal .details p,.amci-paper-wrap.paper-thermal .meta span,.amci-paper-wrap.paper-thermal .bottom p{color:#222!important}
-.amci-paper-wrap.paper-thermal .invoice-title h3{font-size:14px!important;letter-spacing:1px!important}
-.amci-paper-wrap.paper-thermal .label{color:#111!important;border-bottom:1px solid #111!important;padding-bottom:5px!important}
-.amci-paper-wrap.paper-thermal th{background:#fff!important;color:#111!important;border-top:1px solid #111!important;border-bottom:1px solid #111!important;padding:6px 3px!important;font-size:9px!important}
-.amci-paper-wrap.paper-thermal td{border-bottom:1px dashed #aaa!important;padding:7px 3px!important;font-size:10px!important;overflow-wrap:anywhere}
-.amci-paper-wrap.paper-thermal td small{color:#111!important;line-height:1.4!important;overflow-wrap:anywhere}
-.amci-paper-wrap.paper-thermal .totals .grand{border-color:#111!important}
-.amci-paper-wrap.paper-thermal .bottom{border-top:1px dashed #111!important}
-</style>
-
-<style>
-/* SOS_INVOICE_LUXE_682 — premium print typography and true machine-readable codes */
-.amci-paper-wrap .sheet{border:1px solid #e9ddce!important}
-.amci-paper-wrap .brand{padding-bottom:24px}
-.amci-paper-wrap .brand h2{font-weight:850;letter-spacing:-.8px;line-height:1.12}
-.amci-paper-wrap .invoice-title h3{font-weight:900;letter-spacing:1.5px}
-.amci-paper-wrap .totals .grand{font-size:19px}
-.amci682-footer{align-items:flex-end;gap:24px}
-.amci682-thanks{flex:1;min-width:0}
-.amci682-thanks>b{font-size:11px;letter-spacing:.5px;color:#503928}
-.amci682-footnote{font-size:10px!important}
-.amci682-codes{display:flex;gap:14px;align-items:flex-end;justify-content:flex-end;flex-wrap:wrap;max-width:270px}
-.amci682-qrblock,.amci682-barblock{display:flex;flex-direction:column;align-items:center;gap:4px;min-width:0}
-.amci682-qr{display:block;width:90px;height:90px;background:white;padding:3px;border:1px solid #e6dbcd}
-.amci682-barcode{display:block;width:150px;height:44px;max-width:100%;background:white}
-.amci682-codes small{font-size:8px!important;line-height:1.25!important;color:#554437!important;text-align:center;overflow-wrap:anywhere}
-.amci-paper-wrap.paper-thermal .amci682-footer{display:flex!important;flex-direction:column!important;align-items:center!important;gap:12px!important}
-.amci-paper-wrap.paper-thermal .amci682-codes{justify-content:center!important;width:100%!important;max-width:none!important;gap:10px!important}
-.amci-paper-wrap.paper-thermal .amci682-thanks{text-align:center!important}
-.amci-paper-wrap.paper-thermal .amci682-qr{width:92px!important;height:92px!important;border:0!important}
-.amci-paper-wrap.paper-thermal .amci682-barcode{width:190px!important;height:46px!important}
-.amci-paper-wrap.paper-thermal .amci682-codes small{color:#111!important}
-@media(max-width:540px){.amci682-footer{flex-direction:column;align-items:center}.amci682-codes{justify-content:center}}
-</style>
-
-<style>
-/* SOS_INVOICE_EXECUTIVE_683 — same hierarchy in preview and print */
-.amci683-document{font-family:Inter,Arial,sans-serif!important;color:#25211e}
-.amci683-topline{display:flex;justify-content:space-between;gap:8px;border-bottom:1px solid #d8c8b5;padding-bottom:10px;margin-bottom:19px;font-size:9px;font-weight:800;letter-spacing:1.3px;color:#79604b}
-.amci683-reference{display:flex;justify-content:space-between;gap:18px;background:#f3eee7;border:1px solid #dfd0be;padding:17px 19px;margin:20px 0 0}
-.amci683-reference>div:first-child{min-width:0}.amci683-reference strong{display:block;font-size:22px;letter-spacing:-.6px;overflow-wrap:anywhere;color:#30251d;margin:5px 0}
-.amci683-kicker{font-size:9px;font-weight:850;letter-spacing:1.4px;color:#8c6a4e}.amci683-reference small{display:block;font-size:9px;color:#786553}
-.amci683-refside{text-align:right;min-width:110px}.amci683-refside span{display:block;font-size:10px;letter-spacing:1px;font-weight:850}.amci683-refside b{display:block;margin:7px 0;font-size:12px}
-.amci683-sl{width:36px!important;text-align:center!important;white-space:nowrap!important;font-weight:800!important}
-.amci683-document .brand{border-bottom:3px solid #3f3024!important;padding-bottom:21px}.amci683-document .brand h2{font-size:25px!important;letter-spacing:-.8px!important;font-weight:900!important}
-.amci683-document .seal{letter-spacing:2.5px!important}.amci683-document .invoice-title h3{font-size:19px!important;letter-spacing:2.2px!important}
-.amci683-document .details{padding:25px 0 23px!important}.amci683-document .label{font-size:9px!important;letter-spacing:1.8px!important}
-.amci683-document table{border-top:2px solid #45372c!important}.amci683-document th{background:#ece3d7!important;color:#423226!important;font-size:9px!important;padding:12px 9px!important}.amci683-document td{padding:13px 9px!important}.amci683-document tbody tr:nth-child(even){background:#fbf8f3}
-.amci683-document .totals .grand{background:#eee5da!important;padding:14px 12px!important;margin-top:7px!important;border-top:2px solid #45372c!important}.amci683-document .amci682-footer{margin-top:34px!important}
-.amci-paper-wrap.paper-thermal .amci683-topline{font-size:7px;letter-spacing:0}.amci-paper-wrap.paper-thermal .amci683-reference{display:block;text-align:center;padding:9px 4px;margin:12px 0}.amci-paper-wrap.paper-thermal .amci683-reference strong{font-size:15px}.amci-paper-wrap.paper-thermal .amci683-refside{display:none}.amci-paper-wrap.paper-thermal .amci683-document th{padding:5px 2px!important}.amci-paper-wrap.paper-thermal .amci683-document td{padding:6px 2px!important}.amci-paper-wrap.paper-thermal .amci683-sl{width:23px!important;font-size:9px!important}.amci-paper-wrap.paper-thermal .amci683-document .brand h2{font-size:15px!important}
-@media(max-width:540px){.amci683-reference{display:block}.amci683-refside{text-align:left;margin-top:9px}}
-</style>
-
-<style>
-/* SOS_MINIMAL_PREMIUM_685 */
-
-.amci683-document{font-family:Inter,Arial,sans-serif!important;color:#25221f!important}
-.amci683-document .brand{display:flex!important;align-items:flex-start!important;justify-content:space-between!important;gap:20px!important;border-bottom:1.5px solid #3f332b!important;padding-bottom:20px!important}
-.amci683-document .seal{display:none!important}
-.amci683-document .brand h2{font-size:22px!important;font-weight:850!important;letter-spacing:-.5px!important;margin:0 0 6px!important}
-.amci683-document .brand address{font-size:10px!important;line-height:1.6!important;color:#665b50!important}
-.amci683-document .invoice-title{min-width:175px!important;text-align:right!important}
-.amci683-document .invoice-title h3{font-size:17px!important;font-weight:800!important;letter-spacing:.6px!important;margin:8px 0 5px!important;white-space:nowrap!important}
-.amci685-invoice-ref{display:block!important;font-size:10px!important;color:#4c3c30!important;overflow-wrap:anywhere!important}
-.amci685-topbarcode{width:190px;max-width:100%;margin-left:auto;display:flex;flex-direction:column;align-items:flex-end;gap:2px}
-.amci685-topbarcode svg{display:block;width:100%;height:42px;background:#fff}
-.amci685-topbarcode small{font:600 9px/1.2 monospace!important;letter-spacing:.25px!important;color:#111!important}
-.amci683-document .details{padding:22px 0!important;border-bottom:0!important}
-.amci683-document .label{font-size:9px!important;letter-spacing:1px!important;color:#786958!important}
-.amci683-document table{margin-top:4px!important}
-.amci683-document th{background:#f5f1eb!important;color:#3b332d!important;font-size:10px!important;font-weight:750!important;padding:11px 9px!important}
-.amci683-document td{font-size:11px!important;padding:11px 9px!important;border-bottom:1px solid #e9e4dd!important}
-.amci683-document .totals .grand{background:#f5f1eb!important;border:0!important;padding:13px!important}
-.amci683-document .bottom{border-top:1px solid #ddd5ca!important;margin-top:26px!important;padding-top:13px!important}
-.amci683-document .amci682-thanks>b{font-size:10px!important;letter-spacing:0!important}
-.amci683-document .amci682-thanks p{font-size:9px!important}
-.amci683-document .amci682-qr{width:65px!important;height:65px!important;border:0!important}
-.amci683-document .amci682-codes{max-width:90px!important}
-.paper-thermal .amci683-document .brand{display:block!important;text-align:center!important}
-.paper-thermal .amci683-document .invoice-title{text-align:center!important;margin:12px auto 0!important;min-width:0!important}
-.paper-thermal .amci685-topbarcode{width:195px!important;margin:0 auto!important;align-items:center!important}
-.paper-thermal .amci683-document .invoice-title h3{font-size:14px!important}
-.paper-thermal .amci683-document .brand h2{font-size:14px!important}
-.paper-thermal .amci683-document .amci682-qr{width:60px!important;height:60px!important}
-
-</style>
-
-<style>
-
-/* SOS_INVOICE_FIT_686_SAFE */
-
-/* Keep the entire invoice inside its paper container. */
-.amci-paper-wrap,
-.print-root,
-.amci-paper-wrap .sheet,
-.print-root .sheet {
-    box-sizing: border-box !important;
-    min-width: 0 !important;
-}
-
-.amci-paper-wrap .sheet,
-.print-root .sheet {
-    width: 100% !important;
-    max-width: 100% !important;
-    overflow: hidden !important;
-}
-
-.amci-paper-wrap .sheet table,
-.print-root .sheet table {
-    width: 100% !important;
-    max-width: 100% !important;
-    min-width: 0 !important;
-    table-layout: fixed !important;
-    border-collapse: collapse !important;
-}
-
-/* Five-column sales invoice. */
-.amci-paper-wrap .sheet th,
-.amci-paper-wrap .sheet td,
-.print-root .sheet th,
-.print-root .sheet td {
-    box-sizing: border-box !important;
-    min-width: 0 !important;
-    padding: 8px 4px !important;
-    font-size: 10px !important;
-    letter-spacing: 0 !important;
-    overflow-wrap: anywhere !important;
-    white-space: normal !important;
-    vertical-align: top !important;
-}
-
-.amci-paper-wrap .sheet th:first-child,
-.amci-paper-wrap .sheet td:first-child,
-.print-root .sheet th:first-child,
-.print-root .sheet td:first-child {
-    width: 7% !important;
-}
-
-.amci-paper-wrap .sheet th:nth-child(2),
-.amci-paper-wrap .sheet td:nth-child(2),
-.print-root .sheet th:nth-child(2),
-.print-root .sheet td:nth-child(2) {
-    width: 43% !important;
-}
-
-.amci-paper-wrap .sheet th:nth-child(3),
-.amci-paper-wrap .sheet td:nth-child(3),
-.print-root .sheet th:nth-child(3),
-.print-root .sheet td:nth-child(3) {
-    width: 9% !important;
-}
-
-.amci-paper-wrap .sheet th:nth-child(4),
-.amci-paper-wrap .sheet td:nth-child(4),
-.print-root .sheet th:nth-child(4),
-.print-root .sheet td:nth-child(4) {
-    width: 20% !important;
-}
-
-.amci-paper-wrap .sheet th:nth-child(5),
-.amci-paper-wrap .sheet td:nth-child(5),
-.print-root .sheet th:nth-child(5),
-.print-root .sheet td:nth-child(5) {
-    width: 21% !important;
-}
-
-/* Delivery note has only three columns. */
-.amci-paper-wrap .sheet table:not(:has(th:nth-child(4))) th:nth-child(2),
-.amci-paper-wrap .sheet table:not(:has(th:nth-child(4))) td:nth-child(2),
-.print-root .sheet table:not(:has(th:nth-child(4))) th:nth-child(2),
-.print-root .sheet table:not(:has(th:nth-child(4))) td:nth-child(2) {
-    width: 78% !important;
-}
-
-.amci-paper-wrap .sheet table:not(:has(th:nth-child(4))) th:nth-child(3),
-.amci-paper-wrap .sheet table:not(:has(th:nth-child(4))) td:nth-child(3),
-.print-root .sheet table:not(:has(th:nth-child(4))) th:nth-child(3),
-.print-root .sheet table:not(:has(th:nth-child(4))) td:nth-child(3) {
-    width: 15% !important;
-}
-
-/* Prevent long item names and warranty details from expanding columns. */
-.amci-paper-wrap .sheet td *,
-.print-root .sheet td * {
-    max-width: 100% !important;
-    overflow-wrap: anywhere !important;
-}
-
-/* 80mm thermal-specific typography and spacing. */
-.amci-paper-wrap.paper-thermal .sheet,
-.print-root.paper-thermal .sheet {
-    width: 80mm !important;
-    max-width: 80mm !important;
-    min-width: 0 !important;
-    padding: 8px 5px !important;
-}
-
-.amci-paper-wrap.paper-thermal .sheet th,
-.amci-paper-wrap.paper-thermal .sheet td,
-.print-root.paper-thermal .sheet th,
-.print-root.paper-thermal .sheet td {
-    padding: 5px 2px !important;
-    font-size: 8px !important;
-}
-
-.amci-paper-wrap.paper-thermal .sheet th,
-.print-root.paper-thermal .sheet th {
-    font-size: 7px !important;
-}
-
-</style>
-
-<style>
-/* SOS_PREMIUM_PRINT_7111 — warm ivory invoice, preview and print */
-.sos7111-premium{background:#fffefa!important;color:#322820!important;font-family:Inter,Arial,sans-serif!important}
-.sos7111-premium:before{content:'';display:block;height:5px;background:linear-gradient(90deg,#34271e 0%,#8d6246 65%,#dbc4ab 100%);margin:-1px 0 18px}
-.sos7111-premium .brand{border-bottom:2px solid #4d3828!important;padding-bottom:20px!important}
-.sos7111-premium .brand h2{font-family:Georgia,'Times New Roman',serif!important;font-size:25px!important;letter-spacing:-.6px!important;color:#35281e!important;font-weight:700!important}
-.sos7111-premium .seal{color:#976c4b!important;letter-spacing:2px!important;font-size:9px!important}
-.sos7111-premium .brand address{font-size:11px!important;color:#604f3f!important;line-height:1.65!important}
-.sos7111-premium .sos7111-phone{display:block;margin:7px 0 0;font-family:Arial,sans-serif;font-size:11px;font-weight:800;letter-spacing:.1px;color:#513a2c}
-.sos7111-premium .invoice-title h3{font-family:Georgia,'Times New Roman',serif!important;font-size:22px!important;letter-spacing:.3px!important}
-.sos7111-premium .amci683-reference{border-color:#d9c5b0!important;background:#f8f2eb!important}
-.sos7111-premium .amci683-reference strong{font-family:Georgia,'Times New Roman',serif!important}
-.sos7111-premium table{border-top:2px solid #4e3828!important}
-.sos7111-premium table th{background:#55402f!important;color:#fffaf4!important;font-size:9px!important;letter-spacing:.7px!important}
-.sos7111-premium table tbody tr:nth-child(even){background:#fbf7f2!important}
-.sos7111-premium table td{border-color:#e8dccc!important}
-.sos7111-premium .totals .grand{background:#f2e7dc!important;border-top:2px solid #4d3828!important;color:#3e2c21!important;border-radius:6px;padding:14px!important}
-.sos7111-copytag{font-family:Arial,sans-serif;display:inline-flex;align-items:center;border:1px solid #d7be9f;border-radius:4px;background:#f5e8d9;padding:5px 9px;margin-bottom:18px;font-size:9px;font-weight:800;letter-spacing:1.3px;color:#735336}
-.sos7111-choice{display:inline-flex;align-items:center;gap:6px;color:#795d45;font-size:11px;font-weight:800}
-.sos7111-choice select{border:1px solid #d8c5af;border-radius:7px;background:#fff;padding:6px 8px;color:#513d2e;font-weight:700;max-width:155px}
-.paper-thermal .sos7111-premium:before{height:3px;background:#111;margin-bottom:8px}
-.paper-thermal .sos7111-premium .brand h2{font-family:Arial,sans-serif!important;font-size:14px!important}
-.paper-thermal .sos7111-premium .invoice-title h3{font-family:Arial,sans-serif!important;font-size:13px!important}
-.paper-thermal .sos7111-premium table th{background:#fff!important;color:#111!important;border-top:1px solid #111!important;border-bottom:1px solid #111!important}
-.paper-thermal .sos7111-copytag{background:#fff;color:#111;border-color:#111;padding:2px 4px;font-size:8px}
-@media print{.sos7111-premium,.sos7111-premium *{-webkit-print-color-adjust:exact;print-color-adjust:exact}.sos7111-premium .brand,.sos7111-copytag{break-inside:avoid}}
-
 </style>

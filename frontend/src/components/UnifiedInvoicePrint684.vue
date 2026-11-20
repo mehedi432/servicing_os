@@ -7,15 +7,17 @@ const props = defineProps({
   doctype: { type: String, default: 'Sales Invoice' },
   duplicate: { type: Boolean, default: false },
   previewOnly: { type: Boolean, default: false },
+  checkout: Boolean,
+  startPayment: Boolean,
   submitDraft: { type: Boolean, default: false }
 })
 const emit = defineEmits(['close','submitted'])
 </script>
 <template>
   <CounterPremiumInvoice681
-    v-if="doctype === 'Sales Invoice'"
-    :invoice-name="invoiceName"
-    :duplicate="duplicate" :preview-only="previewOnly" :submit-draft="submitDraft"
+    v-if="checkout || doctype === 'Sales Invoice'"
+    :invoice-name="invoiceName" :doctype="doctype" :checkout="checkout"
+    :duplicate="duplicate" :preview-only="previewOnly" :submit-draft="submitDraft" :start-payment="startPayment"
     @close="emit('close')" @submitted="emit('submitted', $event)" />
   <InvoicePrint657
     v-else

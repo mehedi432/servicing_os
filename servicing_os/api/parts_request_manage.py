@@ -1,9 +1,8 @@
 import frappe
 from frappe.utils import flt
+from servicing_os.api.site_company_706 import current_company, spare_parts_warehouse
 
 # SERVICING_PARTS_UI_615C4
-COMPANY = "AL MODINA COMPUTERS LIMITED"
-WAREHOUSE = "Spare Parts - AMCL"
 MANAGER_ROLES = {"System Manager", "Stock Manager"}
 TECHNICIAN_ROLE = "Service Technician"
 
@@ -25,7 +24,7 @@ def _get_request(name, manager_action=False):
     if not name or not frappe.db.exists("Material Request", name):
         frappe.throw("Material Request not found.")
     doc = frappe.get_doc("Material Request", name)
-    if (doc.company != COMPANY or doc.material_request_type != "Material Issue"
+    if (doc.company != current_company() or doc.material_request_type != "Material Issue"
             or not doc.get("custom_service_job")):
         frappe.throw("This is not a SERVICING OS repair-parts request.", frappe.PermissionError)
     if manager_action and not _manager():
@@ -76,13 +75,13 @@ def search_saleable_parts(search=""):
     codes = [i.name for i in items]
     stock = {}
     if codes:
-        for row in frappe.get_all("Bin", filters={"warehouse": WAREHOUSE,
+        for row in frappe.get_all("Bin", filters={"warehouse": spare_parts_warehouse(),
                 "item_code": ["in", codes]}, fields=["item_code", "actual_qty", "reserved_qty"]):
             stock[row.item_code] = (flt(row.actual_qty), flt(row.reserved_qty))
     return {"items": [{"item_code": i.name, "item_name": i.item_name,
                         "uom": i.stock_uom,
                         "available_qty": stock.get(i.name, (0, 0))[0] - stock.get(i.name, (0, 0))[1]}
-                       for i in items], "warehouse": WAREHOUSE}
+                       for i in items], "warehouse": spare_parts_warehouse()}
 
 
 @frappe.whitelist()
@@ -158,7 +157,7 @@ def cancel_submitted_request(material_request, expected_modified):
 
 def healthcheck():
     """Read-only bench check (Administrator context)."""
-    return {"api": "SERVICING OS 6.15C.4", "warehouse": WAREHOUSE,
+    return {"api": "SERVICING OS 6.15C.4", "warehouse": spare_parts_warehouse(),
             "matching_items": len(search_saleable_parts().get("items", [])),
             "permissions": manage_permissions(),
             "stock_changed": False}

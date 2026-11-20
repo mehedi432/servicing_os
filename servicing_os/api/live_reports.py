@@ -3,16 +3,14 @@
 Revenue source: submitted Sales Invoice ONLY. This also includes consolidated
 POS sessions once they have been posted; independent POS Invoices are intentionally
 NOT added so no revenue is double-counted. Cash is submitted Payment Entry
-receipts into the configured Cash - AMCL ledger; do not assume invoice paid in cash.
+receipts into the configured Cash ledger; do not assume invoice paid in cash.
 """
 from __future__ import annotations
 import frappe
 from datetime import date, timedelta
 from frappe.utils import flt
+from servicing_os.api.site_company_706 import cash_account, current_company, shop_warehouses
 
-COMPANY = 'AL MODINA COMPUTERS LIMITED'
-WAREHOUSES = ('Stores - AMCL', 'Spare Parts - AMCL', 'Used Laptops - AMCL')
-CASH = 'Cash - AMCL'
 MAX_ROWS = 5000
 
 
@@ -54,17 +52,17 @@ def get_business_report(from_date=None, to_date=None, cashier=None, warehouse=No
         frappe.throw('Choose a valid date range up to 366 days.')
     cashier = (str(cashier or '').strip())[:140]
     warehouse = str(warehouse or '').strip()
-    if warehouse and warehouse not in WAREHOUSES:
+    if warehouse and warehouse not in shop_warehouses().values():
         frappe.throw('Select a known shop warehouse.')
-    out = {'company':COMPANY,'currency':'BDT','from_date':str(start),'to_date':str(end),
+    out = {'company':current_company(),'currency':'BDT','from_date':str(start),'to_date':str(end),
            'source':'Submitted Sales Invoices, submitted cash Payment Entries, Service Jobs and Bin quantities',
-           'cash_account': CASH, 'permissions':{},'warnings':[],
+           'cash_account': cash_account(), 'permissions':{},'warnings':[],
            'sales':[],'payments':[],'jobs':[],'stock':[],
            'kpis':{'net_sales':None,'cash_collected':None,'invoice_outstanding':None,
                    'service_received':None,'open_service_jobs':None,'stock_lines':None}}
 
     if _readable('Sales Invoice'):
-        f = {'company':COMPANY,'docstatus':1,'posting_date':['between',[str(start),str(end)]]}
+        f = {'company':current_company(),'docstatus':1,'posting_date':['between',[str(start),str(end)]]}
         if cashier: f['owner'] = cashier
         rows,partial = _rows('Sales Invoice',f,
             ['name','posting_date','customer','customer_name','owner','grand_total',
@@ -82,12 +80,12 @@ def get_business_report(from_date=None, to_date=None, cashier=None, warehouse=No
         out['warnings'].append('Your login cannot read Sales Invoices. Sales figures are hidden, not zero.')
 
     if _readable('Payment Entry'):
-        if not frappe.db.exists('Account',{'name':CASH,'company':COMPANY}):
-            out['warnings'].append('Cash account Cash - AMCL not found. Cash total is unavailable.')
+        if not out['cash_account'] or not frappe.db.exists('Account', {'name': out['cash_account'], 'company': current_company()}):
+            out['warnings'].append('Cash account Cash not found. Cash total is unavailable.')
             out['permissions']['payments'] = False
         else:
-            f = {'company': COMPANY, 'docstatus':1,'payment_type':'Receive',
-                 'paid_to': CASH,'posting_date':['between',[str(start),str(end)]]}
+            f = {'company': current_company(), 'docstatus':1,'payment_type':'Receive',
+                 'paid_to': out['cash_account'],'posting_date':['between',[str(start),str(end)]]}
             if cashier: f['owner'] = cashier
             rows,partial = _rows('Payment Entry',f,
                  ['name','posting_date','party','party_name','owner','paid_to',
@@ -120,7 +118,7 @@ def get_business_report(from_date=None, to_date=None, cashier=None, warehouse=No
         out['warnings'].append('Your login cannot read Service Jobs. Job statistics are hidden.')
 
     if _readable('Bin'):
-        f = {'warehouse': warehouse if warehouse else ['in',list(WAREHOUSES)]}
+        f = {'warehouse': warehouse if warehouse else ['in',list(shop_warehouses().values())]}
         rows,partial = _rows('Bin', f, ['item_code','warehouse','actual_qty','valuation_rate','stock_value'], 'item_code asc')
         out['stock'] = _json_rows(rows)
         out['kpis']['stock_lines'] = len(rows)

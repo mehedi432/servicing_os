@@ -5,10 +5,8 @@ This endpoint does not create or submit an invoice or POS Opening Entry.
 """
 import frappe
 from frappe.utils import getdate, nowdate, flt, cint
+from servicing_os.api.site_company_706 import current_company, retail_warehouse, selling_price_list
 
-COMPANY = 'AL MODINA COMPUTERS LIMITED'
-DEFAULT_WAREHOUSE = 'Stores - AMCL'
-DEFAULT_PRICE_LIST = 'Standard Selling'
 
 
 def _meta_fields(doctype):
@@ -21,7 +19,7 @@ def _permitted_profiles():
     allowed = _meta_fields('POS Profile')
     needed = ['name', 'company', 'warehouse', 'selling_price_list', 'currency', 'disabled']
     fields = [f for f in needed if f in allowed]
-    filters = {'company': COMPANY}
+    filters = {'company': current_company()}
     if 'disabled' in allowed:
         filters['disabled'] = 0
     result = frappe.get_list('POS Profile', filters=filters, fields=fields,
@@ -44,9 +42,9 @@ def _warehouse_status(name):
         return {'name': name, 'valid': False, 'reason': 'Warehouse does not exist'}
     fields = ['company', 'is_group', 'disabled']
     value = frappe.db.get_value('Warehouse', name, fields, as_dict=True)
-    valid = (value.company == COMPANY and not value.is_group and not value.disabled)
+    valid = (value.company == current_company() and not value.is_group and not value.disabled)
     return {'name': name, 'valid': bool(valid),
-            'reason': '' if valid else 'Warehouse is not a usable AMCL stock warehouse'}
+            'reason': '' if valid else 'Warehouse is not a usable company stock warehouse'}
 
 
 def _current_list_prices(item_codes, price_list):
@@ -103,15 +101,15 @@ def get_retail_pos_hub(search='', pos_profile=None, limit=60):
     elif profiles:
         chosen = profiles[0]
 
-    warehouse = (chosen or {}).get('warehouse') or DEFAULT_WAREHOUSE
-    selling_list = (chosen or {}).get('selling_price_list') or DEFAULT_PRICE_LIST
+    warehouse = (chosen or {}).get('warehouse') or retail_warehouse()
+    selling_list = (chosen or {}).get('selling_price_list') or selling_price_list()
     wh = _warehouse_status(warehouse)
     pl = _price_list_details(selling_list)
     warnings = []
     if profile_warning:
         warnings.append(profile_warning)
     if not profiles:
-        warnings.append('No accessible AMCL POS Profile. Create and configure one in ERPNext first.')
+        warnings.append('No accessible company POS Profile. Create and configure one in ERPNext first.')
     if not wh['valid']:
         warnings.append('POS warehouse is not valid: ' + str(wh['reason']))
     if not pl or not cint(pl.get('selling', 0)) or not cint(pl.get('enabled', 1)):
@@ -168,7 +166,7 @@ def get_retail_pos_hub(search='', pos_profile=None, limit=60):
             warnings.append('No accessible Customer found. Configure a POS walk-in customer.')
 
     return {
-        'company': COMPANY, 'currency': 'BDT', 'warehouse': warehouse,
+        'company': current_company(), 'currency': 'BDT', 'warehouse': warehouse,
         'warehouse_status': wh, 'selling_price_list': selling_list,
         'price_list_status': pl, 'pos_profiles': profiles,
         'selected_profile': chosen['name'] if chosen else None,

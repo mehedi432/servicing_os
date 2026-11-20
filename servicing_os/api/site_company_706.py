@@ -7,6 +7,11 @@ import frappe
 
 
 def site_shop_context():
+    request = getattr(getattr(frappe, "local", None), "request", None)
+    cached = getattr(frappe.local, "sos_shop_context", None) if request is not None else None
+    if cached:
+        return cached.copy()
+
     company_setting = str(frappe.conf.get("servicing_os_company") or "").strip()
     shop_setting = str(frappe.conf.get("servicing_os_shop") or "").strip()
 
@@ -36,7 +41,10 @@ def site_shop_context():
         frappe.throw("Active Servicing Shop has no valid ERPNext Company.")
     if company_setting and company_setting != company:
         frappe.throw("Configured company does not match the active Servicing Shop.")
-    return {"company": company, "shop": shop.name}
+    context = {"company": company, "shop": shop.name}
+    if request is not None:
+        frappe.local.sos_shop_context = context
+    return context.copy()
 
 
 def current_company():
@@ -51,3 +59,59 @@ def validate_job_shop(job):
             frappe.PermissionError,
         )
     return context
+
+
+WAREHOUSE_FIELDS = {
+    "retail_warehouse": "Stores",
+    "spare_parts_warehouse": "Spare Parts",
+    "used_laptop_warehouse": "Used Laptops",
+}
+
+
+def shop_warehouses():
+    context = site_shop_context()
+    shop = frappe.get_cached_doc("Servicing Shop", context["shop"])
+    return {field: shop.get(field) for field in WAREHOUSE_FIELDS}
+
+
+def retail_warehouse():
+    return shop_warehouses()["retail_warehouse"]
+
+
+def spare_parts_warehouse():
+    return shop_warehouses()["spare_parts_warehouse"]
+
+
+def used_laptop_warehouse():
+    return shop_warehouses()["used_laptop_warehouse"]
+
+
+def current_currency(company=None):
+    return frappe.get_cached_value("Company", company or current_company(), "default_currency")
+
+
+def price_list_for(company, direction):
+    currency = current_currency(company)
+    label = f"Standard {direction.title()}"
+    candidates = (label, f"Servicing OS {direction.title()} - {currency}")
+    filters = {"currency": currency, "enabled": 1, direction: 1}
+    for name in candidates:
+        if frappe.db.exists("Price List", {**filters, "name": name}):
+            return name
+    options = frappe.get_all("Price List", filters=filters, pluck="name", order_by="name asc",
+                             limit_page_length=1)
+    return options[0] if options else None
+
+
+def selling_price_list():
+    return price_list_for(current_company(), "selling")
+
+
+def cash_account(company=None):
+    company = company or current_company()
+    mode = frappe.db.get_value("Mode of Payment", "Cash", ["enabled", "type"], as_dict=True)
+    if not mode or not mode.enabled or mode.type != "Cash":
+        return None
+    return frappe.db.get_value("Mode of Payment Account", {
+        "parent": "Cash", "parenttype": "Mode of Payment", "company": company,
+    }, "default_account")

@@ -7,8 +7,8 @@ Neither creating nor reading this module posts stock, payments or GL entries.
 from datetime import datetime
 import frappe
 from frappe.utils import add_days, nowdate, flt
+from servicing_os.api.site_company_706 import current_company
 
-COMPANY = "AL MODINA COMPUTERS LIMITED"
 
 
 def _fields(doctype):
@@ -84,7 +84,7 @@ def get_retail_history(from_date=None, to_date=None, search="", doc_type="all", 
             "grand_total", "currency", "is_return", "status", "outstanding_amount",
             "is_pos", "is_created_using_pos", "is_consolidated"
         ) if c in available]
-        filters = {"company": COMPANY, "docstatus": 1, "posting_date": ["between", [start, end]]}
+        filters = {"company": current_company(), "docstatus": 1, "posting_date": ["between", [start, end]]}
         if pos_profile and "pos_profile" in available:
             filters["pos_profile"] = pos_profile
         elif pos_profile:
@@ -123,7 +123,7 @@ def get_retail_history(from_date=None, to_date=None, search="", doc_type="all", 
     posted = [r for r in results if r["doctype"] == "Sales Invoice"]
     excluded_currencies = len([r for r in results if r["currency"] != "BDT"])
     return {
-        "company": COMPANY,
+        "company": current_company(),
         "currency": "BDT",
         "from_date": start,
         "to_date": end,
@@ -149,7 +149,7 @@ def get_retail_sale_detail(doctype, name):
         frappe.throw("Only retail POS and Sales Invoices are supported.")
     doc = frappe.get_doc(doctype, name)
     doc.check_permission("read")
-    if doc.company != COMPANY or doc.docstatus != 1:
+    if doc.company != current_company() or doc.docstatus != 1:
         frappe.throw("This is not a submitted AMCL retail document.")
     if doctype == "Sales Invoice" and (
         doc.get("is_consolidated") or not _is_retail_sales_invoice(doc)

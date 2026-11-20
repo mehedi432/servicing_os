@@ -3,8 +3,7 @@ import frappe
 from frappe.utils import flt
 
 # SERVICING_OS_REPAIR_BILLING_616A
-from servicing_os.api.site_company_706 import current_company, validate_job_shop
-WAREHOUSE = "Spare Parts - AMCL"
+from servicing_os.api.site_company_706 import current_company, spare_parts_warehouse, validate_job_shop
 LABOR_ITEM = "AMCL-REPAIR-LABOR"
 FIELD = "custom_service_job"
 MANAGER_ROLES = {"System Manager", "Accounts Manager"}
@@ -57,7 +56,7 @@ def get_issued_rows(job_name):
         return []
     details = frappe.get_all("Stock Entry Detail", filters={
         "parent": ["in", entries], "material_request": ["in", mr_names],
-        "s_warehouse": WAREHOUSE},
+        "s_warehouse": spare_parts_warehouse()},
         fields=["name", "parent", "item_code", "qty", "uom", "material_request", "material_request_item"],
         limit_page_length=10000)
     output = []
@@ -65,7 +64,7 @@ def get_issued_rows(job_name):
         # Stock Ledger Entries are the authoritative consumption valuation.
         sle = frappe.get_all("Stock Ledger Entry", filters={
             "voucher_type": "Stock Entry", "voucher_no": row.parent,
-            "voucher_detail_no": row.name, "warehouse": WAREHOUSE,
+            "voucher_detail_no": row.name, "warehouse": spare_parts_warehouse(),
             "is_cancelled": 0},
             fields=["actual_qty", "stock_value_difference"],
             limit_page_length=100)
@@ -153,7 +152,7 @@ def create_draft_repair_invoice(job_name, labor_rate=0, part_rates=None):
             frappe.throw("No selling price for " + code + "; provide part_rates")
         rate = finite_nonnegative(part_rates[code] if supplied else reference_rate, "Rate for " + code)
         rows.append({"item_code": code, "qty": qty, "rate": rate,
-                     "warehouse": WAREHOUSE, "income_account": "Sales - AMCL"})
+                     "warehouse": spare_parts_warehouse(), "income_account": "Sales - AMCL"})
 
     labor = finite_nonnegative(labor_rate, "Labor charge")
     if labor:

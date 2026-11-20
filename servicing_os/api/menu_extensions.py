@@ -8,9 +8,8 @@ from decimal import Decimal, InvalidOperation
 
 import frappe
 from frappe.utils import flt, nowdate
+from servicing_os.api.site_company_706 import current_company, current_currency, used_laptop_warehouse
 
-COMPANY = "AL MODINA COMPUTERS LIMITED"
-USED_WAREHOUSE = "Used Laptops - AMCL"
 USED_GROUP = "Used Laptops"
 ROLE = "Service Technician"
 
@@ -42,17 +41,17 @@ def _safe_money(value):
 
 def _check_warehouse():
     w = frappe.db.get_value(
-        "Warehouse", USED_WAREHOUSE,
+        "Warehouse", used_laptop_warehouse(),
         ["company", "is_group", "disabled"], as_dict=True,
     )
-    if not w or w.company != COMPANY or w.is_group or w.disabled:
-        frappe.throw("Used Laptops - AMCL must be an active AMCL leaf warehouse.")
+    if not w or w.company != current_company() or w.is_group or w.disabled:
+        frappe.throw("The configured used-laptop warehouse must be an active leaf warehouse for this company.")
 
 
 def setup_used_laptops():
     """Install leaf Item Group only; no Items or accounting entries."""
-    if not frappe.db.exists("Company", COMPANY):
-        frappe.throw("AMCL company not found.")
+    if not frappe.db.exists("Company", current_company()):
+        frappe.throw("Shop company not found.")
     _check_warehouse()
     if not frappe.db.exists("Item Group", "All Item Groups"):
         frappe.throw("All Item Groups is missing.")
@@ -105,7 +104,7 @@ def get_customer_card(customer):
         result["invoice_count"] = len(invs)
         result["outstanding_bdt"] = float(sum(
             Decimal(str(x.outstanding_amount or 0)) for x in invs
-            if x.docstatus == 1 and x.currency == "BDT"
+            if x.docstatus == 1 and x.currency == current_currency()
         ))
     return result
 
@@ -126,7 +125,7 @@ def get_laptop_hub(search=""):
     items = [dict(x) for x in frappe.get_list("Item", **opts)]
     for item in items:
         actual = frappe.db.get_value(
-            "Bin", {"warehouse": USED_WAREHOUSE, "item_code": item["name"]},
+            "Bin", {"warehouse": used_laptop_warehouse(), "item_code": item["name"]},
             "actual_qty",
         )
         item["actual_qty"] = flt(actual)
@@ -140,7 +139,7 @@ def get_laptop_hub(search=""):
         ) if items else []
         names = list(dict.fromkeys(x.parent for x in receipt_rows))
         allowed = {r.name: r for r in frappe.get_list(
-            "Purchase Receipt", filters={"name": ["in", names], "company": COMPANY},
+            "Purchase Receipt", filters={"name": ["in", names], "company": current_company()},
             fields=["name", "supplier", "posting_date", "docstatus"],
             limit_page_length=150,
         )} if names else {}
@@ -161,7 +160,7 @@ def get_laptop_hub(search=""):
         supplier_groups = frappe.get_list("Supplier Group", filters={"is_group": 0},
                                           pluck="name", limit_page_length=200)
     return {"items": items, "receipts": receipts, "suppliers": suppliers,
-            "supplier_groups": supplier_groups, "warehouse": USED_WAREHOUSE,
+            "supplier_groups": supplier_groups, "warehouse": used_laptop_warehouse(),
             "can_register": bool(frappe.has_permission("Item", "create") and
                                  frappe.has_permission("Purchase Receipt", "create")),
             "can_submit": bool(frappe.has_permission("Purchase Receipt", "submit")),
@@ -227,13 +226,13 @@ def create_used_laptop_draft(supplier, brand, model, serial, purchase_cost):
     row = {
         "item_code": item.name, "qty": 1, "rate": rate, "uom": uom,
         "stock_uom": uom, "conversion_factor": 1,
-        "warehouse": USED_WAREHOUSE, "serial_no": serial,
+        "warehouse": used_laptop_warehouse(), "serial_no": serial,
     }
     if frappe.get_meta("Purchase Receipt Item").has_field("use_serial_batch_fields"):
         row["use_serial_batch_fields"] = 1
     receipt = frappe.get_doc({
-        "doctype": "Purchase Receipt", "company": COMPANY, "supplier": supplier,
-        "posting_date": nowdate(), "set_warehouse": USED_WAREHOUSE,
+        "doctype": "Purchase Receipt", "company": current_company(), "supplier": supplier,
+        "posting_date": nowdate(), "set_warehouse": used_laptop_warehouse(),
         "items": [row],
     })
     receipt.insert()
@@ -248,12 +247,12 @@ def submit_used_laptop_receipt(receipt_name):
     _require("Purchase Receipt", "submit")
     doc = frappe.get_doc("Purchase Receipt", receipt_name)
     doc.check_permission("submit")
-    if doc.docstatus != 0 or doc.company != COMPANY:
-        frappe.throw("Only an AMCL Draft Purchase Receipt can be received.")
+    if doc.docstatus != 0 or doc.company != current_company():
+        frappe.throw("Only an company Draft Purchase Receipt can be received.")
     if len(doc.items) != 1 or doc.items[0].qty != 1:
         frappe.throw("Expected exactly one used laptop on this receipt.")
     row = doc.items[0]
-    if row.warehouse != USED_WAREHOUSE:
+    if row.warehouse != used_laptop_warehouse():
         frappe.throw("Receipt must use the Used Laptops warehouse.")
     item = frappe.db.get_value("Item", row.item_code,
                                ["item_group", "has_serial_no"], as_dict=True)
@@ -288,7 +287,7 @@ def get_shop_access_settings():
         u["technician"] = u["name"] in techs
     return {"shops": shops, "users": users,
             "can_manage_roles": bool(frappe.has_permission("User", ptype="write")),
-            "company": COMPANY, "role": ROLE,
+            "company": current_company(), "role": ROLE,
             "info": "Changes here affect technician access only; stock/payment rules remain unchanged."}
 
 

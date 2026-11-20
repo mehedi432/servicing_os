@@ -17,6 +17,11 @@ def ensure_schema():
     from servicing_os.revenue_streams import ensure_schema as setup_revenue_fields
     from servicing_os.api.invoice_payment import ensure_schema as setup_invoice_payments
 
+    from servicing_os.api.counter_checkout import setup as setup_counter_checkout
+    from servicing_os.api.invoice_delivery_657 import ensure_delivery_fields
+    from servicing_os.api.sales_center import ensure_warranty_fields as setup_sales_center_warranty
+    from servicing_os.api.used_laptop_counter import setup as setup_used_laptops
+
     if not frappe.db.exists('DocType', 'Service Job'):
         frappe.throw('SERVICING OS: Service Job DocType is missing; cannot initialize schema')
     return {
@@ -27,6 +32,10 @@ def ensure_schema():
         'warranty_fields': ensure_warranty_fields(),
         'revenue_fields': setup_revenue_fields(),
         'invoice_payment_tracking': setup_invoice_payments(),
+        'delivery_fields': ensure_delivery_fields(),
+        'sales_center_warranty': setup_sales_center_warranty(),
+        'retail_checkout': setup_counter_checkout(),
+        'used_laptop_fields': setup_used_laptops(),
     }
 
 
@@ -38,6 +47,20 @@ def verify():
 
     from servicing_os.revenue_streams import verify_schema as verify_revenue_fields
     from servicing_os.api.invoice_payment import verify_schema as verify_invoice_payments
+
+    from servicing_os.api.counter_checkout import FIELD as RETAIL_KEY
+    from servicing_os.api.used_laptop_counter import FIELDS as LAPTOP_FIELDS, ITEM_PREFIX
+    from servicing_os.api.used_laptop_counter import INVOICE_ITEM_FIELD, INVOICE_KEY_FIELD
+
+    extra_fields = {
+        'Sales Invoice': (RETAIL_KEY, INVOICE_ITEM_FIELD, INVOICE_KEY_FIELD, 'custom_sos_delivery_status'),
+        'Sales Invoice Item': ('custom_sos_warranty_days', 'custom_sos_warranty_expiry'),
+        'Item': tuple(ITEM_PREFIX + key for key, *_ in LAPTOP_FIELDS),
+    }
+    for doctype, fields in extra_fields.items():
+        for field in fields:
+            if not frappe.db.has_column(doctype, field):
+                frappe.throw(f'{doctype}.{field} is missing. Run bench migrate.')
 
     name = 'Service Received Component'
     if not frappe.db.exists('DocType', 'Service Job'):

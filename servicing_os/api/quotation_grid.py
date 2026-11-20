@@ -6,8 +6,8 @@ import frappe
 from frappe import _
 from frappe.utils import flt, getdate, nowdate, add_days, escape_html
 from servicing_os.api.sales_center import _check, _shop
+from servicing_os.api.site_company_706 import current_company
 
-COMPANY = 'AL MODINA COMPUTERS LIMITED'
 
 
 def _rows(items):
@@ -63,7 +63,7 @@ def detail(name):
     _check('Quotation','read')
     doc = frappe.get_doc('Quotation',name)
     doc.check_permission('read')
-    if doc.company != COMPANY or doc.quotation_to != 'Customer':
+    if doc.company != current_company() or doc.quotation_to != 'Customer':
         frappe.throw(_('Quotation is not a customer quotation for this company.'), frappe.PermissionError)
     return {'name':doc.name, 'docstatus':doc.docstatus,'customer':doc.party_name,
             'customer_name':frappe.db.get_value('Customer',doc.party_name,'customer_name') or doc.party_name,
@@ -86,7 +86,7 @@ def save(name=None, customer=None, items=None, valid_till=None, notes=None):
         _check('Quotation','write')
         doc = frappe.get_doc('Quotation',name)
         doc.check_permission('write')
-        if doc.company != COMPANY or doc.docstatus != 0 or doc.quotation_to != 'Customer':
+        if doc.company != current_company() or doc.docstatus != 0 or doc.quotation_to != 'Customer':
             frappe.throw(_('Only an existing company customer-quotation draft can be edited.'))
         # Keep original taxes, price-list configuration, and other ERPNext settings.
         doc.party_name = customer

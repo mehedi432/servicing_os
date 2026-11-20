@@ -1,8 +1,7 @@
 import frappe
+from servicing_os.api.site_company_706 import current_company
 
 # AMCL_STOCK_MANAGEMENT_615E3
-COMPANY = "AL MODINA COMPUTERS LIMITED"
-WAREHOUSE = "Spare Parts - AMCL"
 
 
 def _check_read():
@@ -24,13 +23,13 @@ def get_stock_hub():
             fields=["name", "supplier_name"], order_by="supplier_name asc", limit_page_length=200)
     receipts = []
     if can_read_receipt:
-        receipts = frappe.get_list("Purchase Receipt", filters={"company": COMPANY},
+        receipts = frappe.get_list("Purchase Receipt", filters={"company": current_company()},
             fields=["name", "supplier", "posting_date", "docstatus", "grand_total"],
             order_by="modified desc", limit_page_length=30)
     pending_requests = []
     if frappe.has_permission("Material Request", "read"):
         pending_requests = frappe.get_list("Material Request", filters={
-            "company": COMPANY, "material_request_type": "Material Issue",
+            "company": current_company(), "material_request_type": "Material Issue",
             "docstatus": 1, "status": ["not in", ["Stopped", "Cancelled", "Issued"]],
         }, fields=["name", "status", "transaction_date", "custom_service_job"],
             order_by="modified desc", limit_page_length=30)

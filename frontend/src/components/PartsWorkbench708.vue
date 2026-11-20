@@ -1,6 +1,7 @@
 <script setup>
 // SERVICING OS V7.08 — modal-first repair parts workspace.
-import { ref, computed, watch, onBeforeUnmount } from 'vue'
+import { ref, computed, watch } from 'vue'
+import ProductSuggestionGrid from './ProductSuggestionGrid.vue'
 import StockReceipt712 from './StockReceipt712.vue'
 
 const props = defineProps({
@@ -19,9 +20,6 @@ const lines = ref([])
 const remarks = ref('')
 const modal = ref('')
 const search = ref('')
-const searching = ref(false)
-const searchComplete = ref(false)
-const found = ref([])
 const selected = ref(null)
 const quantity = ref(1)
 const preview = ref(null)
@@ -33,8 +31,6 @@ const issueRemarks = ref('')
 const draftEntry = ref('')
 const confirmed = ref(false)
 const resumeIssue = ref('')
-let searchTimer = null
-let searchSerial = 0
 const closed = computed(() => ['Delivered','Cancelled','Canceled'].includes(props.jobStatus || context.value.job_status))
 const totalQty = computed(() => lines.value.reduce((s, x) => s + Number(x.qty || 0), 0))
 const requestedCount = computed(() => (context.value.requests || []).length)
@@ -64,9 +60,9 @@ function parseError(data, fallback) {
   } catch (_) { /* fall back */ }
   return data?.message?.message || data?.exception || fallback
 }
-async function api(method, args = {}, post = false) {
+async function api(method, args = {}, post = false, signal) {
   const url = new URL(`/api/method/servicing_os.api.parts_workbench_708.${method}`, window.location.origin)
-  const opts = { method: post ? 'POST' : 'GET', credentials: 'same-origin', cache: 'no-store', headers: { Accept: 'application/json' } }
+  const opts = { method: post ? 'POST' : 'GET', credentials: 'same-origin', cache: 'no-store', signal, headers: { Accept: 'application/json' } }
   if (post) {
     opts.headers['Content-Type'] = 'application/json'
     opts.headers['X-Frappe-CSRF-Token'] = csrf()
@@ -90,25 +86,19 @@ async function refresh() {
   } catch (e) { if (props.jobName === current) error.value = e.message || 'Could not load parts' }
   finally { if (props.jobName === current) loading.value = false }
 }
-async function doSearch(term) {
-  const serial = ++searchSerial
-  searching.value = true
-  try {
-    const data = await api('search_items', { job_name: props.jobName, search: term })
-    if (serial === searchSerial) found.value = data.items || []
-    if (serial === searchSerial) searchComplete.value = true
-  } catch (e) { if (serial === searchSerial) error.value = e.message }
-  finally { if (serial === searchSerial) searching.value = false }
+async function lookupPart(term, signal) {
+  const data = await api('search_items', { job_name: props.jobName, search: term }, false, signal)
+  return (data.items || []).map(part => ({
+    code: part.item_code,
+    name: part.item_name,
+    detail: `${number(part.available_qty)} ${part.uom} available`,
+    part,
+  }))
 }
-watch(search, (value) => {
-  clearTimeout(searchTimer)
-  found.value = []
+function updateSearch(value) {
+  search.value = value
   selected.value = null
-  searchComplete.value = false
-  searching.value = false
-  searchSerial++
-  if (value.trim().length >= 2) searchTimer = setTimeout(() => doSearch(value.trim()), 240)
-})
+}
 function openAdd() {
   error.value = ''
   selected.value = null
@@ -116,7 +106,10 @@ function openAdd() {
   quantity.value = 1
   modal.value = 'add'
 }
-function choose(item) { selected.value = item; found.value = []; clearTimeout(searchTimer); searchSerial++ }
+function choose({ part }) {
+  selected.value = part
+  search.value = `${part.item_name || part.item_code} · ${part.item_code}`
+}
 function addLine() {
   if (!selected.value) { error.value = 'Select an item from search results'; return }
   const qty = Number(quantity.value)
@@ -226,7 +219,6 @@ watch(() => props.jobName, () => {
   resumeIssue.value = ''; sos712ReceiptOpen.value = false
   activeTab.value = 'parts'; expanded.value = true; refresh()
 }, { immediate:true })
-onBeforeUnmount(() => { clearTimeout(searchTimer) })
 </script>
 
 <template>
@@ -288,10 +280,11 @@ onBeforeUnmount(() => { clearTimeout(searchTimer) })
           <p v-if="error" class="pw708-alert error" role="alert">{{ error }}</p>
           <p v-if="success" class="pw708-alert success" role="status">{{ success }}</p>
           <template v-if="modal === 'add'">
-            <label class="pw708-label">Search Stock Item <input v-model="search" autofocus type="search" placeholder="Item code / RAM / SSD / charger..." autocomplete="off" /></label>
-            <p v-if="searching" class="pw708-muted">Searching active stock items…</p>
-            <p v-else-if="searchComplete && !found.length && !selected" class="pw708-muted" role="status">No matching stock items. Try an Item Code or a shorter name.</p>
-            <div v-if="found.length" class="pw708-results"><button v-for="part in found" :key="part.item_code" type="button" @click="choose(part)"><strong>{{ part.item_name }}</strong><small>{{ part.item_code }} · {{ part.available_qty }} {{ part.uom }} available</small></button></div>
+            <ProductSuggestionGrid class="pw708-label" label="Search Stock Item"
+              placeholder="Item code / RAM / SSD / charger…" autofocus
+              :model-value="search" :selected="Boolean(selected)" :lookup="lookupPart"
+              :empty-message="search.trim() ? 'No matching stock items. Try another item name or code.' : 'No active stock items yet. Add or import stock items in ERPNext to see them here.'"
+              @update:model-value="updateSearch" @select="choose" />
             <div v-if="selected" class="pw708-selected"><strong>{{ selected.item_name }}</strong><small>{{ selected.item_code }} · {{ number(selected.available_qty) }} {{ selected.uom }} available in {{ context.warehouse || 'the parts warehouse' }}</small></div>
             <label class="pw708-label">Required quantity<input v-model.number="quantity" type="number" min="0.001" step="any" /></label>
             <p class="pw708-muted">Parts can be requested when out of stock; issuance requires available stock.</p>
@@ -426,9 +419,9 @@ onBeforeUnmount(() => { clearTimeout(searchTimer) })
 .pw708-dialog-footer { padding:14px 19px; border-top:1px solid #ecdfd0; justify-content:flex-end; flex-wrap:wrap }
 .pw708-label { font-size:11px; font-weight:800; color:#735743; display:grid; gap:5px }
 .pw708-label input,.pw708-label select,.pw708-label textarea { background:white; color:#433123; font-size:12px; border:1px solid #d9c4b1; border-radius:8px; padding:10px; width:100%; min-width:0 }
-.pw708-results { display:grid; border:1px solid #eadbce; border-radius:9px; overflow:auto; max-height:260px }
-.pw708-results button { display:grid; gap:3px; text-align:left; padding:10px; border:0; border-bottom:1px solid #f2e8df; background:white; font-size:11px; color:#503522 }
-.pw708-results button:hover { background:#f7eee4 }.pw708-results small,.pw708-selected small { font-size:10px; color:#91775f }
+.pw708-label :deep(.sos-product-label) { display:grid; gap:5px }
+.pw708-label :deep(.sos-product-label input) { background:white; color:#433123; font-size:12px; border:1px solid #d9c4b1; border-radius:8px; padding:10px; width:100%; min-width:0 }
+.pw708-selected small { font-size:10px; color:#91775f }
 .pw708-selected { background:#f7ede2; border:1px solid #e4d0bc; border-radius:10px; padding:12px; display:grid; gap:4px }
 .pw708-selected a { font-size:11px; color:#795336; text-decoration:underline }
 .pw708-muted { color:#997d66; font-size:11px }

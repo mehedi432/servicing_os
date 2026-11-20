@@ -10,9 +10,8 @@ Not a replacement for ERPNext General Ledger or Profit and Loss.
 from datetime import date, timedelta
 import frappe
 from frappe.utils import flt, nowdate
+from servicing_os.api.site_company_706 import cash_account, current_company, current_currency
 
-COMPANY = "AL MODINA COMPUTERS LIMITED"
-CURRENCY = "BDT"
 LABOR_ITEM = "AMCL-REPAIR-LABOR"
 JOB_FIELD = "custom_service_job"
 ACCESS_ROLES = {"System Manager", "Accounts Manager"}
@@ -61,7 +60,7 @@ def _money(value):
 
 def _result(report, start, end, total, rows, summary, note, page_limit):
     return {
-        "report": report, "company": COMPANY, "currency": CURRENCY,
+        "report": report, "company": current_company(), "currency": current_currency(),
         "from_date": start, "to_date": end,
         "total": int(total or 0), "limit": page_limit,
         "truncated": int(total or 0) > page_limit,
@@ -78,7 +77,7 @@ def get_financial_report(report="sales", from_date=None, to_date=None, limit=200
     _access(report)
     start, end = _period(from_date, to_date)
     page_limit = _limit(limit)
-    params = {"company": COMPANY, "currency": CURRENCY,
+    params = {"company": current_company(), "currency": current_currency(),
               "start": start, "end": end, "limit": page_limit}
 
     # Period selection uses invoice posting date for sales, dues and contribution;
@@ -115,11 +114,12 @@ def get_financial_report(report="sales", from_date=None, to_date=None, limit=200
             {"net_sales_ex_tax": _money(row.net),
              "gross_including_tax": _money(row.gross),
              "outstanding_now": _money(row.outstanding_now)},
-            "Submitted BDT repair invoices and linked credit notes, by invoice posting date. "
+            "Submitted company-currency repair invoices and linked credit notes, by invoice posting date. "
             "Outstanding is current, not historical. Unlinked credit notes, write-offs "
             "and other ledger adjustments need reconciliation in ERPNext.", page_limit)
 
     if report == "collections":
+        params["cash_account"] = cash_account()
         # A Payment Entry can allocate to multiple Sales Invoices. List allocations,
         # not the whole paid amount, to avoid over-attributing receipts to repairs.
         query = """
@@ -139,7 +139,7 @@ def get_financial_report(report="sales", from_date=None, to_date=None, limit=200
         summary = frappe.db.sql("""
             SELECT COUNT(*) AS n,
               COALESCE(SUM(per.allocated_amount),0) AS allocated,
-              COALESCE(SUM(CASE WHEN pe.paid_to='Cash - AMCL'
+              COALESCE(SUM(CASE WHEN pe.paid_to=%(cash_account)s
                  THEN per.allocated_amount ELSE 0 END),0) AS cash_allocated
         """ + query, params, as_dict=True)[0]
         entries = frappe.db.sql("""
@@ -156,7 +156,7 @@ def get_financial_report(report="sales", from_date=None, to_date=None, limit=200
         return _result(report, start, end, summary.n, rows,
             {"allocated_to_repairs": _money(summary.allocated),
              "allocated_to_cash_account": _money(summary.cash_allocated)},
-            "Submitted customer Receive Payment Entry allocations to BDT repair invoices, "
+            "Submitted customer Receive Payment Entry allocations to company-currency repair invoices, "
             "dated by PAYMENT posting date. Excludes unallocated advances, Journal Entries, "
             "payment reconciliations not reflected in these references, and refunds. "
             "This is not a bank balance or official cash-flow report.", page_limit)
@@ -181,7 +181,7 @@ def get_financial_report(report="sales", from_date=None, to_date=None, limit=200
             item["outstanding_amount"] = _money(item["outstanding_amount"])
         return _result(report, start, end, summary.n, rows,
             {"current_outstanding": _money(summary.due)},
-            "Current outstanding on submitted BDT repair invoices posted in the selected "
+            "Current outstanding on submitted company-currency repair invoices posted in the selected "
             "date range. Credit notes and other allocations can change current dues. "
             "For official receivables and aging use ERPNext Accounts Receivable.", page_limit)
 
@@ -257,7 +257,7 @@ def get_financial_report(report="sales", from_date=None, to_date=None, limit=200
     return _result(report, start, end, total_row.n, rows,
         {"jobs_shown": len(rows), "valuation_complete_shown": len(complete),
          "contribution_known_shown": _money(sum(x["contribution"] for x in complete))},
-        "Operational contribution by submitted BDT repair invoices posted in the selected "
+        "Operational contribution by submitted company-currency repair invoices posted in the selected "
         "period. Issued-parts cost uses linked Stock Ledger valuation regardless of issue date. "
         "Totals apply only to displayed jobs with complete valuation. Excludes internal labor "
         "cost, overhead, taxes and unrelated GL adjustments; NOT net profit or official P&L.",

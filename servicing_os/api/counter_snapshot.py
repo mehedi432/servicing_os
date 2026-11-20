@@ -3,10 +3,8 @@
 from __future__ import annotations
 import frappe
 from frappe.utils import flt, today, now_datetime
+from servicing_os.api.site_company_706 import cash_account, current_company, current_currency, retail_warehouse, shop_warehouses, used_laptop_warehouse
 
-COMPANY = 'AL MODINA COMPUTERS LIMITED'
-CASH_ACCOUNT = 'Cash - AMCL'
-WAREHOUSES = ('Stores - AMCL', 'Spare Parts - AMCL', 'Used Laptops - AMCL')
 MAX_ROWS = 5000
 
 
@@ -37,8 +35,8 @@ def get_counter_snapshot():
         frappe.throw('Sign in to view Counter figures.', frappe.PermissionError)
     date = today()
     data = {
-        'company': COMPANY,
-        'currency': 'BDT',
+        'company': current_company(),
+        'currency': current_currency(),
         'date': date,
         'as_of': str(now_datetime()),
         'metrics': {
@@ -56,7 +54,7 @@ def get_counter_snapshot():
         'recent_jobs': [],
         'notes': {
             'sales': 'Submitted Sales Invoices dated today, including returns. Consolidated POS invoices are not added separately.',
-            'cash': 'Submitted Cash - AMCL Payment Entries (Receive) today; excludes direct POS cash not represented by Payment Entries.',
+            'cash': 'Submitted Cash Payment Entries (Receive) today; excludes direct POS cash not represented by Payment Entries.',
             'jobs': 'Service Jobs by their current status; active jobs exclude Delivered and Cancelled.',
             'stock': 'Ledger on-hand units from Bin; not available-to-promise after pending sales.',
         }
@@ -66,7 +64,7 @@ def get_counter_snapshot():
         fields = ['name', 'posting_date', 'grand_total', 'customer_name']
         rows, partial = _visible_rows(
             'Sales Invoice',
-            {'company': COMPANY, 'docstatus': 1, 'posting_date': date},
+            {'company': current_company(), 'docstatus': 1, 'posting_date': date},
             fields, 'creation desc')
         if not partial:
             # Returns have negative grand_total in the Sales Invoice ledger.
@@ -82,18 +80,19 @@ def get_counter_snapshot():
         data['warnings'].append('This user cannot read Sales Invoices; sales figures are restricted.')
 
     if _read_allowed('Payment Entry'):
-        if frappe.db.exists('Account', CASH_ACCOUNT):
+        account = cash_account()
+        if account and frappe.db.exists('Account', account):
             rows, partial = _visible_rows(
                 'Payment Entry',
-                {'company': COMPANY, 'docstatus': 1, 'posting_date': date,
-                 'payment_type': 'Receive', 'paid_to': CASH_ACCOUNT},
+                {'company': current_company(), 'docstatus': 1, 'posting_date': date,
+                 'payment_type': 'Receive', 'paid_to': account},
                 ['name', 'received_amount'], 'creation desc')
             if not partial:
                 kpis['cash_receipts'] = round(sum(flt(r.get('received_amount')) for r in rows), 2)
             else:
                 data['warnings'].append('Cash entries exceed 5,000 rows today; cash total is withheld.')
         else:
-            data['warnings'].append('Cash - AMCL account does not exist; cash receipts cannot be calculated.')
+            data['warnings'].append('Cash account does not exist; cash receipts cannot be calculated.')
     else:
         data['warnings'].append('This user cannot read Payment Entries; cash figures are restricted.')
 
@@ -124,13 +123,13 @@ def get_counter_snapshot():
         data['warnings'].append('This user cannot read Service Jobs; repair figures are restricted.')
 
     if _read_allowed('Bin'):
-        rows, partial = _visible_rows('Bin', {'warehouse': ['in', list(WAREHOUSES)]},
+        rows, partial = _visible_rows('Bin', {'warehouse': ['in', list(shop_warehouses().values())]},
                                       ['item_code', 'warehouse', 'actual_qty'], 'warehouse asc')
         if not partial:
             kpis['retail_stock_units'] = round(sum(flt(r.get('actual_qty')) for r in rows
-                                                   if r.get('warehouse') == 'Stores - AMCL'), 2)
+                                                   if r.get('warehouse') == retail_warehouse()), 2)
             kpis['used_laptop_stock_units'] = round(sum(flt(r.get('actual_qty')) for r in rows
-                                                        if r.get('warehouse') == 'Used Laptops - AMCL'), 2)
+                                                        if r.get('warehouse') == used_laptop_warehouse()), 2)
         else:
             data['warnings'].append('Stock register exceeds 5,000 rows; stock totals are withheld.')
     else:

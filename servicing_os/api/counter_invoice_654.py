@@ -41,14 +41,10 @@ def shop_config():
     auth()
     if not frappe.has_permission('Servicing Shop', 'read'):
         frappe.throw('Servicing Shop read permission required', frappe.PermissionError)
-    shops = frappe.get_list('Servicing Shop', filters={'is_active': 1},
-                            fields=['name','company','retail_warehouse','used_laptop_warehouse'],
-                            limit_page_length=10)
-    if len(shops) != 1:
-        frappe.throw('Exactly one active Servicing Shop is required for this counter. Review shop configuration.')
-    shop = shops[0]
-    if not shop.company or not frappe.db.exists('Company', shop.company):
-        frappe.throw('Shop company is missing.')
+    from servicing_os.api.site_company_706 import site_shop_context
+
+    shop = frappe.get_doc('Servicing Shop', site_shop_context()['shop'])
+    shop.check_permission('read')
     for field in ('retail_warehouse','used_laptop_warehouse'):
         w = shop.get(field)
         if not w:
@@ -375,8 +371,10 @@ def get_counter_invoice_detail(invoice_name=None):
     doc=frappe.get_doc('Sales Invoice',name)
     doc.check_permission('read')
     if doc.company!=shop.company:frappe.throw('Invoice does not belong to this company.')
+    from servicing_os.api.service_invoice_661 import linked_job
+
     return {'name':doc.name,'company':doc.company,'customer':doc.customer,
-            'service_job':doc.get(LINK_FIELD) if doc.meta.has_field(LINK_FIELD) else None,
+            'service_job':linked_job(doc) or None,
             'invoice_kind':invoice_kind(doc),'posting_date':str(doc.posting_date),
             'status':doc.status,'docstatus':doc.docstatus,'currency':doc.currency,'modified':str(doc.modified),
             'net_total':doc.net_total,'discount_amount':doc.discount_amount,

@@ -1,8 +1,7 @@
 import frappe
 from frappe.utils import flt
 
-from servicing_os.api.site_company_706 import current_company, validate_job_shop
-WAREHOUSE = "Spare Parts - AMCL"
+from servicing_os.api.site_company_706 import current_company, spare_parts_warehouse, validate_job_shop
 MANAGERS = {"System Manager", "Stock Manager"}
 
 
@@ -42,7 +41,7 @@ def _issued_map(name):
           AND se.docstatus=1 AND se.purpose='Material Issue'
           AND sed.s_warehouse=%s
         GROUP BY sed.material_request_item
-    """, (name, WAREHOUSE), as_dict=True)
+    """, (name, spare_parts_warehouse()), as_dict=True)
     return {x.material_request_item: flt(x.qty) for x in rows}
 
 
@@ -62,17 +61,17 @@ def _get_lines(mr):
     issued=_issued_map(mr.name)
     lines=[]
     for r in mr.items:
-        if r.warehouse != WAREHOUSE:
+        if r.warehouse != spare_parts_warehouse():
             frappe.throw("Material Request row has an unexpected warehouse: " + r.item_code)
         item=frappe.db.get_value("Item", r.item_code,
-            ["is_stock_item", "is_sales_item", "disabled", "stock_uom"], as_dict=True)
-        if not item or item.disabled or not item.is_stock_item or not item.is_sales_item:
-            frappe.throw("Item is not an active sales-enabled stock Item: " + r.item_code)
+            ["is_stock_item", "disabled", "stock_uom"], as_dict=True)
+        if not item or item.disabled or not item.is_stock_item:
+            frappe.throw("Item is not an active stock item: " + r.item_code)
         if not flt(r.conversion_factor or 1):
             frappe.throw("Invalid UOM conversion for " + r.item_code)
         requested=flt(r.stock_qty or (flt(r.qty)*flt(r.conversion_factor or 1)), 6)
         remaining=max(0,flt(requested - issued.get(r.name, 0), 6))
-        stock=frappe.db.get_value("Bin", {"warehouse":WAREHOUSE,"item_code":r.item_code},
+        stock=frappe.db.get_value("Bin", {"warehouse":spare_parts_warehouse(),"item_code":r.item_code},
             ["actual_qty","reserved_qty"], as_dict=True)
         actual=flt(stock.actual_qty) if stock else 0
         lines.append({"row_name":r.name,"item_code":r.item_code,"item_name":r.item_name,
@@ -102,7 +101,7 @@ def get_issue_candidates():
                 "status":mr.status,"lines":lines,"drafts":_drafts(mr.name)})
         except frappe.PermissionError:
             continue
-    return {"requests":entries,"warehouse":WAREHOUSE,"company":current_company(),
+    return {"requests":entries,"warehouse":spare_parts_warehouse(),"company":current_company(),
         "can_create": bool(frappe.has_permission("Stock Entry", "create"))}
 
 
@@ -129,7 +128,7 @@ def create_draft_issue(material_request):
     for r in to_issue:
         requested_totals[r["item_code"]]=requested_totals.get(r["item_code"],0)+r["remaining_qty"]
     for code, qty in requested_totals.items():
-        available=frappe.db.get_value("Bin",{"item_code":code,"warehouse":WAREHOUSE},"actual_qty") or 0
+        available=frappe.db.get_value("Bin",{"item_code":code,"warehouse":spare_parts_warehouse()},"actual_qty") or 0
         if flt(available)+1e-7 < qty:
             frappe.throw("Insufficient on-hand stock for " + code + ". Available " + str(available) + ", needed " + str(qty))
     from servicing_os.api.parts_workbench_708 import issue_accounting_defaults
@@ -137,16 +136,16 @@ def create_draft_issue(material_request):
     expense_account, cost_center = issue_accounting_defaults(current_company())
     if not expense_account or not cost_center:
         frappe.throw("Set an active expense account and Default Cost Center on the Company before issuing parts.")
-    wh=frappe.get_doc("Warehouse",WAREHOUSE)
+    wh=frappe.get_doc("Warehouse",spare_parts_warehouse())
     if wh.company!=current_company() or wh.is_group or wh.disabled:
         frappe.throw("Spare Parts warehouse is unavailable.")
     entry=frappe.get_doc({"doctype":"Stock Entry","stock_entry_type":"Material Issue",
         "purpose":"Material Issue","company":current_company(),
-        "from_warehouse":WAREHOUSE,
+        "from_warehouse":spare_parts_warehouse(),
         "remarks":"Repair parts for " + mr.custom_service_job + " / Material Request " + mr.name,
         "items":[{
             "item_code":r["item_code"],"qty":r["remaining_qty"],"uom":r["uom"],
-            "stock_uom":r["uom"],"conversion_factor":1,"s_warehouse":WAREHOUSE,
+            "stock_uom":r["uom"],"conversion_factor":1,"s_warehouse":spare_parts_warehouse(),
             "material_request":mr.name,"material_request_item":r["row_name"],
             "expense_account":expense_account,"cost_center":cost_center,
         } for r in to_issue]})

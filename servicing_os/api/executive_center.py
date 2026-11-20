@@ -6,9 +6,8 @@ Ledger, P&L, Accounts Receivable, Stock Ledger, or standard POS reports.
 import frappe
 from frappe.utils import nowdate
 from datetime import date
+from servicing_os.api.site_company_706 import current_company, spare_parts_warehouse
 
-COMPANY = "AL MODINA COMPUTERS LIMITED"
-WAREHOUSE = "Spare Parts - AMCL"
 ROLES = {"System Manager", "Accounts Manager"}
 TERMINAL = ("Delivered", "Cancelled")
 
@@ -65,7 +64,7 @@ def get_executive_center(from_date=None, to_date=None):
     # uses posted invoices/payment allocations and clearly states their basis.
     from servicing_os.api.owner_reports import get_owner_dashboard
     overview = get_owner_dashboard(from_date=start, to_date=end)
-    p = {"company": COMPANY, "warehouse": WAREHOUSE}
+    p = {"company": current_company(), "warehouse": spare_parts_warehouse()}
 
     jobs_from = "FROM `tabService Job` sj"
     active = "sj.status NOT IN ('Delivered', 'Cancelled')"
@@ -138,8 +137,8 @@ def get_executive_center(from_date=None, to_date=None):
     )
 
     return {
-        "company": COMPANY,
-        "warehouse": WAREHOUSE,
+        "company": current_company(),
+        "warehouse": spare_parts_warehouse(),
         "currency": "BDT",
         "from_date": start,
         "to_date": end,

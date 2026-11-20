@@ -6,9 +6,8 @@ There are no direct SQL mutations to ledgers or stock and no ignore_permissions.
 import frappe
 from frappe import _
 from frappe.utils import flt, cint, getdate, add_days, nowdate
+from servicing_os.api.site_company_706 import current_company, retail_warehouse, selling_price_list
 
-COMPANY = "AL MODINA COMPUTERS LIMITED"
-WAREHOUSE = "Stores - AMCL"
 DOCTYPES = {
     "invoice": "Sales Invoice", "quotation": "Quotation",
     "payment": "Payment Entry", "return": "Sales Invoice"
@@ -28,22 +27,7 @@ def _check(doctype, permission):
 
 def _shop():
     _auth()
-    company = COMPANY
-    warehouse = WAREHOUSE
-    price_list = "Standard Selling"
-    if frappe.db.exists("DocType", "Servicing Shop"):
-        names = frappe.get_all("Servicing Shop", filters={"is_active": 1}, pluck="name", limit=2)
-        for name in names:
-            shop = frappe.get_doc("Servicing Shop", name)
-            if shop.company == COMPANY:
-                company = shop.company
-                warehouse = shop.retail_warehouse or WAREHOUSE
-                break
-    if not frappe.db.exists("Company", company):
-        frappe.throw(_("Shop company has not been configured."))
-    if not frappe.db.exists("Warehouse", warehouse):
-        frappe.throw(_("Retail warehouse has not been configured."))
-    return {"company": company, "warehouse": warehouse, "price_list": price_list}
+    return {"company": current_company(), "warehouse": retail_warehouse(), "price_list": selling_price_list()}
 
 
 def _invoice(name):
@@ -52,7 +36,7 @@ def _invoice(name):
         frappe.throw(_("Invalid sales invoice."))
     doc = frappe.get_doc("Sales Invoice", name)
     doc.check_permission("read")
-    if doc.company != COMPANY:
+    if doc.company != current_company():
         frappe.throw(_("This invoice belongs to another company."), frappe.PermissionError)
     return doc
 
@@ -65,7 +49,7 @@ def configuration():
     modes = []
     if perms["Payment Entry"]["create"]:
         modes = frappe.get_all("Mode of Payment", filters={"enabled": 1}, fields=["name"], limit_page_length=50)
-    return dict(cfg, permissions=perms, modes=[x.name for x in modes], currency=frappe.db.get_value("Company", COMPANY, "default_currency") or "BDT")
+    return dict(cfg, permissions=perms, modes=[x.name for x in modes], currency=frappe.db.get_value("Company", current_company(), "default_currency") or "BDT")
 
 
 @frappe.whitelist(methods=["GET"])
@@ -111,13 +95,13 @@ def records(kind="invoice", query="", limit=50):
     q = str(query or "").strip()[:80]
     if kind == "quotation":
         fields = ["name", "transaction_date", "party_name", "status", "grand_total", "docstatus"]
-        filters = {"company": COMPANY}
+        filters = {"company": current_company()}
     elif kind == "payment":
         fields = ["name", "posting_date", "party", "mode_of_payment", "paid_amount", "docstatus"]
-        filters = {"company": COMPANY, "payment_type": "Receive", "party_type": "Customer"}
+        filters = {"company": current_company(), "payment_type": "Receive", "party_type": "Customer"}
     else:
         fields = ["name", "posting_date", "customer", "customer_name", "grand_total", "outstanding_amount", "status", "is_return", "docstatus"]
-        filters = {"company": COMPANY}
+        filters = {"company": current_company()}
         if kind == "return":
             filters["is_return"] = 1
     if q:
@@ -193,7 +177,7 @@ def submit_quotation(name):
     _check("Quotation", "submit")
     doc = frappe.get_doc("Quotation", name)
     doc.check_permission("submit")
-    if doc.company != COMPANY or doc.docstatus != 0:
+    if doc.company != current_company() or doc.docstatus != 0:
         frappe.throw(_("Only a draft quotation for this company may be submitted."))
     doc.submit()
     return {"name": doc.name, "status": doc.status}
@@ -251,7 +235,7 @@ def submit_return(name):
     _check("Sales Invoice", "submit")
     doc = frappe.get_doc("Sales Invoice", name)
     doc.check_permission("submit")
-    if doc.company != COMPANY or not doc.is_return or doc.docstatus != 0:
+    if doc.company != current_company() or not doc.is_return or doc.docstatus != 0:
         frappe.throw(_("Only a draft return for this company can be submitted."))
     if not doc.return_against:
         frappe.throw(_("Original invoice is required."))
@@ -272,10 +256,10 @@ def receive_payment(invoice, amount, mode_of_payment, reference_no=None, referen
     mode = frappe.get_doc("Mode of Payment", mode_of_payment)
     if not mode.enabled:
         frappe.throw(_("Payment mode is disabled."))
-    account = next((x.default_account for x in mode.accounts if x.company == COMPANY and x.default_account), None)
+    account = next((x.default_account for x in mode.accounts if x.company == current_company() and x.default_account), None)
     if not account:
         frappe.throw(_("Configure the company account for this payment mode before collecting money."))
-    if source.currency != (frappe.db.get_value("Company", COMPANY, "default_currency") or "BDT"):
+    if source.currency != (frappe.db.get_value("Company", current_company(), "default_currency") or "BDT"):
         frappe.throw(_("Foreign-currency payments require the standard ERPNext multi-currency payment workflow."))
     account_currency = frappe.db.get_value("Account", account, "account_currency")
     if account_currency and account_currency != source.currency:
@@ -327,7 +311,7 @@ def ensure_warranty_fields():
     create_custom_fields({"Sales Invoice Item": [
         {"fieldname": "custom_sos_warranty_days", "label": "Servicing Warranty Days", "fieldtype": "Int", "default": "0", "allow_on_submit": 1, "insert_after": "description"},
         {"fieldname": "custom_sos_warranty_expiry", "label": "Servicing Warranty Expiry", "fieldtype": "Date", "read_only": 1, "allow_on_submit": 1, "insert_after": "custom_sos_warranty_days"}
-    ]}, update=True)
+    ]}, update=False)
     frappe.clear_cache(doctype="Sales Invoice Item")
     return "Warranty fields installed"
 
@@ -340,7 +324,7 @@ def statistics(from_date=None, to_date=None):
     if (to_date - from_date).days < 0 or (to_date - from_date).days > 366:
         frappe.throw(_("Choose a valid range of up to 366 days."))
     # Permissions respected by frappe.get_list. Hard result cap disclosed to clients.
-    rows = frappe.get_list("Sales Invoice", filters={"company": COMPANY, "docstatus": 1,
+    rows = frappe.get_list("Sales Invoice", filters={"company": current_company(), "docstatus": 1,
                         "posting_date": ["between", [str(from_date), str(to_date)]]},
                         fields=["name", "posting_date", "grand_total", "outstanding_amount", "is_return", "is_pos", "paid_amount"],
                         limit_page_length=5001)
@@ -352,7 +336,7 @@ def statistics(from_date=None, to_date=None):
     pos_collection = sum(flt(x.paid_amount) for x in rows if x.is_pos and not x.is_return)
     payments = []
     if frappe.has_permission("Payment Entry", "read"):
-        payments = frappe.get_list("Payment Entry", filters={"company": COMPANY, "docstatus": 1,
+        payments = frappe.get_list("Payment Entry", filters={"company": current_company(), "docstatus": 1,
                             "payment_type": "Receive", "party_type": "Customer",
                             "posting_date": ["between", [str(from_date), str(to_date)]]},
                             fields=["name", "received_amount"], limit_page_length=5001)
@@ -367,21 +351,21 @@ def statistics(from_date=None, to_date=None):
 
 def release_readiness():
     """Read-only preflight. Run with bench execute as an administrator."""
-    company_exists = bool(frappe.db.exists("Company", COMPANY))
-    wh = frappe.db.get_value("Warehouse", WAREHOUSE, ["company", "is_group", "disabled"], as_dict=True)
-    profiles = frappe.get_all("POS Profile", filters={"company": COMPANY, "disabled": 0},
+    company_exists = bool(frappe.db.exists("Company", current_company()))
+    wh = frappe.db.get_value("Warehouse", retail_warehouse(), ["company", "is_group", "disabled"], as_dict=True)
+    profiles = frappe.get_all("POS Profile", filters={"company": current_company(), "disabled": 0},
                               fields=["name", "warehouse", "selling_price_list"], limit_page_length=50)
-    prices = frappe.db.count("Item Price", {"price_list": "Standard Selling", "selling": 1})
+    prices = frappe.db.count("Item Price", {"price_list": selling_price_list(), "selling": 1})
     modes = frappe.get_all("Mode of Payment", filters={"enabled": 1}, fields=["name"], limit_page_length=50)
     configured_modes = []
     for m in modes:
-        account = frappe.db.get_value("Mode of Payment Account", {"parent": m.name, "company": COMPANY}, "default_account")
+        account = frappe.db.get_value("Mode of Payment Account", {"parent": m.name, "company": current_company()}, "default_account")
         if account:
             configured_modes.append({"mode": m.name, "account": account})
     meta = frappe.get_meta("Sales Invoice Item")
     result = {
-        "company": COMPANY, "company_exists": company_exists,
-        "retail_warehouse": WAREHOUSE, "warehouse_usable": bool(wh and wh.company == COMPANY and not wh.is_group and not wh.disabled),
+        "company": current_company(), "company_exists": company_exists,
+        "retail_warehouse": retail_warehouse(), "warehouse_usable": bool(wh and wh.company == current_company() and not wh.is_group and not wh.disabled),
         "active_pos_profiles": [dict(x) for x in profiles],
         "standard_selling_item_prices": prices,
         "configured_collection_modes": configured_modes,
