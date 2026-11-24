@@ -1,6 +1,10 @@
 // SERVICING OS 6.21-6.23. Session-authenticated Frappe calls; no external UI.
 export async function moduleApi(method, args = {}, post = false) {
-  const path = '/api/method/servicing_os.api.menu_extensions.' + method;
+  return servicingApi('menu_extensions', method, args, post);
+}
+
+export async function servicingApi(namespace, method, args = {}, post = false) {
+  const path = '/api/method/servicing_os.api.' + namespace + '.' + method;
   const url = new URL(path, window.location.origin);
   const options = { method: post ? 'POST' : 'GET', credentials: 'same-origin',
     headers: { Accept: 'application/json' } };

@@ -1,6 +1,7 @@
 <script setup>
 // SERVICING_OS_CUSTOMER_LOOKUP_666 — one stable name/mobile lookup, usable by both sales views.
 import { ref, watch, onUnmounted, nextTick } from 'vue'
+import CustomerAddressFields from './CustomerAddressFields.vue'
 const props = defineProps({ selected: { type: Object, default: null }, label: { type: String, default: 'Find customer by name or mobile' } })
 const emit = defineEmits(['selected', 'clear'])
 const query = ref('')
@@ -13,6 +14,7 @@ const box = ref(null)
 const adding = ref(false)
 const newName = ref('')
 const newMobile = ref('')
+const newAddress = ref({})
 const newBusy = ref(false)
 const newMessage = ref('')
 async function saveNewCustomer() {
@@ -23,7 +25,7 @@ async function saveNewCustomer() {
     const response = await fetch('/api/method/servicing_os.api.counter_fast_667.create_customer', {
       method: 'POST', credentials: 'same-origin', cache: 'no-store',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json', ...(token ? {'X-Frappe-CSRF-Token': token} : {}) },
-      body: JSON.stringify({ customer_name: newName.value.trim(), mobile_no: newMobile.value.trim() })
+      body: JSON.stringify({ customer_name: newName.value.trim(), mobile_no: newMobile.value.trim(), ...newAddress.value })
     })
     const payload = await response.json()
     if (!response.ok || payload.exc || payload.exception || !payload.message?.customer?.name) {
@@ -34,7 +36,7 @@ async function saveNewCustomer() {
     const customer = payload.message.customer
     newMessage.value = payload.message.message || 'Customer selected.'
     adding.value = false
-    newName.value = ''; newMobile.value = ''
+    newName.value = ''; newMobile.value = ''; newAddress.value = {}
     choose(customer)
   } catch(e) { error.value = e?.message || 'Customer could not be created.' }
   finally { newBusy.value = false }
@@ -96,7 +98,7 @@ onUnmounted(() => { cancel(); clearTimeout(closer) })
       <div class="sos669-customer-identity">
         <strong>Customer</strong>
       </div>
-      <button type="button" class="sos669-new-customer" @click="adding=true;open=false;error='';newName=!props.selected?.name ? query.trim() : '';newMessage=''">
+      <button type="button" class="sos669-new-customer" @click="adding=true;open=false;error='';newName=!props.selected?.name ? query.trim() : '';newAddress={};newMessage=''">
         <span aria-hidden="true">＋</span> New Customer
       </button>
     </div>
@@ -149,6 +151,7 @@ onUnmounted(() => { cancel(); clearTimeout(closer) })
             <div class="sos669-form-grid">
               <label><span>Full customer name <b>*</b></span><input v-model.trim="newName" type="text" autocomplete="name" maxlength="140" required placeholder="e.g. Jewel Rana" /></label>
               <label><span>Mobile number <b>*</b></span><input v-model.trim="newMobile" type="tel" autocomplete="tel" inputmode="tel" maxlength="16" required placeholder="01XXXXXXXXX" /></label>
+              <CustomerAddressFields v-model="newAddress" />
             </div>
             <p class="sos669-modal-note">Customer details will be saved in ERPNext and selected in your current shopping cart.</p>
             <p v-if="error" class="sos669-error" role="alert">{{ error }}</p>

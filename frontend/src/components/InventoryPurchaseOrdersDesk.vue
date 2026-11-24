@@ -1,9 +1,13 @@
 <script setup>
+import PartyDialog from './PartyDialog.vue'
+import InventoryPurchaseReceipts from './InventoryPurchaseReceipts.vue'
+import InventoryPurchaseOrderReceiving from './InventoryPurchaseOrderReceiving.vue'
+import InventoryReceiptBilling from './InventoryReceiptBilling.vue'
 import { computed, onMounted, ref, watch } from 'vue'
 import { currentLanguage } from '../i18n/servicingLanguage.js'
 import InventoryPurchaseOrderStudio from './InventoryPurchaseOrderStudio.vue'
 
-// SOS_INV_PO_V54: standalone top-tab purchasing desk. Draft-only mutations.
+// Purchase orders and receipt history for the active inventory workspace.
 const props = defineProps({
   catalog:{type:Array,default:()=>[]},
   currentWarehouse:{type:String,default:''},
@@ -12,13 +16,13 @@ const props = defineProps({
   topSellers:{type:Array,default:()=>[]},
   initialTab:{type:String,default:'draft'},
 })
-const emit=defineEmits(['created','updated','mode-change'])
+const emit=defineEmits(['created','updated','submitted','mode-change'])
 const bn=computed(()=>currentLanguage.value==='bn')
 const words={
-  heading:['Purchase Order Center','ক্রয়াদেশ কেন্দ্র'],
-  subtitle:['Manage supplier orders, buying rates and stock priorities','সরবরাহকারী অর্ডার, ক্রয়মূল্য ও স্টক অগ্রাধিকার'],
+  heading:['Buy','ক্রয়'],
+  subtitle:['Supplier orders and purchase receipts','সরবরাহকারীর অর্ডার ও ক্রয় রসিদ'],
   draft:['Draft orders','খসড়া অর্ডার'], submitted:['Submitted','সাবমিটকৃত'], form:['Order form','অর্ডার ফর্ম'], reorder:['Reorder planner','পুনঃক্রয় পরিকল্পনা'],
-  new:['New Purchase Order','নতুন ক্রয়াদেশ'], search:['Search order number or supplier…','অর্ডার নম্বর বা সরবরাহকারী খুঁজুন…'],
+  new:['New Purchase Order','নতুন ক্রয়াদেশ'], search:['Search order number…','অর্ডার নম্বর খুঁজুন…'],
   loading:['Loading purchase orders…','ক্রয়াদেশ লোড হচ্ছে…'], empty:['No matching Purchase Orders','কোনো ক্রয়াদেশ পাওয়া যায়নি'],
   number:['PO number','অর্ডার নম্বর'], supplier:['Supplier','সরবরাহকারী'], date:['Order date','অর্ডার তারিখ'],
   delivery:['Required by','প্রয়োজনের তারিখ'], total:['Amount','মোট'], actions:['Actions','কর্ম'],
@@ -26,23 +30,45 @@ const words={
   items:['Order items','অর্ডারের পণ্য'], quantity:['Quantity','পরিমাণ'], rate:['Buying rate','ক্রয়মূল্য'],
   cancel:['Back to orders','অর্ডারে ফিরে যান'], refresh:['Refresh','রিফ্রেশ'], more:['Load more','আরও দেখুন'],
   deleted:['Draft Purchase Order deleted','খসড়া ক্রয়াদেশ মুছে ফেলা হয়েছে'],
-  noEdits:['Submitted orders are read-only here. Use ERPNext’s controlled purchasing workflow for amendments.','সাবমিটকৃত অর্ডার এখানে শুধু দেখা যাবে। পরিবর্তনের জন্য ইআরপিনেক্সটের অনুমোদিত পদ্ধতি ব্যবহার করুন।'],
   noPermission:['Read permission for Purchase Order is required.','ক্রয়াদেশ পড়ার অনুমতি প্রয়োজন।'],
   confirmDelete:['Permanently delete this draft Purchase Order? This cannot be undone.','খসড়া ক্রয়াদেশ স্থায়ীভাবে মুছে ফেলবেন? এটি ফেরত আনা যাবে না।'],
   note:['Only draft orders can be edited or deleted; these actions do not change stock.','শুধু খসড়া অর্ডার সম্পাদনা বা মুছে ফেলা যায়; এতে স্টক পরিবর্তন হয় না।'],
   created:['Draft saved successfully','খসড়া সংরক্ষিত হয়েছে'], updated:['Draft updated successfully','খসড়া হালনাগাদ হয়েছে'],
   open:['Open in ERPNext','ইআরপিনেক্সটে খুলুন'],
+  review:['Review & submit','যাচাই ও সাবমিট'], confirmSubmit:['Submit Purchase Order','ক্রয়াদেশ সাবমিট করুন'],
+  submittedNotice:['Purchase Order submitted','ক্রয়াদেশ সাবমিট হয়েছে'],
+  submittedAlready:['Purchase Order was already submitted','ক্রয়াদেশ আগেই সাবমিট হয়েছে'],
+  submitting:['Submitting…','সাবমিট হচ্ছে…'], warehouse:['Warehouse','গুদাম'],
+  loadingOrder:['Loading Purchase Order details…','ক্রয়াদেশের তথ্য লোড হচ্ছে…'],
+  retry:['Retry','আবার চেষ্টা করুন'], close:['Close','বন্ধ করুন'],
+  submissionNote:['Review the items and total first. Submission confirms the order. Stock changes when you receive it.',
+    'পণ্য ও মোট মূল্য যাচাই করুন। সাবমিট করলে ক্রয়াদেশ নিশ্চিত হবে। পণ্য গ্রহণের সময় স্টক পরিবর্তন হবে।'],
+  workflowNote:['This order requires approval in ERPNext.','এই ক্রয়াদেশের অনুমোদন ইআরপিনেক্সটে সম্পন্ন করুন।'],
+  submitRestricted:['You do not have permission to submit this order.','এই ক্রয়াদেশ সাবমিট করার অনুমতি নেই।'],
+  receive:['Receive items','পণ্য গ্রহণ'], received:['Received','গৃহীত'],
+  receipts:['View linked receipts','সংযুক্ত রসিদ দেখুন'],
+  stockReceived:['Stock received into','স্টক যোগ হয়েছে'],
+  receiptDraft:['Draft receipt saved','খসড়া রসিদ সেভ হয়েছে'],
+  openReceipt:['Open receipt in ERPNext','ইআরপিনেক্সটে রসিদ খুলুন'],
+  billReceipt:['Invoice & payment','চালান ও পেমেন্ট'],
 }
 const t=k=>words[k]?.[bn.value?1:0]||k
 const mode=ref(['draft','submitted','form','reorder'].includes(props.initialTab)?props.initialTab:'draft')
 const status=ref('draft'), search=ref(''), rows=ref([]), page=ref(0), hasMore=ref(false)
 const loading=ref(false), working=ref(false), error=ref(''), notice=ref('')
 const selected=ref(null), editName=ref(''), formKey=ref(0), selectedLoading=ref(false)
-const canEdit=ref(false),canDelete=ref(false),canCreate=ref(false)
+const detailName=ref(''), detailError=ref(''), detailNotice=ref(''), submitting=ref(false)
+const receiving=ref(false), receiptBusy=ref(false), savedReceipt=ref(null)
+const receiptOrder=ref(''), receiptVersion=ref(0)
+const billingReceipt=ref('')
+let detailRequest=0
+let listRequest=0
+const canEdit=ref(false),canDelete=ref(false),canCreate=ref(false),canSubmit=ref(false)
 const displayed=computed(()=>rows.value)
 const tabs=[
   {id:'draft',paths:['M4 4h16v16H4z','M8 9h8','M8 13h8','M8 17h5']},
   {id:'submitted',paths:['M4 12l5 5L20 6','M12 2a10 10 0 1 1-6.8 17.3']},
+  {id:'receipts',paths:['M5 4h14v16l-4-2-3 2-3-2-4 2z','M9 9h6','M9 13h6']},
   {id:'form',paths:['M12 20h9','M16 4l4 4-11 11-5 1 1-5z']},
   {id:'reorder',paths:['M4 17l6-6 4 3 6-7','M15 7h5v5']},
 ]
@@ -52,34 +78,51 @@ async function api(method,query={},post=false){
   const url=new URL('/api/method/servicing_os.api.inventory_purchase_order.'+method,window.location.origin)
   const headers={Accept:'application/json'}
   const opts={credentials:'same-origin',cache:'no-store',headers}
-  if(post){opts.method='POST';headers['Content-Type']='application/json';const csrf=window.csrf_token||window.frappe?.csrf_token;if(csrf)headers['X-Frappe-CSRF-Token']=csrf;opts.body=JSON.stringify({data:query})}
-  else Object.entries(query).forEach(([k,v])=>url.searchParams.set(k,String(v??'')))
+  if(post){
+    opts.method='POST'
+    headers['Content-Type']='application/json'
+    const cookie = document.cookie.split('; ').find(value => value.startsWith('csrf_token='))?.slice(11)
+    const csrf=window.csrf_token||window.frappe?.csrf_token||(cookie?decodeURIComponent(cookie):'')
+    if(csrf) headers['X-Frappe-CSRF-Token']=csrf
+    opts.body=JSON.stringify({data:query})
+  } else Object.entries(query).forEach(([k,v])=>url.searchParams.set(k,String(v??'')))
   const response=await fetch(url,opts)
-  const payload=await response.json()
+  const payload=await response.json().catch(()=>({}))
   if(!response.ok||payload.exc||payload.exception){
     let msg=typeof payload.message==='string'?payload.message:'Purchase Order request failed ('+response.status+')'
-    try{const messages=JSON.parse(payload._server_messages||'[]');if(messages.length)msg=JSON.parse(messages[0]).message||msg}catch{}
+    try{
+      const messages=JSON.parse(payload._server_messages||'[]')
+      if(messages.length) msg=JSON.parse(messages[messages.length-1]).message||msg
+    }catch{}
+    if (msg.startsWith('Purchase Order request failed') && payload.exc_type) msg += ' · ' + payload.exc_type
     throw new Error(msg.replace(/<[^>]*>/g,''))
   }
   return payload.message
 }
 async function load(reset=true){
-  if(loading.value)return
+  const version=++listRequest
   loading.value=true;error.value=''
   try{
     const next=reset?0:page.value+1
     const r=await api('list_purchase_orders',{status:status.value,page:next,search:search.value})
+    if(version!==listRequest) return
     rows.value=reset?r.orders:[...rows.value,...r.orders]
     page.value=next
     hasMore.value=!!r.has_more
-    canEdit.value=!!r.can_edit;canDelete.value=!!r.can_delete;canCreate.value=!!r.can_create
-  }catch(e){error.value=e.message||String(e)}finally{loading.value=false}
+    canEdit.value=!!r.can_edit;canDelete.value=!!r.can_delete;canCreate.value=!!r.can_create;canSubmit.value=!!r.can_submit
+  }catch(e){if(version===listRequest) error.value=e.message||String(e)}
+  finally{if(version===listRequest) loading.value=false}
 }
 function chooseTab(id){
   error.value='';notice.value='';selected.value=null
   if(id==='form') {openCreate(1);return}
   if(id==='reorder'){openCreate(0,'reorder');return}
   mode.value=id
+  if (id==='receipts') {
+    receiptOrder.value=''
+    receiptVersion.value++
+    return
+  }
   status.value=id
   search.value=''
   load()
@@ -89,13 +132,62 @@ function openCreate(tab=1, origin='form'){
   formStart.value=tab;selected.value=null;error.value=''
 }
 const formStart=ref(1)
-async function openDetail(name){
-  selectedLoading.value=true;error.value=''
-  try{selected.value=await api('get_purchase_order_record',{name})}
-  catch(e){error.value=e.message||String(e)}finally{selectedLoading.value=false}
+function closeDetails(){
+  if(submitting.value || receiptBusy.value)return
+  detailRequest++
+  detailName.value=''
+  selected.value=null
+  selectedLoading.value=false
+  receiving.value=false
+  savedReceipt.value=null
 }
-async function openEdit(name){
-  selected.value=null;editName.value=name;formStart.value=1;formKey.value+=1;mode.value='form';error.value=''
+async function openDetail(name){
+  const version=++detailRequest
+  receiving.value=false
+  savedReceipt.value=null
+  detailName.value=name;selected.value=null;selectedLoading.value=true;detailError.value='';detailNotice.value=''
+  try{
+    const record=await api('get_purchase_order_record',{name})
+    if(version===detailRequest) selected.value=record
+  }catch(e){if(version===detailRequest) detailError.value=e.message||String(e)}
+  finally{if(version===detailRequest) selectedLoading.value=false}
+}
+function showReceipts(name){
+  closeDetails()
+  receiptOrder.value=name
+  mode.value='receipts'
+  receiptVersion.value++
+}
+async function receiptSaved(receipt){
+  const name=detailName.value
+  if(receipt.docstatus===1) emit('submitted',receipt)
+  receiptVersion.value++
+  const detail=openDetail(name)
+  savedReceipt.value=receipt
+  detailNotice.value=receipt.docstatus===1 ? t('stockReceived')+' '+receipt.warehouse : t('receiptDraft')
+  await detail
+  if(mode.value==='submitted') await load()
+}
+function openEdit(name){
+  closeDetails()
+  editName.value=name;formStart.value=1;formKey.value+=1;mode.value='form';error.value=''
+}
+async function submitDraft(){
+  const order=selected.value
+  if(!order?.can_submit||!order.modified||submitting.value)return
+  submitting.value=true;detailError.value=''
+  try{
+    const result=await api('submit_purchase_order',{name:order.name,expected_modified:order.modified},true)
+    const message=t(result.already_submitted?'submittedAlready':'submittedNotice')+' · '+order.name
+    mode.value='submitted';status.value='submitted';search.value=''
+    rows.value=[]
+    emit('submitted',result)
+    await openDetail(order.name)
+    detailNotice.value=message
+    await load()
+    notice.value=message
+  }catch(e){detailError.value=e.message||String(e)}
+  finally{submitting.value=false}
 }
 async function deleteDraft(name){
   const row=rows.value.find(r=>r.name===name)
@@ -105,7 +197,7 @@ async function deleteDraft(name){
   try{
     await api('delete_purchase_order_draft',{name},true)
     notice.value=t('deleted')+' · '+name
-    selected.value=null
+    closeDetails()
     await load()
   }catch(e){error.value=e.message||String(e)}finally{working.value=false}
 }
@@ -130,12 +222,13 @@ function amount(n){return Number(n||0).toLocaleString(bn.value?'bn-BD':'en-BD',{
     <nav class="po55-workflow-tabs" role="tablist" :aria-label="bn?'ক্রয়াদেশ ওয়ার্কস্পেস':'Purchase order workspace'">
       <button v-for="tab in tabs" :key="tab.id" type="button" role="tab" :aria-selected="mode===tab.id" :class="{'is-active':mode===tab.id}" @click="chooseTab(tab.id)">
         <span class="po55-workflow-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path v-for="(p,n) in tab.paths" :key="n" :d="p" /></svg></span>
-        <span>{{ t(tab.id) }}</span><span v-if="mode===tab.id" class="po55-workflow-mark" aria-hidden="true"></span>
+        <span>{{ tab.id === 'receipts' ? (bn ? 'ক্রয় রসিদ' : 'Purchase Receipts') : t(tab.id) }}</span><span v-if="mode===tab.id" class="po55-workflow-mark" aria-hidden="true"></span>
       </button>
     </nav>
     <p v-if="error" class="po54-alert" role="alert">{{ error }}</p>
     <p v-if="notice" class="po54-notice" role="status">{{ notice }}</p>
-    <div v-if="mode==='draft'||mode==='submitted'" class="po54-panel" role="tabpanel">
+    <InventoryPurchaseReceipts v-if="mode==='receipts'" :key="receiptOrder+'-'+receiptVersion" :purchase-order="receiptOrder" @open-order="openDetail" @clear-order="showReceipts('')" />
+    <div v-else-if="mode==='draft'||mode==='submitted'" class="po54-panel" role="tabpanel">
       <div class="po54-toolbar">
         <div><strong>{{ t(mode) }}</strong><small>{{ t('note') }}</small></div>
         <form class="po54-search" @submit.prevent="load()">
@@ -152,22 +245,61 @@ function amount(n){return Number(n||0).toLocaleString(bn.value?'bn-BD':'en-BD',{
           <td><button class="po54-link" type="button" @click="openDetail(r.name)">{{ r.name }}</button><small>{{ r.status }}</small></td>
           <td>{{ r.supplier }}</td><td>{{ r.transaction_date }}</td><td>{{ r.schedule_date }}</td>
           <td><b>{{ r.currency }} {{ amount(r.grand_total) }}</b></td>
-          <td><div class="po54-row-actions"><button type="button" @click="openDetail(r.name)">{{ t('view') }}</button><button v-if="r.docstatus===0&&canEdit" type="button" @click="openEdit(r.name)">{{ t('edit') }}</button><button v-if="r.docstatus===0&&canDelete" class="po54-danger" type="button" :disabled="working" @click="deleteDraft(r.name)">{{ t('remove') }}</button></div></td>
+          <td><div class="po54-row-actions"><button type="button" @click="openDetail(r.name)">{{ t('view') }}</button><button v-if="r.docstatus===0&&canSubmit" class="po54-submit" type="button" @click="openDetail(r.name)">{{ t('review') }}</button><button v-if="r.docstatus===0&&canEdit" type="button" @click="openEdit(r.name)">{{ t('edit') }}</button><button v-if="r.docstatus===0&&canDelete" class="po54-danger" type="button" :disabled="working" @click="deleteDraft(r.name)">{{ t('remove') }}</button></div></td>
         </tr></tbody>
       </table></div>
       <div v-if="hasMore" class="po54-more"><button type="button" :disabled="loading" @click="load(false)">{{ t('more') }}</button></div>
-      <section v-if="selected" class="po54-detail" aria-label="Purchase Order details">
-        <div class="po54-detail-header"><div><small>{{ selected.status }}</small><h3>{{ selected.name }}</h3><p>{{ selected.supplier }} · {{ selected.company }}</p></div><button type="button" @click="selected=null" aria-label="Close details">×</button></div>
-        <div class="po54-facts"><div><small>{{ t('delivery') }}</small><b>{{ selected.schedule_date }}</b></div><div><small>{{ t('total') }}</small><b>{{ selected.currency }} {{ amount(selected.grand_total) }}</b></div><div><small>{{ t('items') }}</small><b>{{ selected.items?.length||0 }}</b></div></div>
-        <div v-for="line in selected.items" :key="line.item_code" class="po54-detail-line"><span><b>{{ line.item_name }}</b><small>{{ line.item_code }}</small></span><span>{{ amount(line.qty) }} {{ line.uom }} × {{ amount(line.rate) }}</span></div>
-        <p v-if="selected.docstatus!==0" class="po54-readonly">{{ t('noEdits') }}</p>
-        <div class="po54-detail-actions"><button v-if="selected.can_edit" type="button" @click="openEdit(selected.name)">{{ t('edit') }}</button><button v-if="selected.can_delete" type="button" class="po54-danger" @click="deleteDraft(selected.name)">{{ t('remove') }}</button><a :href="'/app/purchase-order/'+encodeURIComponent(selected.name)" target="_blank" rel="noopener">{{ t('open') }}</a></div>
-      </section>
-      <p v-if="selectedLoading" class="po54-empty">{{ t('loading') }}</p>
     </div>
     <div v-else role="tabpanel" class="po54-form-panel">
       <InventoryPurchaseOrderStudio :key="formKey" embedded :catalog="catalog" :current-warehouse="currentWarehouse" :company="company" :currency="currency" :top-sellers="topSellers" :editing-name="editName" :initial-tab="formStart" @close="backToOrders" @created="d=>onSaved(d,false)" @updated="d=>onSaved(d,true)"/>
     </div>
+    <PartyDialog v-if="detailName && !billingReceipt" :title="t('view')+' · '+detailName" wide :busy="submitting || working || receiptBusy" :close-label="t('close')" @close="closeDetails">
+      <div class="po54-review">
+        <p v-if="selectedLoading" class="po54-empty" role="status">{{ t('loadingOrder') }}</p>
+        <p v-if="detailError" class="po54-alert" role="alert">{{ detailError }}</p>
+        <div v-if="detailNotice" class="po54-notice" role="status">
+          {{ detailNotice }}
+          <template v-if="savedReceipt"> · {{ savedReceipt.name }} · <a :href="'/app/purchase-receipt/'+encodeURIComponent(savedReceipt.name)" target="_blank" rel="noopener">{{ t('openReceipt') }}</a></template>
+        </div>
+        <template v-if="selected">
+          <p class="po54-review-context"><strong>{{ selected.supplier_name || selected.supplier }}</strong> · {{ selected.company }} · {{ selected.status }}</p>
+          <div class="po54-facts">
+            <div><small>{{ t('date') }}</small><b>{{ selected.transaction_date || '—' }}</b></div>
+            <div><small>{{ t('delivery') }}</small><b>{{ selected.schedule_date || '—' }}</b></div>
+            <div><small>{{ t('warehouse') }}</small><b>{{ selected.warehouse || '—' }}</b></div>
+          </div>
+          <div class="po54-table-wrap" role="region" :aria-label="t('items')" tabindex="0">
+            <table class="po54-table">
+              <thead><tr><th>{{ t('items') }}</th><th>{{ t('quantity') }}</th><th v-if="selected.docstatus===1">{{ t('received') }}</th><th>{{ t('rate') }}</th><th>{{ t('total') }}</th></tr></thead>
+              <tbody><tr v-for="(line,index) in selected.items" :key="line.name || index">
+                <td><b>{{ line.item_name || line.item_code }}</b><small>{{ line.item_code }} · {{ line.warehouse || selected.warehouse }}</small></td>
+                <td>{{ amount(line.qty) }} {{ line.uom }}</td><td v-if="selected.docstatus===1">{{ line.received_qty ?? 0 }} {{ line.uom }}</td><td>{{ selected.currency }} {{ amount(line.rate) }}</td>
+                <td>{{ selected.currency }} {{ amount(line.amount) }}</td>
+              </tr></tbody>
+            </table>
+          </div>
+          <p class="po54-review-total"><strong>{{ t('total') }}</strong><b>{{ selected.currency }} {{ amount(selected.grand_total) }}</b></p>
+          <p v-if="selected.remarks" class="po54-review-remarks">{{ selected.remarks }}</p>
+          <p v-if="selected.can_submit" class="po54-readonly">{{ t('submissionNote') }}</p>
+          <p v-else-if="selected.uses_workflow" class="po54-readonly">{{ t('workflowNote') }}</p>
+          <p v-else-if="selected.docstatus===0" class="po54-readonly">{{ t('submitRestricted') }}</p>
+        </template>
+        <InventoryPurchaseOrderReceiving v-if="receiving && selected" :order="selected" @back="receiving=false" @history="showReceipts(selected.name)" @busy="receiptBusy=$event" @saved="receiptSaved" />
+        <div class="po54-detail-actions">
+          <button v-if="selected?.can_submit" class="po54-submit" type="button" :disabled="submitting || working" @click="submitDraft">
+            {{ submitting?t('submitting'):t('confirmSubmit') }}
+          </button>
+          <button v-if="selected?.can_edit" type="button" :disabled="submitting || working" @click="openEdit(selected.name)">{{ t('edit') }}</button>
+          <button v-if="selected?.can_receive && !receiving" class="po54-submit" type="button" :disabled="submitting || receiptBusy || selectedLoading" @click="receiving=true">{{ t('receive') }}</button>
+          <button v-if="selected?.can_view_receipts && !receiving" type="button" :disabled="receiptBusy" @click="showReceipts(selected.name)">{{ t('receipts') }}</button>
+          <button v-if="savedReceipt?.docstatus===1 && selected?.can_view_receipts" type="button" :disabled="receiptBusy" @click="billingReceipt=savedReceipt.name">{{ t('billReceipt') }}</button>
+          <button v-if="selected?.can_delete" class="po54-danger" type="button" :disabled="submitting || working" @click="deleteDraft(selected.name)">{{ t('remove') }}</button>
+          <button v-if="detailError && !selectedLoading" type="button" :disabled="submitting" @click="openDetail(detailName)">{{ t('retry') }}</button>
+          <a :href="'/app/purchase-order/'+encodeURIComponent(detailName)" target="_blank" rel="noopener">{{ t('open') }}</a>
+        </div>
+      </div>
+    </PartyDialog>
+    <InventoryReceiptBilling v-if="billingReceipt" :receipt-name="billingReceipt" @close="billingReceipt=''" />
   </div>
 </template>
 
@@ -201,6 +333,13 @@ function amount(n){return Number(n||0).toLocaleString(bn.value?'bn-BD':'en-BD',{
 @media(max-width:550px){.po54-heading{align-items:flex-start}.po54-new{font-size:10px;padding:8px}.po54-clay-tabs{gap:4px;padding:5px;border-radius:12px}.po54-clay-tabs button{font-size:9px;padding:7px 2px;border-radius:9px;min-height:54px}.po54-facts{grid-template-columns:1fr 1fr}.po54-search{flex-wrap:wrap}}
 @media(prefers-reduced-motion:reduce){.po54-clay-tabs button{transition:none}}
 
+.po54-review{color:var(--os-ink,#38291f);min-width:0}
+.po54-review-context,.po54-review-remarks{font-size:.85rem;overflow-wrap:anywhere}
+.po54-review-remarks{white-space:pre-wrap}
+.po54-review-total{display:flex;justify-content:space-between;gap:10px;padding:10px 13px;background:var(--os-tint,#f3ebe0);font-size:.9rem}
+.po54-review .po54-detail-actions{flex-wrap:wrap}
+.po54-row-actions .po54-submit,.po54-detail-actions .po54-submit{background:var(--os-accent,#785238);color:#fff;border-color:transparent}
+.po54-review :is(button,a,[tabindex]):focus-visible{outline:2px solid var(--os-accent,#785238);outline-offset:2px}
 /* SOS_INV_PO_V55_NAV — restrained secondary tabs; no duplicate clay tile stacks. */
 .po55-workflow-tabs{display:flex;align-items:center;gap:4px;overflow-x:auto;scrollbar-width:thin;padding:5px;margin:0 0 17px;
  border:1px solid #eae0d4;border-radius:13px;background:#f7f1e8;box-shadow:inset 0 1px 2px #5b3b1910}

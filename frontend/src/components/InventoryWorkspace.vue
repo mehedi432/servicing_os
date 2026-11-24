@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { currentLanguage } from '../i18n/servicingLanguage.js'
+import InventoryWarrantyDesk from './InventoryWarrantyDesk.vue'
 import InventoryPurchaseOrdersDesk from './InventoryPurchaseOrdersDesk.vue' // SOS_INV_PO_V54
 import InventoryReceiveStudio from './InventoryReceiveStudio.vue' // SOS_INV_RECEIVE_V57
 
@@ -112,18 +113,18 @@ const purchaseDeskMode = ref('draft')
 const inventorySections = [
   {id:'overview',en:'Overview',bn:'সারসংক্ষেপ',enHint:'Stock · sales · priorities',bnHint:'মজুত · বিক্রয় · অগ্রাধিকার',paths:['M3 3h18v7H3z','M3 14h8v7H3z','M15 14h6v7h-6z']},
   {id:'catalog',en:'Product Catalog',bn:'পণ্যের তালিকা',enHint:'Products · pricing · warranty',bnHint:'পণ্য · মূল্য · ওয়ারেন্টি',paths:['M3 3h7v7H3z','M14 3h7v7h-7z','M3 14h7v7H3z','M14 14h7v7h-7z']},
-  {id:'orders',en:'Purchase Orders',bn:'ক্রয়াদেশ',enHint:'Drafts · suppliers · orders',bnHint:'খসড়া · সরবরাহকারী · অর্ডার',paths:['M8 3h9l4 4v14H8a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z','M17 3v5h4','M10 12h7','M10 16h7']},
+  {id:'orders',en:'Buy',bn:'ক্রয়',enHint:'Purchase orders · receipts',bnHint:'ক্রয়াদেশ · রসিদ',paths:['M8 3h9l4 4v14H8a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z','M17 3v5h4','M10 12h7','M10 16h7']},
   {id:'planner',en:'Reorder Planner',bn:'পুনঃক্রয় পরিকল্পনা',enHint:'Priorities · stock coverage',bnHint:'অগ্রাধিকার · মজুত পর্যবেক্ষণ',paths:['M3 17l6-6 4 3 7-8','M15 6h5v5','M3 21h18']},
+  {id:'warranties',en:'Warranties',bn:'ওয়ারেন্টি',enHint:'Coverage · serials · claims',bnHint:'মেয়াদ · সিরিয়াল · দাবি',paths:['M12 3l8 4v5c0 4-3 7-8 9-5-2-8-5-8-9V7z','m9 12 2 2 4-4']},
 ]
 function isInventoryTabSelected(tab) {
-  if (tab==='overview') return inventoryTopTab.value==='overview'
-  if (tab==='catalog') return inventoryTopTab.value==='catalog'
+  if (tab !== 'orders' && tab !== 'planner') return inventoryTopTab.value === tab
   return inventoryTopTab.value==='orders' && (tab==='planner' ? purchaseDeskMode.value==='reorder' : purchaseDeskMode.value!=='reorder')
 }
 function onPurchaseModeChange(mode) { purchaseDeskMode.value = mode }
 function selectInventoryTopTab(tab) {
   if (modal.value || busy.value) return
-  inventoryTopTab.value = tab === 'overview' ? 'overview' : tab === 'catalog' ? 'catalog' : 'orders'
+  inventoryTopTab.value = tab === 'planner' ? 'orders' : tab
   purchaseDeskMode.value = tab === 'planner' ? 'reorder' : 'draft'
   purchaseDeskStart.value = tab === 'planner' ? 'reorder' : 'draft'
 }
@@ -526,7 +527,6 @@ function close() {if (!busy.value) {dismissLookup(); modal.value=''}}
     <div class="inv55-rail">
       <div class="inv55-rail-header">
         <span class="inv55-rail-kicker"><span class="inv55-rail-pin" aria-hidden="true"></span>{{ bn?'ইনভেন্টরি ওয়ার্কস্পেস':'INVENTORY WORKSPACES' }}</span>
-        <span class="inv55-rail-hint">{{ bn?'এক জায়গায় সব কার্যক্রম':'One workspace · four focused views' }}</span>
       </div>
       <nav class="inv55-operations" role="tablist" :aria-label="bn?'ইনভেন্টরি ওয়ার্কস্পেস':'Inventory workspaces'">
         <button v-for="tab in inventorySections" :key="tab.id" type="button" role="tab"
@@ -724,8 +724,9 @@ function close() {if (!busy.value) {dismissLookup(); modal.value=''}}
     </div>
 
     </div><!-- End Product Catalog; preserve component and its existing state. -->
-    <InventoryPurchaseOrdersDesk v-if="inventoryTopTab==='orders'" :key="purchaseDeskStart" :catalog="items" :current-warehouse="warehouse" :company="inventory.company" :currency="inventory.currency" :top-sellers="heroSellerCards" :initial-tab="purchaseDeskStart" @mode-change="onPurchaseModeChange" @created="purchaseOrderCreated" @updated="purchaseOrderCreated" />
+    <InventoryPurchaseOrdersDesk v-if="inventoryTopTab==='orders'" :key="purchaseDeskStart" :catalog="items" :current-warehouse="warehouse" :company="inventory.company" :currency="inventory.currency" :top-sellers="heroSellerCards" :initial-tab="purchaseDeskStart" @mode-change="onPurchaseModeChange" @created="purchaseOrderCreated" @updated="purchaseOrderCreated" @submitted="reload" />
 
+    <InventoryWarrantyDesk v-if="inventoryTopTab==='warranties'" />
 
     <!-- SOS_INV_V56 — destructive actions are explicit and server validated. -->
     <div v-if="modal==='remove'" class="inv-modal-backdrop" @click.self="close" @keydown.esc="close">
@@ -1107,8 +1108,8 @@ button.inv44-kpi{cursor:pointer}button.inv44-kpi:hover:not(:disabled){border-col
 @media(prefers-reduced-motion:reduce){.inv55-operation{transition:none}}
 
 /* SOS_INV_V56: distinct overview/catalog and safe catalog actions; no route edits. */
-.inv55-operations{grid-template-columns:repeat(4,minmax(0,1fr))}
-@media(min-width:701px) and (max-width:1120px){.inv55-operations{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.inv55-operations{grid-template-columns:repeat(5,minmax(0,1fr))}
+@media(min-width:701px) and (max-width:1350px){.inv55-operations{grid-template-columns:repeat(3,minmax(0,1fr))}}
 
 .inv56-overview-page,.inv56-catalog-page{min-width:0}
 .inv56-overview-page{animation:inv56-appear .15s ease-out}

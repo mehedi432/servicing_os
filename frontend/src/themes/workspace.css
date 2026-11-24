@@ -1,0 +1,183 @@
+/* The original Ivory styling stays in each workspace. The theme palette also
+   reaches Vue's teleported dialogs through the document root. */
+@media screen {
+  :root[data-servicing-theme]:not([data-servicing-theme="ivory"]) .ivory-app {
+    --ivory-body: var(--os-canvas);
+    --ivory-surface: var(--os-surface);
+    --ivory-hover: var(--os-tint);
+    --ivory-active: var(--os-selection);
+    --ivory-border: var(--os-border);
+    --ivory-text: var(--os-ink);
+    --ivory-muted: var(--os-muted);
+    --ivory-primary: var(--os-accent);
+    --ivory-primary-hover: var(--os-strong);
+    background: var(--os-canvas);
+    color: var(--os-ink);
+    accent-color: var(--os-accent);
+  }
+
+  :root[data-servicing-theme]:not([data-servicing-theme="ivory"]) .sos652-shell {
+    --sos652-page: var(--os-canvas);
+    --sos652-paper: var(--os-surface);
+    --sos652-tile: var(--os-selection);
+    --sos652-ink: var(--os-ink);
+    --sos652-walnut: var(--os-strong);
+    --sos652-muted: var(--os-muted);
+    --sos652-line: var(--os-border);
+    --sos652-hover: var(--os-tint);
+  }
+
+  :root[data-servicing-theme]:not([data-servicing-theme="ivory"]) .sj-app.sos629-jobs {
+    --sos633-bg: var(--os-canvas);
+    --sos633-paper: var(--os-surface);
+    --sos633-ink: var(--os-ink);
+    --sos633-muted: var(--os-muted);
+    --sos633-border: var(--os-border);
+    --sos633-accent: var(--os-accent);
+  }
+
+  :root[data-servicing-theme]:not([data-servicing-theme="ivory"]) :is(.inv-root,.sosc-sales,.sos700-shell) {
+    --ink: var(--os-ink);
+    --muted: var(--os-muted);
+    --line: var(--os-border);
+    --edge: var(--os-border);
+    --bd: var(--os-border);
+    --bg: var(--os-canvas);
+    --cream: var(--os-surface);
+    --surface: var(--os-surface);
+    --sand: var(--os-tint);
+    --espresso: var(--os-strong);
+    --accent: var(--os-accent);
+  }
+
+  :root[data-servicing-theme]:not([data-servicing-theme="ivory"]) .delivery-desk {
+    --dd-ink: var(--os-ink);
+    --dd-muted: var(--os-muted);
+    --dd-rule: var(--os-border);
+    --dd-accent: var(--os-accent);
+  }
+
+  :root[data-servicing-theme]:not([data-servicing-theme="ivory"]) .party-directory {
+    --party-rule: var(--os-border);
+  }
+
+  :root[data-servicing-theme]:not([data-servicing-theme="ivory"]) :is(
+    .sos-ext-root,.sosc-sales,.cc-root,.inv-root,.or-root,.sos-fin-reports,
+    .sos4-sidebar,.sos4-brandbar,.sos37-language
+  ) {
+    background: var(--os-canvas) !important;
+    color: var(--os-ink) !important;
+    border-color: var(--os-border) !important;
+  }
+
+  :root[data-servicing-theme]:not([data-servicing-theme="ivory"]) :is(
+    .sos646-search,.sos676-metric,.sos682-aside,.sos688-job-card,.sos690-steps,.pw708,
+    .invoices,.party-directory,.party-dialog,.party-card,.ex-panel,.ex-modal,
+    .inv-panel,.inv-modal,.inv44-hero-side,.sosc-panel,.sos671-order,
+    .ul-panel,.ul-stats article,.or-panel,.or-kpis article,.sos-fin-kpis article,.sos700-panel,
+    .delivery-desk,.s44-receive-shell,.sos653-modal,.sr57-dialog,.saved-checkout,.sos712-receipt
+  ) {
+    background: var(--os-surface) !important;
+    color: var(--os-ink) !important;
+    border-color: var(--os-border) !important;
+  }
+
+  :root[data-servicing-theme]:not([data-servicing-theme="ivory"]) :is(
+    .invoice-income,.invoice-header,.party-header,.party-table thead,.party-modes,.party-tags span,
+    .profile-metrics div,.sos37-choices,.sos682-printbox,.sos688-status,.ex-tag:not(.ex-tag-good),
+    .ex-config-grid article,.ex-empty-small,.invoice-table th,.invoice-status,.sj-kpis article,
+    .delivery-ticket,.delivery-footer,.delivery-steps,.ul-callout,.cc-summary,.inv-stat,
+    .saved-checkout-head,.saved-summary
+  ) {
+    background: var(--os-tint) !important;
+    color: var(--os-ink) !important;
+    border-color: var(--os-border) !important;
+  }
+
+  :root[data-servicing-theme]:not([data-servicing-theme="ivory"]) :is(.sos676-hero,.inv44-hero-main) {
+    background: linear-gradient(125deg, var(--os-selection), var(--os-tint) 55%, var(--os-surface)) !important;
+    color: var(--os-ink) !important;
+    border-color: var(--os-border) !important;
+  }
+
+  :root[data-servicing-theme]:not([data-servicing-theme="ivory"]) :is(
+    .sos4-logo,.sos652-logo,.sos37-choice.sos37-selected,.invoice-income-lead,
+    .invoice-button.primary,.invoice-button[aria-pressed="true"],.party-button.party-primary,
+    .party-button[aria-pressed="true"],.profile-button[aria-pressed="true"],.sos687-primary-save,
+    .sos686-edit-action,.sos690-primary,.pw708-primary,.sos710-fab:not(.sos710-deliver),
+    .sosc-primary,.cc-primary,.inv-btn.inv-primary,.inv44-primary,.ex-primary,.ex-small-primary,
+    .delivery-button.primary,.delivery-steps li[aria-current="step"] .delivery-marker,.saved-primary
+  ) {
+    background: var(--os-accent) !important;
+    border-color: var(--os-accent) !important;
+    color: #fff !important;
+  }
+
+  :root[data-servicing-theme]:not([data-servicing-theme="ivory"]) .invoice-income-lead p {
+    color: #fff;
+  }
+
+  :root[data-servicing-theme]:not([data-servicing-theme="ivory"]) :is(
+    .sos4-item.sos4-active,.sos4-item.sosSalesChildCurrent,.sos652-tile.sos652-selected,.sos652-billing-tabs button.on,
+    .sos688-job-card.is-selected,.sos690-rail [aria-current="step"],.sos690-current,.sos652-icon,.sos652-avatar,
+    .profile-metrics .profile-dues,.party-avatar,.ul-view-switch .active,.ul-detail-tabs .active
+  ) {
+    background: var(--os-selection) !important;
+    color: var(--os-strong) !important;
+    border-color: var(--os-border) !important;
+  }
+
+  :root[data-servicing-theme]:not([data-servicing-theme="ivory"]) :is(
+    .sos4-item:not(.sos4-active):not(.sosSalesChildCurrent):hover,.sosSalesExpand:hover,.party-table tbody tr:hover,
+    .sos652-tile:not(.sos652-selected):hover,
+    .ex-secondary:hover,.invoice-button:not(.primary):not([aria-pressed="true"]):hover,
+    .party-button:not(.party-primary):not([aria-pressed="true"]):hover
+  ) {
+    background: var(--os-tint) !important;
+    border-color: var(--os-border) !important;
+  }
+
+  :root[data-servicing-theme]:not([data-servicing-theme="ivory"]) :is(
+    .ivory-app,.sos652-shell,.s44-receive-shell,.party-dialog,.ex-modal,.inv-modal,.delivery-desk,.sos712-receipt
+  ) :is(input,select,textarea):where(:not([type="checkbox"],[type="radio"],[type="range"],[type="file"],.existing-job-view *)) {
+    background: var(--os-surface) !important;
+    color: var(--os-ink) !important;
+    border-color: var(--os-border) !important;
+  }
+
+  :root[data-servicing-theme]:not([data-servicing-theme="ivory"]) .existing-job-view :is(input,select,textarea) {
+    background: var(--os-tint) !important;
+  }
+
+  :root[data-servicing-theme]:not([data-servicing-theme="ivory"]) :is(
+    .ivory-app,.sos652-shell,.s44-receive-shell,.party-dialog,.ex-modal,.inv-modal,.delivery-desk,.sos712-receipt
+  ) :is(button,input,select,textarea,a):focus-visible {
+    outline-color: var(--os-accent) !important;
+  }
+
+  :root[data-servicing-theme]:not([data-servicing-theme="ivory"]) :is(
+    .sos4-item,.sos4-brandwords,.sos652-section-title,.sos676-hero h2,.ex-heading h1,.ex-panel h2,
+    .party-identity h2,.invoice-link,.profile-record a,.inv-panel-head h2,.ul-detail-title,.sosc-heading,
+    .profile-button:not([aria-pressed="true"]),.party-button:not(.party-primary):not([aria-pressed="true"]),
+    .invoice-button:not(.primary):not([aria-pressed="true"]),.ex-secondary
+  ) {
+    color: var(--os-ink);
+  }
+
+  :root[data-servicing-theme]:not([data-servicing-theme="ivory"]) :is(
+    .sos4-group-label,.sosSalesChildHelp,.sos4-brandwords small,.ex-muted,.ex-heading p,.ex-panel-top p,
+    .party-header p,.party-identity small,.party-table small,.profile-company,.party-profile-contact,
+    .profile-metrics dt,.profile-metrics small,.profile-record small,
+    .invoice-header p,.invoice-income-breakdown dt,.invoice-income-breakdown small,.invoice-pager
+  ) {
+    color: var(--os-muted) !important;
+  }
+
+  :root[data-servicing-theme]:not([data-servicing-theme="ivory"]) :is(
+    .sosSalesNavPanel,.sos652-bar,.party-header,.party-toolbar,.party-contact,.party-dialog header,
+    .profile-history-nav,.profile-record,.invoice-types,.invoice-filters,.invoice-header,.invoice-table td,.invoice-table th,
+    .ex-panel-top,.ex-table th,.ex-table td,.ex-modal-header,.ex-config-grid article div
+  ) {
+    border-color: var(--os-border) !important;
+  }
+}

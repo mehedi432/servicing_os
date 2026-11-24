@@ -58,14 +58,14 @@ function moveTab(event, index) {
 </template>
 
 <style scoped>
-.counter-invoices{min-width:0;margin-top:18px;color:#3c2c25}
+.counter-invoices{min-width:0;margin-top:18px;color:var(--os-ink,#3c2c25)}
 .counter-invoices-header{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:end;gap:12px;margin-bottom:14px}
 .counter-invoices-header h1{margin:5px 0 0;font:clamp(1.9rem,4vw,2.6rem)/1.12 Georgia,serif}
-.counter-invoices-back{border:0;background:none;padding:5px 0;color:#735139;font-size:12px;font-weight:700}
+.counter-invoices-back{border:0;background:none;padding:5px 0;color:var(--os-strong,#735139);font-size:12px;font-weight:700}
 .counter-invoices-back span{font-size:16px;margin-right:4px}
-.counter-invoices-create{min-height:38px;border-radius:8px;background:#765239;border:1px solid #765239;color:#fffaf5;font-size:13px;font-weight:700;padding:8px 14px}
-.counter-invoices-tabs{display:flex;gap:4px;overflow-x:auto;margin-bottom:12px;padding:4px;border:1px solid #e6d7c8;border-radius:10px;background:#f5eee5}
-.counter-invoices-tabs button{flex:1 0 auto;min-height:36px;padding:6px 12px;border:1px solid transparent;border-radius:7px;background:none;color:#624937;white-space:nowrap;font-size:12px;font-weight:650}
-.counter-invoices-tabs button[aria-selected=true]{border-color:#decbb9;background:#fffdf8;color:#593922}
-.counter-invoices :is(button,[role=tabpanel]):focus-visible{outline:2px solid #9a6d4e;outline-offset:1px}
+.counter-invoices-create{min-height:38px;border-radius:8px;background:var(--os-accent,#765239);border:1px solid var(--os-accent,#765239);color:#fffaf5;font-size:13px;font-weight:700;padding:8px 14px}
+.counter-invoices-tabs{display:flex;gap:4px;overflow-x:auto;margin-bottom:12px;padding:4px;border:1px solid var(--os-border,#e6d7c8);border-radius:10px;background:var(--os-tint,#f5eee5)}
+.counter-invoices-tabs button{flex:1 0 auto;min-height:36px;padding:6px 12px;border:1px solid transparent;border-radius:7px;background:none;color:var(--os-muted,#624937);white-space:nowrap;font-size:12px;font-weight:650}
+.counter-invoices-tabs button[aria-selected=true]{border-color:var(--os-border,#decbb9);background:var(--os-surface,#fffdf8);color:var(--os-strong,#593922)}
+.counter-invoices :is(button,[role=tabpanel]):focus-visible{outline:2px solid var(--os-accent,#9a6d4e);outline-offset:1px}
 </style>

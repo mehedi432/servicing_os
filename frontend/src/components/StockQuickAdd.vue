@@ -1,4 +1,5 @@
 <script setup>
+import CustomerAddressFields from './CustomerAddressFields.vue'
 import {ref,computed,onBeforeUnmount} from 'vue'
 import {shopApi} from './shopQuickApi.js'
 const emit=defineEmits(['changed'])
@@ -7,7 +8,7 @@ const setup=ref({warehouses:[],groups:[],uoms:[],brands:[],suppliers:[]})
 const product=ref({item_name:'',item_code:'',item_group:'',stock_uom:'Nos',brand:'',barcode:'',warranty_period:'',selling_price:'',has_serial_no:false})
 const receipt=ref({item_code:'',warehouse:'Stores - AMCL',supplier:'',qty:1,rate:'',serial_numbers:''})
 const prodQuery=ref(''),matches=ref([]),picked=ref(null),searching=ref(false),draft=ref(null)
-const showSupplier=ref(false),supplierForm=ref({supplier_name:'',supplier_group:'',supplier_type:'Company'})
+const showSupplier=ref(false),supplierForm=ref({supplier_name:'',supplier_group:'',supplier_type:'Company',address:{}})
 let searchTimer=null,requestId=0
 const serialList=computed(()=>receipt.value.serial_numbers.split(/[\r\n,]+/).map(s=>s.trim()).filter(Boolean))
 const receiptTotal=computed(()=>Number(receipt.value.qty||0)*Number(receipt.value.rate||0))
@@ -30,6 +31,7 @@ async function makeSupplier(){resetErrors();saving.value=true;try{
    receipt.value.supplier=result.name;showSupplier.value=false
    success.value=`Supplier ${result.supplier_name} added and selected.`
    supplierForm.value.supplier_name=''
+   supplierForm.value.address={}
  }catch(e){error.value=e.message}finally{saving.value=false}}
 async function makeProduct(){resetErrors();if(!setup.value.can_create_item){error.value='Your account does not have permission to create products.';return}
   if(!product.value.item_name.trim() || !product.value.item_group || !product.value.stock_uom){error.value='Enter name, product group and unit.';return}
@@ -102,6 +104,7 @@ onBeforeUnmount(()=>{requestId++;clearTimeout(searchTimer)})
                 <label>Supplier Name <input v-model="supplierForm.supplier_name" required minlength="2" maxlength="140" placeholder="Supplier or seller name" /></label>
                 <label>Supplier Group <select v-model="supplierForm.supplier_group" required><option value="">Select group</option><option v-for="g in setup.supplier_groups||[]" :key="g">{{g}}</option></select></label>
                 <label>Type <select v-model="supplierForm.supplier_type"><option>Company</option><option>Individual</option></select></label>
+                <CustomerAddressFields v-model="supplierForm.address" supplier />
                 <button type="submit" class="si-tiny si-tiny-solid" :disabled="saving || !supplierForm.supplier_name || !supplierForm.supplier_group">{{saving?'Saving…':'Save & Select Supplier'}}</button>
               </form>
             </div>

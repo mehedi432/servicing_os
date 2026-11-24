@@ -1,0 +1,11 @@
+.party-entry{display:grid;gap:16px;color:var(--os-ink,#38291f)}
+.party-entry-group{min-width:0;padding:13px 14px 15px;margin:0;border:1px solid var(--os-border,#e5d6c4);border-radius:12px;background:var(--os-tint,#f3ebe0)}
+.party-entry-group legend{padding:0 5px;font-size:.86rem;font-weight:770;color:var(--os-ink,#38291f)}
+.party-entry-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 12px}
+.party-entry-fields label{display:grid;align-content:start;gap:5px;min-width:0;font-size:.8rem;font-weight:650}
+.party-entry-fields :is(input,select){box-sizing:border-box;min-width:0;width:100%;min-height:40px;margin:0;padding:8px 10px;border:1px solid var(--os-border,#e5d6c4);border-radius:7px;background:var(--os-surface,#fffefa);color:var(--os-ink,#38291f)}
+.party-entry :is(input,select,button):focus-visible{outline:2px solid var(--os-accent,#785238);outline-offset:1px}
+.party-entry-note{margin:4px 0 0;font-size:.82rem;color:var(--os-muted,#6d5b4c)}
+.party-entry-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px}
+.party-entry-actions button{min-height:40px}
+@media(max-width:480px){.party-entry-fields{grid-template-columns:minmax(0,1fr)}}

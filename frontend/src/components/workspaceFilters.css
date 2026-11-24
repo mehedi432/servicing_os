@@ -1,0 +1,6 @@
+.workspace-filters{--filter-height:40px;align-items:end}
+.workspace-filters label{min-width:0;align-content:end}
+.workspace-filters :is(input,select){box-sizing:border-box;display:block;min-width:0;width:100%;height:var(--filter-height);margin:0}
+.workspace-filters .filter-actions{display:flex;align-items:stretch;align-self:end;flex:none;flex-wrap:nowrap;gap:8px;margin:0}
+.workspace-filters .filter-actions button{display:inline-flex;justify-content:center;align-items:center;box-sizing:border-box;height:var(--filter-height);min-height:var(--filter-height);margin:0}
+@media(max-width:480px){.workspace-filters .filter-actions{width:100%}.workspace-filters .filter-actions button{flex:1 1 0}}

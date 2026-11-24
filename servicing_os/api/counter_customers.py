@@ -1,6 +1,6 @@
 """SERVICING OS retail counter customer picker.
 
-Uses the standard Customer and Contact records. No sales or inventory posting.
+Uses standard Customer, Contact and Address records.
 """
 import re
 import frappe
@@ -40,14 +40,50 @@ def get_customer_config():
     _require('read')
     groups = _leaf_names('Customer Group')
     territories = _leaf_names('Territory')
+    sales_territory = frappe.db.get_single_value('Selling Settings', 'territory')
+    default_territory = sales_territory if sales_territory in territories else _suggest(
+        territories, ('Bangladesh', 'Bangladesh Territory')
+    )
     return {
         'groups': groups,
         'territories': territories,
         'default_group': _suggest(groups, ('Individual', 'Retail', 'Retail Customers')),
-        'default_territory': _suggest(territories, ('Bangladesh', 'Bangladesh Territory')),
+        'default_territory': default_territory,
         'can_create': bool(frappe.has_permission('Customer', ptype='create')),
         'mobile_required': True,
     }
+
+
+def customer_address_fields(address_line1=None, city=None, pincode=None):
+    address = {key: str(value or '').strip() for key, value in
+               (('address_line1', address_line1), ('city', city), ('pincode', pincode))}
+    if not any(address.values()):
+        return None
+    if not address['address_line1'] or not address['city']:
+        frappe.throw('Enter the customer address and city or upazila.')
+    for key, length in (('address_line1', 140), ('city', 140), ('pincode', 20)):
+        if len(address[key]) > length:
+            frappe.throw('Check the address length. Address and city allow 140 characters, and postal code allows 20.')
+    address['country'] = frappe.db.get_single_value('System Settings', 'country') or 'Bangladesh'
+    if not frappe.db.exists('Country', address['country']):
+        frappe.throw('Set a valid country in System Settings before saving a customer address.')
+    if not frappe.has_permission('Address', ptype='create'):
+        frappe.throw('Address create permission is required to save the customer address.', frappe.PermissionError)
+    return address
+
+
+def save_customer_address(customer, fields):
+    address = frappe.get_doc({
+        'doctype': 'Address',
+        **fields,
+        'address_title': customer.customer_name,
+        'address_type': 'Billing',
+        'is_primary_address': 1,
+        'links': [{'link_doctype': 'Customer', 'link_name': customer.name}],
+    })
+    address.insert()
+    # This customer was created in the same request. Set its link without requiring a second Customer permission.
+    customer.db_set('customer_primary_address', address.name)
 
 
 def _linked_customers_for_contact(contact_names):
@@ -111,7 +147,8 @@ def search_customers(search=''):
 
 
 @frappe.whitelist(methods=['POST'])
-def create_counter_customer(customer_name, mobile_no, customer_group=None, territory=None):
+def create_counter_customer(customer_name, mobile_no, customer_group=None, territory=None,
+                            address_line1=None, city=None, pincode=None):
     _require('read')
     _require('create')
     name = ' '.join(str(customer_name or '').strip().split())
@@ -144,8 +181,11 @@ def create_counter_customer(customer_name, mobile_no, customer_group=None, terri
     cfg = get_customer_config()
     group = str(customer_group or cfg['default_group'] or '').strip()
     place = str(territory or cfg['default_territory'] or '').strip()
-    if group not in cfg['groups'] or place not in cfg['territories']:
-        frappe.throw('Select a valid Customer Group and Territory in the New Customer form.')
+    if group not in cfg['groups']:
+        frappe.throw('Select a valid Customer Group.')
+    if place not in cfg['territories']:
+        frappe.throw('Set a default leaf Territory in Selling Settings before adding customers.')
+    address = customer_address_fields(address_line1, city, pincode)
 
     first, _, last = name.partition(' ')
     details = {
@@ -190,8 +230,12 @@ def create_counter_customer(customer_name, mobile_no, customer_group=None, terri
         if not any(_phone(p.phone) == number for p in contact.get('phone_nos') or []):
             frappe.throw('Mobile number could not be stored in the primary Contact.')
 
+    if address:
+        save_customer_address(customer, address)
+
     # No explicit commit: the framework commits a successful POST transaction.
     return {'success': True, 'customer': {
         'name': customer.name, 'customer_name': customer.customer_name,
         'mobile': number, 'contact': contact_name,
+        'address': address,
     }}

@@ -6,9 +6,18 @@ idempotent and must refuse to overwrite incompatible metadata.
 import frappe
 
 
+def setup_site():
+    """Ensure schema and provision company setup on install and migrate."""
+    from servicing_os.site_setup import prepare_automatically
+
+    ensure_schema()
+    return prepare_automatically()
+
+
 def ensure_schema():
     """Synchronize app-owned metadata without changing customer business records."""
     from servicing_os.api.invoice_warranty_659 import ensure_warranty_fields
+    from servicing_os.warranty_schema import ensure as setup_warranty_desk
     from servicing_os.api.received_components_694 import setup as setup_received_components
     from servicing_os.parts_request_schema_705 import ensure as setup_parts_link
     from servicing_os.parts_request_schema_705 import ensure_service_job_link
@@ -30,6 +39,7 @@ def ensure_schema():
         'completed_status': setup_completed_status(),
         'sales_invoice_link': ensure_service_job_link('Sales Invoice', 'customer'),
         'warranty_fields': ensure_warranty_fields(),
+        'warranty_desk': setup_warranty_desk(),
         'revenue_fields': setup_revenue_fields(),
         'invoice_payment_tracking': setup_invoice_payments(),
         'delivery_fields': ensure_delivery_fields(),
@@ -42,6 +52,7 @@ def ensure_schema():
 def verify():
     """Run: bench --site SITE execute servicing_os.deployment.verify"""
     from servicing_os.api.invoice_warranty_659 import ALLOWED, FIELDS
+    from servicing_os.warranty_schema import verify as verify_warranty_desk
     from servicing_os.parts_request_schema_705 import FIELD, get_service_job_link
     from servicing_os.repair_completed_schema_7071 import verify as verify_completed_status
 
@@ -98,6 +109,7 @@ def verify():
         'sales_invoice_link': True,
         'completed_status': verify_completed_status(),
         'warranty_fields': True,
+        'warranty_desk': verify_warranty_desk(),
         'revenue_fields': verify_revenue_fields(),
         'invoice_payment_tracking': verify_invoice_payments(),
         'note': 'Existing customer/job/invoice data not rewritten by deployment setup',

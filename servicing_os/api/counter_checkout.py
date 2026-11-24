@@ -261,11 +261,15 @@ def complete_cash_sale(customer, items, checkout_key, expected_total):
     if not re.fullmatch(r"[a-zA-Z0-9_-]{16,64}", key):
         frappe.throw("Invalid checkout reference")
     existing = frappe.db.get_value("Sales Invoice", {FIELD: key},
-        ["name", "docstatus", "customer", "grand_total"], as_dict=True)
+        ["name", "docstatus", "customer", "grand_total", "currency", "rounded_total", "rounding_adjustment",
+         "disable_rounded_total"], as_dict=True)
+    from servicing_os.invoice_printing import invoice_document_print_amounts
+
     if existing:
         if existing.docstatus == 1:
             return {"success": True, "already_processed": True,
-                "invoice": existing.name, "total": flt(existing.grand_total)}
+                **invoice_document_print_amounts(existing, existing.currency),
+                "invoice": existing.name, "total": flt(existing.grand_total), "currency": existing.currency}
         frappe.throw("This checkout reference belongs to an incomplete or cancelled invoice")
     inv = _prepare(customer, items, key=key)
     if abs(_money(inv.grand_total) - _money(expected_total)) > Decimal("0.01"):
@@ -302,6 +306,10 @@ def complete_cash_sale(customer, items, checkout_key, expected_total):
         frappe.throw("Cash payment was not confirmed")
     inv.reload()
     return {"success": True, "already_processed": False,
+        **invoice_document_print_amounts(inv, inv.currency),
+        "currency": inv.currency, "posting_date": str(inv.posting_date), "docstatus": inv.docstatus,
+        "net_total": flt(inv.net_total), "discount_amount": flt(inv.discount_amount),
+        "total_taxes_and_charges": flt(inv.total_taxes_and_charges),
         "invoice": inv.name, "payment_entry": payment.name,
         "company": current_company(), "customer": customer,
         "total": float(_money(inv.grand_total)),

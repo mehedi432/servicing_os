@@ -155,18 +155,36 @@ def get_retail_sale_detail(doctype, name):
         doc.get("is_consolidated") or not _is_retail_sales_invoice(doc)
     ):
         frappe.throw("This is not an individual retail Sales Invoice.")
+    from servicing_os.invoice_printing import (
+        invoice_serial_numbers, invoice_document_print_amounts, invoice_payment_schedule,
+    )
+
+    items = doc.get("items") or []
+    serials = invoice_serial_numbers(doc, items)
+    currency = doc.get("currency") or "BDT"
     return {
+        **invoice_document_print_amounts(doc, currency),
+        "net_total": flt(doc.get("net_total")),
+        "discount_amount": flt(doc.get("discount_amount")),
+        "additional_discount_percentage": flt(doc.get("additional_discount_percentage")),
+        "total_taxes_and_charges": flt(doc.get("total_taxes_and_charges")),
+        "outstanding_amount": flt(doc.get("outstanding_amount")),
+        "payment_schedule": invoice_payment_schedule(doc),
+        "docstatus": doc.docstatus,
+        "company": doc.company,
+        "due_date": str(doc.get("due_date") or ""),
         "doctype": doctype,
         "name": doc.name,
         "customer": doc.get("customer_name") or doc.get("customer"),
         "posting_date": str(doc.get("posting_date") or ""),
         "grand_total": flt(doc.get("grand_total")),
-        "currency": doc.get("currency") or "BDT",
+        "currency": currency,
         "items": [
             {"code": x.get("item_code"), "description": x.get("item_name"),
              "qty": flt(x.get("qty")), "rate": flt(x.get("rate")),
-             "amount": flt(x.get("amount"))}
-            for x in (doc.get("items") or [])
+             "amount": flt(x.get("amount")),
+             "serial_no": serials.get(x.name) or x.get("serial_no") or ""}
+            for x in items
         ],
         "note": "Print uses the original ERPNext document and its configured Print Format.",
     }

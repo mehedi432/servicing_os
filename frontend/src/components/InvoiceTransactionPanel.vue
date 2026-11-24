@@ -5,6 +5,7 @@ const props = defineProps({
   invoiceName: { type: String, required: true },
   mode: { type: String, required: true },
   backLabel: { type: String, default: 'Back to invoice' },
+  purchaseReceipt: { type: String, default: '' },
 })
 const emit = defineEmits(['back', 'busy', 'changed'])
 const context = ref(null)
@@ -18,6 +19,7 @@ const referenceDate = ref('')
 const requestKey = ref('')
 const controller = new AbortController()
 const isDraft = computed(() => props.mode === 'edit')
+const isSupplierPayment = computed(() => Boolean(props.purchaseReceipt))
 const selectedMethod = computed(() => context.value?.methods?.find(entry => entry.name === method.value))
 const money = value => new Intl.NumberFormat('en-BD', {
   style: 'currency', currency: context.value?.currency || 'BDT',
@@ -34,9 +36,11 @@ async function rpc(module, action, payload) {
       document.querySelector('meta[name="csrf-token"]')?.content ||
       decodeURIComponent(document.cookie.match(/(?:^|;\s*)csrf_token=([^;]*)/)?.[1] || '')
     options.method = 'POST'
-    options.body = JSON.stringify({ invoice_name: props.invoiceName, ...payload })
+    options.body = JSON.stringify({ invoice_name: props.invoiceName,
+      ...(props.purchaseReceipt ? { receipt_name: props.purchaseReceipt } : {}), ...payload })
   } else {
     url.searchParams.set('invoice_name', props.invoiceName)
+    if (props.purchaseReceipt) url.searchParams.set('receipt_name', props.purchaseReceipt)
     options.signal = controller.signal
   }
   const response = await fetch(url, options)
@@ -62,7 +66,9 @@ async function load() {
   try {
     context.value = isDraft.value
       ? await rpc('invoice_review', 'get_draft_editor')
-      : await rpc('invoice_payment', 'get_payment_context')
+      : isSupplierPayment.value
+        ? await rpc('inventory_receipt_billing', 'get_supplier_payment_context')
+        : await rpc('invoice_payment', 'get_payment_context')
     if (!isDraft.value) {
       amount.value = context.value.outstanding
       method.value = context.value.methods[0]?.name || ''
@@ -95,7 +101,10 @@ async function save() {
     expected_outstanding: doc.outstanding,
     request_key: requestKey.value,
   }
-  if (!isDraft.value && !window.confirm(`Record ${money(amount.value)} received by ${method.value} for ${props.invoiceName}?`)) {
+  const confirmation = isSupplierPayment.value
+    ? `Record ${money(amount.value)} paid to the supplier by ${method.value} for ${props.invoiceName}?`
+    : `Record ${money(amount.value)} received by ${method.value} for ${props.invoiceName}?`
+  if (!isDraft.value && !window.confirm(confirmation)) {
     return
   }
   saving.value = true
@@ -105,7 +114,9 @@ async function save() {
   try {
     result = isDraft.value
       ? await rpc('invoice_review', 'save_reviewed_draft', payload)
-      : await rpc('invoice_payment', 'receive_invoice_payment', payload)
+      : isSupplierPayment.value
+        ? await rpc('inventory_receipt_billing', 'record_supplier_payment', payload)
+        : await rpc('invoice_payment', 'receive_invoice_payment', payload)
   } catch (failure) {
     error.value = failure.message
   } finally {
@@ -122,7 +133,7 @@ onBeforeUnmount(() => controller.abort())
 <template>
   <article class="invoice-transaction">
     <header class="transaction-header">
-      <div><h3>{{ isDraft ? 'Edit draft' : 'Record payment' }}</h3><p>{{ invoiceName }}</p></div>
+      <div><h3>{{ isDraft ? 'Edit draft' : isSupplierPayment ? 'Record supplier payment' : 'Record payment' }}</h3><p>{{ invoiceName }}</p></div>
       <button type="button" :disabled="saving" @click="emit('back')">{{ backLabel }}</button>
     </header>
     <p v-if="loading" role="status">Loading…</p>
@@ -166,7 +177,7 @@ onBeforeUnmount(() => controller.abort())
         <template v-else>
           <p class="transaction-balance">Outstanding balance <strong>{{ money(context.outstanding) }}</strong></p>
           <div class="transaction-grid">
-            <label>Amount received
+            <label>{{ isSupplierPayment ? 'Amount paid' : 'Amount received' }}
               <input v-model="amount" type="number" :min="step(context.precision)" :step="step(context.precision)"
                 :max="context.outstanding" required />
             </label>
@@ -182,9 +193,9 @@ onBeforeUnmount(() => controller.abort())
               <input v-model="referenceDate" type="date" :max="context.posting_date" required />
             </label>
           </div>
-          <p v-if="selectedMethod">Receiving account <strong>{{ selectedMethod.account }}</strong></p>
+          <p v-if="selectedMethod">{{ isSupplierPayment ? 'Pay from account' : 'Receiving account' }} <strong>{{ selectedMethod.account }}</strong></p>
         </template>
-        <footer><button class="transaction-primary" type="submit">{{ saving ? 'Saving…' : isDraft ? 'Save Draft Changes' : 'Record Payment' }}</button></footer>
+        <footer><button class="transaction-primary" type="submit">{{ saving ? 'Saving…' : isDraft ? 'Save Draft Changes' : isSupplierPayment ? 'Record Supplier Payment' : 'Record Payment' }}</button></footer>
       </fieldset>
     </form>
   </article>

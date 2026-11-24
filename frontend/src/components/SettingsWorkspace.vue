@@ -1,6 +1,8 @@
 <script setup>
 import {ref,onMounted,computed} from 'vue';
 import {moduleApi} from './extensionApi.js';
+import WorkspaceThemePicker from './WorkspaceThemePicker.vue';
+import '../themes/workspace.css';
 const data=ref({shops:[],users:[],role:'Service Technician'});
 const busy=ref(false);const error=ref('');const success=ref('');const filter=ref('');
 const pending=ref(null);
@@ -12,6 +14,7 @@ onMounted(refresh);
 <template>
   <section class="sos-ext-root sos-settings">
     <header class="ex-heading"><div><div class="ex-kicker">OWNER / ADMINISTRATION</div><h1>Settings</h1><p>Shop configuration and staff access—no need to leave SERVICING OS.</p></div><button class="ex-secondary" @click="refresh" :disabled="busy">Refresh</button></header>
+    <WorkspaceThemePicker />
     <div v-if="error" class="ex-alert ex-error" role="alert">{{error}}</div><div v-if="success" class="ex-alert ex-success" role="status">{{success}}</div>
     <div class="ex-panel"><div class="ex-panel-top"><div><h2>Shop & Warehouse Configuration</h2><p class="ex-muted">The live configuration, displayed safely without changing accounting defaults.</p></div><span class="ex-tag">BDT</span></div>
       <div v-if="data.shops?.length" class="ex-config-grid"><article v-for="shop in data.shops" :key="shop.name"><h3>{{shop.shop_name||shop.name}}</h3><div><span>Company</span><strong>{{shop.company}}</strong></div><div><span>Retail stock</span><strong>{{shop.retail_warehouse}}</strong></div><div><span>Used laptops</span><strong>{{shop.used_laptop_warehouse}}</strong></div><div><span>Spare parts</span><strong>{{shop.spare_parts_warehouse}}</strong></div><div><span>Status</span><strong>{{shop.is_active?'Active':'Inactive'}}</strong></div></article></div><p v-else class="ex-empty-small">No accessible Servicing Shop records.</p>

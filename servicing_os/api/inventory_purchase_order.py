@@ -1,7 +1,6 @@
-"""SERVICING OS — safe draft Purchase Order workflow for ERPNext v15.
+"""SERVICING OS Purchase Orders for ERPNext v15.
 
-Scopes every request to the active Servicing Shop company, performs normal Frappe
-permission checks, never bypasses ERPNext validations, and never submits orders.
+Scopes requests to the active shop company and uses native permissions and validation.
 """
 from __future__ import annotations
 
@@ -16,6 +15,7 @@ from servicing_os.api.inventory_workspace import _company, _currency, _warehouse
 MAX_CATALOG = 2500
 MAX_SUPPLIERS = 500
 MAX_LINES = 60
+RECEIPT_BLOCKED_STATUSES = ("Closed", "Completed", "Cancelled", "On Hold")
 
 
 def _require_login():
@@ -227,16 +227,22 @@ def create_purchase_order_draft(data=None):
 
 # SOS_INV_PO_V54 — list, inspect, update and delete draft Purchase Orders.
 # All operations use the active shop's company and normal record permissions.
-def _purchase_order(name, permission="read"):
+def _purchase_order(name, permission="read", *, for_update=False):
     _require_login()
     name = str(name or "").strip()
     if not name or len(name) > 200:
         frappe.throw("Select a valid Purchase Order")
-    po = frappe.get_doc("Purchase Order", name)
+    po = frappe.get_doc("Purchase Order", name, for_update=True) if for_update else frappe.get_doc("Purchase Order", name)
     if po.company != _company():
         frappe.throw("Purchase Order is not available for this shop", frappe.PermissionError)
-    po.check_permission(permission)
+    po.check_permission("read")
+    if permission != "read":
+        po.check_permission(permission)
     return po
+
+
+def _has_purchase_order_workflow():
+    return bool(frappe.db.exists("Workflow", {"document_type": "Purchase Order", "is_active": 1}))
 
 
 @frappe.whitelist(methods=["GET"])
@@ -273,23 +279,66 @@ def list_purchase_orders(page=0, status="all", search=""):
     } for r in rows[:40]], "has_more":len(rows)>40,"page":page,
     "can_create": bool(frappe.has_permission("Purchase Order", "create")),
     "can_edit": bool(frappe.has_permission("Purchase Order", "write")),
-    "can_delete": bool(frappe.has_permission("Purchase Order", "delete"))}
+    "can_delete": bool(frappe.has_permission("Purchase Order", "delete")),
+    "can_submit": bool(frappe.has_permission("Purchase Order", "submit")) and not _has_purchase_order_workflow()}
 
 
 @frappe.whitelist(methods=["GET"])
 def get_purchase_order_record(name=None):
-    po = _purchase_order(name, "read")
+    return _order_details(_purchase_order(name))
+
+
+def _order_details(po):
+    items = po.get("items") or []
+    first = items[0] if items else {}
+    draft = int(po.docstatus) == 0
+    uses_workflow = draft and _has_purchase_order_workflow()
     return {
-        "name":po.name,"docstatus":int(po.docstatus),"status":po.status or "Draft",
-        "supplier":po.supplier,"warehouse":po.set_warehouse or (po.items[0].warehouse if po.items else ""),
-        "schedule_date":str(po.schedule_date or (po.items[0].schedule_date if po.items else "")),
-        "company":po.company,"currency":po.currency,"remarks":po.remarks or "",
-        "grand_total":float(po.grand_total or 0),
-        "can_edit":int(po.docstatus)==0 and bool(frappe.has_permission("Purchase Order", "write", doc=po)),
-        "can_delete":int(po.docstatus)==0 and bool(frappe.has_permission("Purchase Order", "delete", doc=po)),
-        "items":[{"item_code":r.item_code,"item_name":r.item_name,"qty":float(r.qty or 0),
-            "rate":float(r.rate or 0),"uom":r.uom,"warehouse":r.warehouse} for r in po.items]
+        "name": po.name, "docstatus": int(po.docstatus), "status": po.get("status") or ("Draft" if draft else "Submitted"),
+        "modified": str(po.modified), "supplier": po.supplier, "supplier_name": po.get("supplier_name") or po.supplier,
+        "warehouse": po.get("set_warehouse") or first.get("warehouse") or "",
+        "transaction_date": str(po.get("transaction_date") or ""),
+        "schedule_date": str(po.get("schedule_date") or first.get("schedule_date") or ""),
+        "company": po.company, "currency": po.currency, "remarks": po.get("remarks") or "",
+        "net_total": float(po.get("net_total") or 0), "grand_total": float(po.get("grand_total") or 0),
+        "can_edit": draft and bool(frappe.has_permission("Purchase Order", "write", doc=po)),
+        "can_delete": draft and bool(frappe.has_permission("Purchase Order", "delete", doc=po)),
+        "can_submit": draft and not uses_workflow and bool(frappe.has_permission("Purchase Order", "submit", doc=po)),
+        "uses_workflow": uses_workflow,
+        "can_receive": _can_receive(po) and bool(frappe.has_permission("Purchase Receipt", "create")),
+        "can_view_receipts": not draft and bool(frappe.has_permission("Purchase Receipt", "read")),
+        "items": [
+            {"name": row.get("name"), "item_code": row.get("item_code"), "item_name": row.get("item_name"),
+             "qty": float(row.get("qty") or 0), "received_qty": float(row.get("received_qty") or 0),
+             "rate": float(row.get("rate") or 0),
+             "amount": float(row.get("amount") or 0),
+             "uom": row.get("uom"), "warehouse": row.get("warehouse"),
+             "schedule_date": str(row.get("schedule_date") or "")}
+            for row in items
+        ],
     }
+
+
+@frappe.whitelist(methods=["POST"])
+def submit_purchase_order(data=None):
+    payload = frappe.parse_json(data) if isinstance(data, str) else data
+    if not isinstance(payload, dict):
+        frappe.throw("Select and review a draft Purchase Order.")
+    po = _purchase_order(payload.get("name"))
+    po.check_permission("submit")
+    locked = frappe.db.get_value("Purchase Order", po.name, ["modified", "docstatus"], for_update=True)
+    if locked and int(locked[1]) == 1:
+        return {"name": po.name, "docstatus": 1, "already_submitted": True}
+    expected = str(payload.get("expected_modified") or "")
+    if (not locked or int(locked[1]) != 0 or int(po.docstatus) != 0
+            or str(locked[0]) != expected or str(po.modified) != expected):
+        frappe.throw("This draft changed after review. Reopen the Purchase Order before submitting.")
+    if _has_purchase_order_workflow():
+        frappe.throw("This Purchase Order uses a workflow. Open it in ERPNext to complete the approval steps.")
+    po.submit()
+    if int(po.docstatus) != 1:
+        frappe.throw("The Purchase Order did not reach Submitted status.")
+    return {"name": po.name, "docstatus": 1, "already_submitted": False}
 
 
 def _validated_changes(payload, company):
@@ -361,3 +410,201 @@ def delete_purchase_order_draft(data=None):
         frappe.throw("Submitted or cancelled Purchase Orders cannot be deleted from SERVICING OS")
     frappe.delete_doc("Purchase Order",po.name,ignore_permissions=False)
     return {"deleted":True,"name":po.name}
+
+
+def _search_term(search):
+    return str(search or "").strip()[:140].replace("\\", "\\\\").replace("%", r"\%").replace("_", r"\_")
+
+
+def _receipt_page(page):
+    try:
+        return max(1, min(int(page or 1), 10000))
+    except (ValueError, TypeError):
+        return 1
+
+
+def _receipt_item_filters(**filters):
+    return {"parenttype": "Purchase Receipt", "parentfield": "items", **filters}
+
+
+@frappe.whitelist(methods=["GET"])
+def list_supplier_receipts(search="", page=1, purchase_order=None):
+    """List permission-filtered ERPNext purchase receipts for the active shop."""
+    _require_login()
+    doctype = "Purchase Receipt"
+    if not frappe.has_permission(doctype, "read"):
+        frappe.throw("Purchase Receipt read permission is required.", frappe.PermissionError)
+    page = _receipt_page(page)
+    term = _search_term(search)
+    match = [[field, "like", f"%{term}%"] for field in ("name", "supplier", "supplier_name")] if term else None
+    size = 20
+    filters = {"company": _company()}
+    if purchase_order:
+        po = _purchase_order(purchase_order)
+        names = frappe.get_all("Purchase Receipt Item", filters=_receipt_item_filters(purchase_order=po.name),
+                               pluck="parent", distinct=True)
+        if not names:
+            return {"rows": [], "has_next": False, "can_create": bool(frappe.has_permission(doctype, "create"))}
+        filters["name"] = ["in", names]
+    rows = frappe.get_list(doctype, filters=filters, or_filters=match,
+                           fields=["name", "supplier", "supplier_name", "posting_date", "status", "is_return", "set_warehouse"],
+                           order_by="posting_date desc, name desc", limit_start=(page - 1) * size,
+                           limit_page_length=size + 1)
+    if rows and frappe.has_permission("Purchase Order", "read"):
+        links = frappe.get_all("Purchase Receipt Item",
+                               filters=_receipt_item_filters(parent=["in", [r["name"] for r in rows[:size]]],
+                                                             purchase_order=["is", "set"]),
+                               fields=["parent", "purchase_order"], distinct=True)
+        if links:
+            order_names = sorted({row.purchase_order for row in links})
+            readable = frappe.get_list("Purchase Order", filters={"company": filters["company"],
+                                     "name": ["in", order_names]}, pluck="name", limit_page_length=len(order_names))
+            by_receipt = {}
+            for link in links:
+                if link.purchase_order in readable:
+                    by_receipt.setdefault(link.parent, []).append(link.purchase_order)
+            for row in rows[:size]:
+                row["purchase_orders"] = sorted(by_receipt.get(row["name"], []))
+    return {"rows": rows[:size], "has_next": len(rows) > size,
+            "can_create": bool(frappe.has_permission(doctype, "create"))}
+
+
+@frappe.whitelist(methods=["GET"])
+def list_purchase_orders_to_receive(search="", page=1):
+    _require_login()
+    if not frappe.has_permission("Purchase Order", "read"):
+        return {"rows": [], "has_next": False, "can_read": False}
+    term = _search_term(search)
+    match = [[field, "like", f"%{term}%"] for field in ("name", "supplier", "supplier_name")] if term else None
+    size = 20
+    rows = frappe.get_list("Purchase Order", filters={
+        "company": _company(), "docstatus": 1, "status": ["not in", RECEIPT_BLOCKED_STATUSES],
+        "per_received": ["<", 100],
+    }, or_filters=match,
+        fields=["name", "supplier", "supplier_name", "schedule_date", "per_received"],
+        order_by="schedule_date asc, name desc", limit_start=(_receipt_page(page) - 1) * size,
+        limit_page_length=size + 1)
+    return {"rows": rows[:size], "has_next": len(rows) > size, "can_read": True}
+
+
+def _can_receive(po):
+    return int(po.docstatus) == 1 and po.get("status") not in RECEIPT_BLOCKED_STATUSES and (
+        float(po.get("per_received") or 0) < 100 or bool(po.get("has_unit_price_items")))
+
+
+def _receiving_lines(po):
+    result = []
+    for row in po.get("items") or []:
+        remaining = Decimal(str(row.get("qty") or 0)) - Decimal(str(row.get("received_qty") or 0))
+        if remaining <= 0 or int(row.get("delivered_by_supplier") or 0):
+            continue
+        result.append({
+            "name": row.get("name"), "item_code": row.get("item_code"), "item_name": row.get("item_name"),
+            "uom": row.get("uom"), "warehouse": row.get("warehouse"), "remaining": float(remaining),
+        })
+    return result
+
+
+def _receiving_warehouses(company, name=None):
+    if not frappe.has_permission("Warehouse", "read"):
+        frappe.throw("Warehouse read permission is required.", frappe.PermissionError)
+    filters = {"company": company, "is_group": 0, "disabled": 0}
+    if name:
+        filters["name"] = name
+    return frappe.get_list("Warehouse", filters=filters, fields=["name", "warehouse_name"],
+                           order_by="warehouse_name asc", limit_page_length=500)
+
+
+def _receive_order(name, *, for_update=False):
+    po = _purchase_order(name, for_update=for_update)
+    if not frappe.has_permission("Purchase Receipt", "create"):
+        frappe.throw("Purchase Receipt create permission is required.", frappe.PermissionError)
+    if not _can_receive(po):
+        frappe.throw("Only open, submitted Purchase Orders with goods remaining can be received.")
+    return po
+
+
+@frappe.whitelist(methods=["GET"])
+def get_purchase_order_receiving(name=None):
+    po = _receive_order(name)
+    needs_native = bool(po.get("is_subcontracted") or po.get("has_unit_price_items"))
+    has_draft = bool(frappe.db.get_value(
+        "Purchase Receipt Item", _receipt_item_filters(purchase_order=po.name, docstatus=0), "parent"))
+    items = _receiving_lines(po) if not needs_native else []
+    for line in items:
+        line["requires_details"] = _requires_receipt_details(line["item_code"])
+    return {"items": items, "needs_native": needs_native, "has_draft": has_draft, "modified": str(po.modified),
+            "warehouses": _receiving_warehouses(po.company) if items else [],
+            "can_submit": bool(frappe.has_permission("Purchase Receipt", "submit"))
+            and not frappe.db.exists("Workflow", {"document_type": "Purchase Receipt", "is_active": 1})}
+
+
+@frappe.whitelist(methods=["POST"])
+def receive_purchase_order(data=None):
+    from erpnext.buying.doctype.purchase_order.purchase_order import make_purchase_receipt
+
+    payload = frappe.parse_json(data) if isinstance(data, str) else data
+    if not isinstance(payload, dict) or payload.get("action") not in ("receive", "draft"):
+        frappe.throw("Select how to save this Purchase Receipt.")
+    po = _receive_order(payload.get("name"), for_update=True)
+    if po.get("is_subcontracted") or po.get("has_unit_price_items"):
+        frappe.throw("Open the Purchase Order in ERPNext to receive this order.")
+    if str(po.modified) != str(payload.get("expected_modified") or ""):
+        frappe.throw("This order changed after review. Reopen it and check the quantities.")
+    warehouse = str(payload.get("warehouse") or "").strip()
+    if not warehouse or not _receiving_warehouses(po.company, warehouse):
+        frappe.throw("Select an active, accessible warehouse in this company.")
+    if frappe.db.get_value("Purchase Receipt Item", _receipt_item_filters(purchase_order=po.name, docstatus=0),
+                           "parent", for_update=True):
+        frappe.throw("A draft receipt is already linked to this order. Open Purchase Receipts to review it.")
+    requested = payload.get("items")
+    available = {line["name"]: line for line in _receiving_lines(po)}
+    if not isinstance(requested, list) or not 1 <= len(requested) <= len(available):
+        frappe.throw("Select one or more items with quantity remaining. Refresh if the order was recently received.")
+    quantities = {}
+    post_stock = payload["action"] == "receive"
+    if post_stock and frappe.db.exists("Workflow", {"document_type": "Purchase Receipt", "is_active": 1}):
+        frappe.throw("This receipt requires approval. Save a draft and finish the workflow in ERPNext.")
+    for entry in requested:
+        key = str(entry.get("name") or "") if isinstance(entry, dict) else ""
+        if key not in available or key in quantities:
+            frappe.throw("Select unique items with quantity remaining on this order.")
+        line = available[key]
+        remaining = Decimal(str(line["remaining"]))
+        if _decimal(entry.get("remaining"), "Reviewed quantity") != remaining:
+            frappe.throw("The remaining quantity changed. Refresh the receiving form before continuing.")
+        qty = _decimal(entry.get("qty"), "Receipt quantity")
+        if qty > remaining:
+            frappe.throw("Receipt quantity exceeds the outstanding quantity for " + line["item_code"])
+        if post_stock and _requires_receipt_details(line["item_code"]):
+            frappe.throw("This item requires serial, batch, or inspection details. Save a draft and complete it in ERPNext.")
+        quantities[key] = qty
+
+    receipt = make_purchase_receipt(po.name)
+    mapped = {row.purchase_order_item: row for row in receipt.items}
+    if not quantities.keys() <= mapped.keys():
+        frappe.throw("ERPNext could not map all selected items. Refresh the receiving form before continuing.")
+    receipt.set("items", [row for row in receipt.items if row.purchase_order_item in quantities])
+    receipt.set_warehouse = warehouse
+    receipt.apply_putaway_rule = 0
+    for row in receipt.items:
+        quantity = quantities[row.purchase_order_item]
+        if quantity > Decimal(str(row.qty)):
+            frappe.throw("The remaining quantity changed. Refresh the receiving form before continuing.")
+        row.qty = row.received_qty = float(quantity)
+        row.stock_qty = row.received_stock_qty = row.qty * float(row.conversion_factor or 1)
+        row.warehouse = warehouse
+    if post_stock:
+        receipt.check_permission("submit")
+    receipt.insert()
+    if post_stock:
+        receipt.submit()
+    if int(receipt.docstatus) != int(post_stock):
+        frappe.throw("The Purchase Receipt did not reach the requested status.")
+    return {"name": receipt.name, "docstatus": int(receipt.docstatus), "warehouse": warehouse}
+
+
+def _requires_receipt_details(item_code):
+    fields = ["has_serial_no", "has_batch_no", "inspection_required_before_purchase"]
+    flags = frappe.get_cached_value("Item", item_code, fields) or ()
+    return any(int(value or 0) for value in flags)

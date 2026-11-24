@@ -1,5 +1,5 @@
 <script setup>
-import {computed, ref, watch, onBeforeUnmount} from 'vue'
+import {computed, nextTick, ref, watch, onBeforeUnmount} from 'vue'
 // SOS_SERVICE_WORKFLOW_690 — use existing ERPNext permissions and repair_progress API.
 const props = defineProps({jobName:{type:String,required:true}})
 const emit = defineEmits(['updated'])
@@ -19,6 +19,8 @@ const loading=ref(false)
 const savingStep=ref('')
 const error=ref('')
 const done=ref('')
+const panel = ref(null)
+const heading = ref(null)
 let seq=0
 function csrf(){
   return window.frappe?.csrf_token || window.csrf_token || document.querySelector('meta[name="csrf-token"]')?.content ||
@@ -63,21 +65,48 @@ function goToParts() {
   parts.focus({ preventScroll: true })
   parts.scrollIntoView({ block: 'start' })
 }
-async function advance(destination){
+function keepPanelPosition(element) {
+  if (!element?.isConnected) return () => {}
+  const root = document.scrollingElement
+  let scroller = element.parentElement
+  while (scroller && scroller !== root && (
+    scroller.scrollHeight <= scroller.clientHeight || !/^(auto|scroll)$/.test(getComputedStyle(scroller).overflowY)
+  )) scroller = scroller.parentElement
+  scroller ||= root
+  if (!scroller) return () => {}
+  const { top, bottom } = element.getBoundingClientRect()
+  const viewport = scroller === root
+    ? { top: 0, bottom: window.innerHeight } : scroller.getBoundingClientRect()
+  if (bottom < viewport.top || top > viewport.bottom) return () => {}
+  return () => {
+    if (!element.isConnected) return
+    const shift = element.getBoundingClientRect().top - top
+    if (Math.abs(shift) > 1) scroller.scrollTop += shift
+  }
+}
+async function advance(destination, source){
   const name=String(props.jobName||'').trim()
   if(!progress.value||savingStep.value)return
   if(progress.value.job!==name){error.value='Selected Service Job changed. Reload before updating.';return}
   if(!nextSteps.value.includes(destination)){
     error.value='The selected transition is not allowed. Reload the current status.';return
   }
+  const retainFocus = document.activeElement === source
   savingStep.value=destination;error.value='';done.value=''
   try {
-    const out=await call('advance_repair',{job_name:name,next_status:destination,expected_modified:progress.value.modified},true)
+    const previousModified = progress.value.modified
+    const out=await call('advance_repair',{job_name:name,next_status:destination,expected_modified:previousModified},true)
     if(name!==props.jobName)throw Error('Service selection changed; reload the record.')
     if(out.job!==name||out.status!==destination)throw Error('The server did not confirm the requested step.')
+    const restorePosition = keepPanelPosition(panel.value)
     progress.value = { ...progress.value, ...out }
     done.value = `Updated to ${out.status}`
-    emit('updated',{name,status:out.status})
+    emit('updated',{name,status:out.status,modified:out.modified,previousModified})
+    await nextTick()
+    if (retainFocus && (document.activeElement === document.body || document.activeElement === source)) {
+      heading.value?.focus({ preventScroll: true })
+    }
+    restorePosition()
   }catch(e){error.value=e.message||'Unable to save repair step';await load().catch(()=>{});if(!error.value)error.value=e.message||'Repair step not saved'}
   finally{savingStep.value=''}
 }
@@ -85,9 +114,9 @@ watch(()=>props.jobName,load,{immediate:true})
 onBeforeUnmount(()=>{seq++})
 </script>
 <template>
-<section class="sos690-steps" aria-label="Service Job repair steps">
+<section ref="panel" class="sos690-steps" aria-label="Service Job repair steps">
   <header class="sos690-header">
-    <div class="sos690-heading"><h3>Service Steps</h3><span class="sos690-job">{{ jobName }}</span></div>
+    <div class="sos690-heading"><h3 ref="heading" tabindex="-1">Service Steps</h3><span class="sos690-job">{{ jobName }}</span></div>
     <span v-if="progress" class="sos690-current">{{ progress.status }}</span>
     <button type="button" class="sos690-outline" :disabled="loading||!!savingStep" @click="load" aria-label="Refresh repair status">Refresh</button>
   </header>
@@ -101,7 +130,7 @@ onBeforeUnmount(()=>{seq++})
     </ol>
     <div v-if="nextSteps.length || progress.status === 'Waiting for Parts'" class="sos690-action" aria-label="Available actions">
       <button v-for="(stage, index) in nextSteps" :key="stage" type="button"
-        :class="index === 0 ? 'sos690-primary' : 'sos690-outline'" :disabled="!!savingStep" @click="advance(stage)">
+        :class="index === 0 ? 'sos690-primary' : 'sos690-outline'" :disabled="!!savingStep" @click="advance(stage, $event.currentTarget)">
         {{ savingStep === stage ? 'Saving…' : actionLabel(stage) }}
       </button>
       <button v-if="progress.status === 'Waiting for Parts'" type="button" class="sos690-outline" @click="goToParts">View spare parts</button>

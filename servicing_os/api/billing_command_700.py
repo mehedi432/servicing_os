@@ -1,6 +1,7 @@
 """Permission-aware billing reports and historical invoice labels."""
 from collections import defaultdict
 from datetime import date, timedelta
+from decimal import Decimal
 
 import frappe
 from frappe.utils import cint, flt, getdate, nowdate
@@ -177,6 +178,7 @@ def get_overview(start_date=None, end_date=None, include_delivery=True):
             "invoice_overdue_current": round(overdue, 2),
             "received_payments": None if collections is None else round(collections, 2),
             "payment_count": payment_count, "daily": series,
+            "financial_totals": _invoice_financial_totals(company, start, end),
             "delivery": _delivery(company) if show_delivery else None, "notes": notes}
 
 
@@ -241,18 +243,158 @@ def get_invoice_documents(doctype="Sales Invoice", docstatus=None, start_date=No
     output_fields += ["revenue_stream", "revenue_basis"] if sales_invoice else []
     from servicing_os.api.invoice_payment import can_receive
 
+    income = _invoice_income_summary(company, meta, query_options, docstatus, revenue_stream) if sales_invoice else None
+    summarized = sales_invoice and (docstatus in (None, "") or str(docstatus) == "1")
+    daily = None
+    totals = _invoice_financial_totals(company, start, end, include_daily=summarized)
+    if income is not None:
+        invoice_days = income.pop("daily")
+        if summarized:
+            daily = _daily_income_rows(invoice_days, totals.pop("daily"), bool(query or revenue_stream))
+
     return {
         "company": company, "rows": [{field: row.get(field) for field in output_fields} for row in rows[:size]],
         "page": page, "page_size": size, "has_next": len(rows) > size,
+        "income_summary": {**income, "daily": daily} if income is not None else None,
+        "financial_totals": totals,
         "can_label_stream": sales_invoice and meta.has_field(REPORT_STREAM_FIELD) and can_label(),
         "can_receive_payment": sales_invoice and can_receive(),
     }
+
+
+def _period_invoice_total(doctype, company, dates, daily=False):
+    if not frappe.has_permission(doctype, "read"):
+        return None
+    group = "posting_date" if daily else "company"
+    rows = frappe.get_list(
+        doctype, filters=[["company", "=", company], ["docstatus", "=", 1], *dates],
+        fields=[*(["posting_date"] if daily else []), "sum(base_net_total) as net_amount"],
+        group_by=group, order_by=f"{group} asc", limit_page_length=0 if daily else 1,
+    )
+    if daily:
+        return {str(row["posting_date"]): Decimal(str(row.get("net_amount") or 0)) for row in rows}
+    return flt(rows[0].get("net_amount")) if rows else 0.0
+
+
+def _period_profit(company, dates, daily=False):
+    if not all(frappe.has_permission(doctype, "read") for doctype in ("Account", "GL Entry")):
+        return None, None
+    accounts = frappe.get_list(
+        "Account", filters={"company": company, "report_type": "Profit and Loss", "is_group": 0},
+        fields=["name", "account_type"], order_by="name asc", limit_page_length=0,
+    )
+    if not accounts:
+        return None, None
+    kinds = {row["name"]: row["account_type"] for row in accounts}
+    balances = frappe.get_list(
+        "GL Entry",
+        filters=[["company", "=", company], ["is_cancelled", "=", 0], ["is_opening", "!=", "Yes"],
+                 ["voucher_type", "!=", "Period Closing Voucher"], ["account", "in", list(kinds)], *dates],
+        fields=["account", *(["posting_date"] if daily else []),
+                "sum(debit) as total_debit", "sum(credit) as total_credit"],
+        group_by="posting_date, account" if daily else "account",
+        order_by="posting_date asc, account asc" if daily else "account asc",
+        limit_page_length=0 if daily else len(kinds),
+    )
+    if not balances:
+        return None, None
+    costs = defaultdict(Decimal)
+    profits = defaultdict(Decimal)
+    for row in balances:
+        day = str(row["posting_date"]) if daily else ""
+        net = Decimal(str(row.get("total_credit") or 0)) - Decimal(str(row.get("total_debit") or 0))
+        profits[day] += net
+        if kinds[row["account"]] == "Cost of Goods Sold":
+            costs[day] -= net
+    has_cogs_account = "Cost of Goods Sold" in kinds.values()
+    if daily:
+        return ({day: costs[day] for day in profits} if has_cogs_account else None), profits
+    return float(costs[""]) if has_cogs_account else None, float(profits[""])
+
+
+def _invoice_financial_totals(company, start, end, include_daily=False):
+    dates = []
+    if start:
+        dates.append(["posting_date", ">=", str(start)])
+    if end:
+        dates.append(["posting_date", "<=", str(end)])
+    cogs, profit = _period_profit(company, dates, daily=include_daily)
+    purchases = _period_invoice_total("Purchase Invoice", company, dates, daily=include_daily)
+    totals = {
+        "currency": frappe.get_cached_value("Company", company, "default_currency"),
+        "start_date": str(start) if start else None,
+        "end_date": str(end) if end else None,
+        "purchases": purchases,
+        "sales": _period_invoice_total("Sales Invoice", company, dates),
+        "cogs": cogs,
+        "profit": profit,
+    }
+    if include_daily:
+        totals["daily"] = {"purchases": purchases, "cogs": cogs, "profit": profit}
+        for key in totals["daily"]:
+            values = totals["daily"][key]
+            totals[key] = float(sum(values.values())) if values is not None else None
+    return totals
+
+
+def _daily_income_rows(invoice_days, company_days, matching_dates_only):
+    days = set(invoice_days)
+    if not matching_dates_only:
+        for series in company_days.values():
+            days.update(series or {})
+    result = []
+    for day in sorted(days, reverse=True):
+        sales = invoice_days.get(day, {})
+        row = {"date": day, "sales": float(sales.get("sales", 0)), "count": sales.get("count", 0)}
+        for key, values in company_days.items():
+            value = values.get(day, 0 if key == "purchases" else None) if values is not None else None
+            row[key] = float(value) if value is not None else None
+        result.append(row)
+    return result
 
 
 def _label_rows(rows, company, meta):
     classified = classifications(rows, company, meta)
     for row in rows:
         row["revenue_stream"], row["revenue_basis"] = classified[row["name"]]
+
+
+def _invoice_income_summary(company, meta, query_options, docstatus, stream):
+    amounts = dict.fromkeys((stream,) if stream else (*STREAMS, "Unclassified"), Decimal("0"))
+    count = 0
+    daily = defaultdict(lambda: {"sales": Decimal("0"), "count": 0})
+    if docstatus in (None, "") or str(docstatus) == "1":
+        filters = [condition for condition in query_options["filters"] if condition[0] != "docstatus"]
+        filters.append(["docstatus", "=", 1])
+        fields = list(dict.fromkeys(["name", "posting_date", "base_net_total", "is_return", *classification_fields(meta)]))
+        start = 0
+        batch_size = 500
+        while True:
+            rows = frappe.get_list(
+                "Sales Invoice", fields=fields, filters=filters, or_filters=query_options["or_filters"],
+                order_by=query_options["order_by"], limit_start=start, limit_page_length=batch_size,
+            )
+            labelled = classifications(rows, company, meta)
+            for row in rows:
+                label = labelled[row["name"]][0]
+                if label in amounts:
+                    amount = Decimal(str(row.get("base_net_total") or 0))
+                    amounts[label] += amount
+                    count += 1
+                    if row.get("posting_date"):
+                        day = daily[str(row["posting_date"])]
+                        day["sales"] += amount
+                        day["count"] += 1
+            if len(rows) < batch_size:
+                break
+            start += batch_size
+    return {
+        "currency": frappe.get_cached_value("Company", company, "default_currency"),
+        "invoice_count": count,
+        "streams": {label: float(amount) for label, amount in amounts.items()},
+        "total": float(sum(amounts.values())),
+        "daily": dict(daily),
+    }
 
 
 def _stream_page(company, meta, query_options, stream, offset, size):

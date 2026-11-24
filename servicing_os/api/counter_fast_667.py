@@ -7,6 +7,7 @@ writes a Customer, after explicit POST and native Customer.create permission.
 import re
 import frappe
 from frappe.utils import flt, getdate, nowdate
+from servicing_os.api.counter_customers import customer_address_fields, save_customer_address
 from servicing_os.api.counter_invoice_654 import shop_config
 from servicing_os.api.counter_selling_price_660 import _pricing_list
 
@@ -53,7 +54,7 @@ def find_customers(q=''):
 
 
 def _leaf_default(doctype, requested):
-    if requested and frappe.db.exists(doctype, requested):
+    if requested and frappe.db.exists(doctype, {'name': requested, 'is_group': 0}):
         return requested
     try:
         return frappe.db.get_value(doctype, {'is_group': 0}, 'name', order_by='creation asc')
@@ -62,7 +63,7 @@ def _leaf_default(doctype, requested):
 
 
 @frappe.whitelist(methods=['POST'])
-def create_customer(customer_name=None, mobile_no=None):
+def create_customer(customer_name=None, mobile_no=None, address_line1=None, city=None, pincode=None):
     shop_config()
     if not frappe.has_permission('Customer', 'create'):
         frappe.throw('Your user needs Customer create permission. Ask an administrator.', frappe.PermissionError)
@@ -87,12 +88,15 @@ def create_customer(customer_name=None, mobile_no=None):
         frappe.db.get_single_value('Selling Settings', 'territory'))
     if not group or not territory:
         frappe.throw('Configure a leaf Customer Group and Territory before creating customers.')
+    address = customer_address_fields(address_line1, city, pincode)
     fields = {'doctype': 'Customer', 'customer_name': name,
               'customer_type': 'Individual', 'customer_group': group, 'territory': territory}
     if frappe.get_meta('Customer').has_field('mobile_no'):
         fields['mobile_no'] = mobile
     customer = frappe.get_doc(fields)
     customer.insert()  # ERPNext mandatory fields, permissions and controller validations.
+    if address:
+        save_customer_address(customer, address)
     return {'created': True, 'customer': {'name': customer.name,
             'customer_name': customer.customer_name, 'mobile_no': customer.get('mobile_no') or mobile},
             'message': 'Customer created.'}

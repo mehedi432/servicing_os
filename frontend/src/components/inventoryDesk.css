@@ -1,0 +1,24 @@
+.inv-desk{border:1px solid var(--os-border,#e5d5c4);border-radius:14px;background:var(--os-surface,#fffdf9);color:var(--os-ink,#39291f);padding:clamp(12px,2vw,22px);min-width:0}
+.inv-desk h2,.inv-desk h3,.inv-desk p{margin:0}
+.inv-desk h2{font:clamp(1.5rem,3vw,2rem)/1.15 Georgia,serif}
+.inv-desk h3{font-size:1rem;font-weight:750;overflow-wrap:anywhere}
+.inv-desk p,.inv-desk small{color:var(--os-muted,#694f3b);font-size:.83rem;overflow-wrap:anywhere}
+.inv-desk .desk-head{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;margin-bottom:14px}
+.inv-desk form,.inv-desk nav{display:flex;align-items:end;flex-wrap:wrap;gap:8px;margin:10px 0 13px}
+.inv-desk label{display:grid;gap:4px;font-weight:650;font-size:.8rem}
+.inv-desk .desk-search{flex:1 1 210px;min-width:0}
+.inv-desk :is(button,input,select,textarea,.desk-btn){min-width:0;padding:7px 10px;min-height:36px;border:1px solid var(--os-border,#e5d5c4);border-radius:7px;color:inherit;background:var(--os-surface,#fffdf9);font-size:.83rem}
+.inv-desk button,.inv-desk .desk-btn{font-weight:700;white-space:nowrap;text-decoration:none}
+.inv-desk :is(button,.desk-btn):not(:disabled):hover{border-color:var(--os-accent,#855d43)}
+.inv-desk :is(button,.desk-btn)[aria-current],.inv-desk .desk-primary{background:var(--os-accent,#6b4935);color:var(--os-on-accent,#fffaf3);border-color:transparent}
+.inv-desk button:disabled{opacity:.55}
+.inv-desk :focus-visible{outline:2px solid var(--os-accent,#855d43);outline-offset:2px}
+.inv-desk a{color:var(--os-strong,#644229);text-underline-offset:.17em}
+.inv-desk .desk-table-wrap{overflow-x:auto;margin-top:9px}
+.inv-desk table{border-collapse:collapse;width:100%;min-width:460px;text-align:left;font-size:.83rem}
+.inv-desk :is(th,td){padding:9px 10px;border-bottom:1px solid var(--os-border,#e5d5c4);overflow-wrap:anywhere;vertical-align:top}
+.inv-desk th{font-size:.75rem;background:var(--os-tint,#f5ebe0)}
+.inv-desk td small{display:block}
+.inv-desk .desk-alert{color:#a1362e;margin:0 0 10px}
+.inv-desk .desk-success{color:var(--os-ink,#38291f);background:var(--os-selection,#efe3d4);padding:9px 12px;border-radius:7px}
+.inv-desk .desk-pager{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-top:10px}

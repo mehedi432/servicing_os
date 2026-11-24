@@ -1,4 +1,5 @@
 <script setup>
+import CustomerAddressFields from './CustomerAddressFields.vue'
 import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue';
 import { moduleApi } from './extensionApi.js';
 
@@ -28,12 +29,12 @@ const query=ref('');const busy=ref(false);const notice=ref('');const error=ref('
 const laptopView=ref('list'); // SOS_LAPTOP_GRID_FLOW_625A
 const selected=ref('');const tab=ref('overview');const showBuy=ref(false);const showSupplier=ref(false);const receiveId=ref('');
 const buy=ref({supplier:'',brand:'',model:'',serial:'',purchase_cost:''});
-const sup=ref({name:'',group:''});
+const sup=ref({name:'',group:'',address:{}});
 const svc=ref({status:'Inspection Pending',condition:'B',diagnosis:'',work_done:'',technician:'',repair_spend:'',asking_price:'',warranty_days:0});
 const serviceHistory=ref([]);
 const customerQuery=ref('');const customerResults=ref([]);const customer=ref(null);const showCustomer=ref(false);
-const customerCfg=ref({groups:[],territories:[],default_group:'',default_territory:''});
-const newCustomer=ref({customer_name:'',mobile_no:'',customer_group:'',territory:''});
+const customerCfg=ref({groups:[],default_group:''});
+const newCustomer=ref({customer_name:'',mobile_no:'',customer_group:'',address:{}});
 const sale=ref({price:'',quote:null,key:'',confirm:false});
 const receipt=ref(null);
 let searchTimer=null;let laptopSearchTimer=null;
@@ -124,9 +125,9 @@ async function register(){resetMessages();busy.value=true;try{
   buy.value={supplier:'',brand:'',model:'',serial:'',purchase_cost:''};
 }catch(e){showError(e);}finally{busy.value=false;}}
 async function createSupplier(){resetMessages();busy.value=true;try{
-  const r=await moduleApi('create_supplier_from_counter',{name:sup.value.name,supplier_group:sup.value.group},true);
+  const r=await moduleApi('create_supplier_from_counter',{name:sup.value.name,supplier_group:sup.value.group,address:sup.value.address},true);
   showSupplier.value=false;await refresh();buy.value.supplier=r.supplier;notice.value='Supplier saved and selected.';
-  sup.value={name:'',group:''};
+  sup.value={name:'',group:'',address:{}};
 }catch(e){showError(e);}finally{busy.value=false;}}
 async function submitReceipt(){if(!receiveId.value)return;resetMessages();busy.value=true;const id=receiveId.value;
   try{await moduleApi('submit_used_laptop_receipt',{receipt_name:id},true);receiveId.value='';await refresh();notice.value=`${id} received into Used Laptops stock. Next: Inspect / Service.`;}
@@ -138,15 +139,16 @@ async function saveService(){if(!picked.value)return;resetMessages();busy.value=
 }catch(e){showError(e);}finally{busy.value=false;}}
 async function openSell(){if(!picked.value)return;resetMessages();tab.value='sell';sale.value.quote=null;sale.value.confirm=false;
   if(!customerCfg.value.groups.length){try{customerCfg.value=await customerApi('get_customer_config');
-    newCustomer.value.customer_group=customerCfg.value.default_group;
-    newCustomer.value.territory=customerCfg.value.default_territory;}catch(e){showError(e);}}
+    newCustomer.value.customer_group=customerCfg.value.default_group;}catch(e){showError(e);}}
 }
 async function findCustomer(){const s=customerQuery.value.trim();if(s.length<2){customerResults.value=[];return;}
   try{customerResults.value=(await customerApi('search_customers',{search:s})).customers||[];}catch(e){showError(e);}}
 watch(customerQuery,()=>{clearTimeout(searchTimer);searchTimer=setTimeout(findCustomer,280);});
 function pickCustomer(x){customer.value=x;customerQuery.value=x.customer_name;customerResults.value=[];sale.value.quote=null;}
 async function createCustomer(){resetMessages();busy.value=true;try{
-  const r=await customerApi('create_counter_customer',newCustomer.value,true);
+  const {address, ...details}=newCustomer.value;
+  const r=await customerApi('create_counter_customer',{...details,...address},true);
+  newCustomer.value={customer_name:'',mobile_no:'',customer_group:customerCfg.value.default_group||'',address:{}};
   showCustomer.value=false;pickCustomer(r.customer);notice.value='New customer created and selected.';
 }catch(e){showError(e);}finally{busy.value=false;}}
 async function quote(){if(!picked.value||!customer.value)return;resetMessages();busy.value=true;try{
@@ -281,9 +283,9 @@ onBeforeUnmount(()=>{clearTimeout(searchTimer);clearTimeout(laptopSearchTimer);w
     <p class="ul-explain">Save creates a laptop record and <b>draft</b> purchase receipt. Stock and accounting are updated only after you explicitly receive the laptop.</p>
     <div class="ex-modal-actions"><button type="button" class="ex-secondary" @click="showBuy=false">Cancel</button><button class="ex-primary" :disabled="busy||!hub.can_register" type="submit">{{busy?'Saving...':'Save Laptop Intake'}}</button></div>
   </form></div>
-  <div v-if="showSupplier" class="ex-modal-shade ul-top-modal" @click.self="showSupplier=false"><form class="ex-modal" @submit.prevent="createSupplier"><div class="ex-modal-header"><h2>New Supplier</h2><button class="ex-close" type="button" @click="showSupplier=false">×</button></div><div class="ex-form"><label>Supplier name<input v-model.trim="sup.name" required maxlength="120" /></label><label>Supplier group<select v-model="sup.group" required><option value="">Choose group</option><option v-for="g in hub.supplier_groups||[]" :key="g">{{g}}</option></select></label></div><div class="ex-modal-actions"><button type="button" class="ex-secondary" @click="showSupplier=false">Cancel</button><button class="ex-primary" :disabled="busy||!hub.can_add_supplier">Create & Select Supplier</button></div></form></div>
+  <div v-if="showSupplier" class="ex-modal-shade ul-top-modal" @click.self="showSupplier=false"><form class="ex-modal" @submit.prevent="createSupplier"><div class="ex-modal-header"><h2>New Supplier</h2><button class="ex-close" type="button" @click="showSupplier=false">×</button></div><div class="ex-form"><label>Supplier name<input v-model.trim="sup.name" required maxlength="120" /></label><label>Supplier group<select v-model="sup.group" required><option value="">Choose group</option><option v-for="g in hub.supplier_groups||[]" :key="g">{{g}}</option></select></label><CustomerAddressFields v-model="sup.address" supplier /></div><div class="ex-modal-actions"><button type="button" class="ex-secondary" @click="showSupplier=false">Cancel</button><button class="ex-primary" :disabled="busy||!hub.can_add_supplier">Create & Select Supplier</button></div></form></div>
   <div v-if="receiveId" class="ex-modal-shade" @click.self="receiveId=''" ><div class="ex-modal"><div class="ex-modal-header"><h2>Receive Physical Laptop?</h2><button class="ex-close" @click="receiveId=''">×</button></div><p><b>{{receiveId}}</b> will be submitted to the shop inventory. Confirm the serial, actual cost, supplier, and physical condition first.</p><div class="ex-modal-actions"><button class="ex-secondary" @click="receiveId=''">Cancel</button><button class="ex-primary" :disabled="busy" @click="submitReceipt">Confirm Stock Receipt</button></div></div></div>
-  <div v-if="showCustomer" class="ex-modal-shade" @click.self="showCustomer=false"><form class="ex-modal" @submit.prevent="createCustomer"><div class="ex-modal-header"><h2>Add New Customer</h2><button type="button" class="ex-close" @click="showCustomer=false">×</button></div><div class="ex-form"><label>Customer name<input required v-model.trim="newCustomer.customer_name" /></label><label>Mobile number (required)<input required v-model.trim="newCustomer.mobile_no" placeholder="01XXXXXXXXX" inputmode="tel" /></label><label>Customer group<select v-model="newCustomer.customer_group" required><option value="">Choose group</option><option v-for="g in customerCfg.groups" :key="g">{{g}}</option></select></label><label>Territory<select v-model="newCustomer.territory" required><option value="">Choose territory</option><option v-for="t in customerCfg.territories" :key="t">{{t}}</option></select></label></div><p class="ul-explain">Duplicate mobile numbers are checked before saving.</p><div class="ex-modal-actions"><button class="ex-secondary" @click="showCustomer=false" type="button">Cancel</button><button class="ex-primary" :disabled="busy||!hub.can_create_customer">Save & Select Customer</button></div></form></div>
+  <div v-if="showCustomer" class="ex-modal-shade" @click.self="showCustomer=false"><form class="ex-modal" @submit.prevent="createCustomer"><div class="ex-modal-header"><h2>Add New Customer</h2><button type="button" class="ex-close" @click="showCustomer=false">×</button></div><div class="ex-form"><label>Customer name<input required v-model.trim="newCustomer.customer_name" /></label><label>Mobile number (required)<input required v-model.trim="newCustomer.mobile_no" placeholder="01XXXXXXXXX" inputmode="tel" /></label><label>Customer group<select v-model="newCustomer.customer_group" required><option value="">Choose group</option><option v-for="g in customerCfg.groups" :key="g">{{g}}</option></select></label><CustomerAddressFields v-model="newCustomer.address" /></div><p class="ul-explain">Duplicate mobile numbers are checked before saving.</p><div class="ex-modal-actions"><button class="ex-secondary" @click="showCustomer=false" type="button">Cancel</button><button class="ex-primary" :disabled="busy||!hub.can_create_customer">Save & Select Customer</button></div></form></div>
   <div v-if="sale.confirm" class="ex-modal-shade" @click.self="sale.confirm=false"><div class="ex-modal"><div class="ex-modal-header"><h2>Confirm Real Cash Sale</h2><button class="ex-close" @click="sale.confirm=false">×</button></div><p><b>{{picked?.item_name}}</b><br/>Serial: {{picked?.intake?.serial}}<br/>Customer: {{customer?.customer_name}}</p><p class="ul-confirm-total">Cash received: {{money(sale.quote?.grand_total)}}</p><p class="ul-explain">This posts an invoice, deducts the exact serialized laptop from stock, and records the cash collection. This is not a demo.</p><div class="ex-modal-actions"><button class="ex-secondary" @click="sale.confirm=false">Cancel</button><button class="ex-primary" :disabled="busy" @click="complete">{{busy?'Posting...':'Confirm & Complete Sale'}}</button></div></div></div>
   <div v-if="receipt" id="ul-print-receipt" class="ul-print-paper"><h2>AL MODINA COMPUTERS LIMITED</h2><p>USED LAPTOP SALE RECEIPT</p><hr/><p>Invoice: {{receipt.invoice}}<br/>Date: {{receipt.posting_date}}<br/>Customer: {{receipt.customer}}</p><hr/><p>{{receipt.item_name}}<br/>Serial: {{receipt.serial}}</p><div class="ul-print-total"><span>Total paid</span><b>{{money(receipt.grand_total)}}</b></div><p>Thank you for shopping with us.</p></div>
 </section>

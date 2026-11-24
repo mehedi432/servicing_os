@@ -8,6 +8,7 @@ from decimal import Decimal, InvalidOperation
 
 import frappe
 from frappe.utils import flt, nowdate
+from servicing_os.api import party_history
 from servicing_os.api.site_company_706 import current_company, current_currency, used_laptop_warehouse
 
 USED_GROUP = "Used Laptops"
@@ -68,6 +69,93 @@ def setup_used_laptops():
 
 
 @frappe.whitelist(methods=["GET"])
+def get_party_directory(doctype, search="", page=1):
+    """Browse permitted customer and supplier records, including an empty search."""
+    if doctype not in ("Customer", "Supplier"):
+        frappe.throw("Select Customer or Supplier.")
+    _require(doctype)
+    try:
+        page = max(1, int(page))
+    except (ValueError, TypeError):
+        frappe.throw("Enter a valid page number.")
+
+    prefix = doctype.lower()
+    columns = {"display_name": f"{prefix}_name", "group": f"{prefix}_group",
+               "type": f"{prefix}_type", "mobile": "mobile_no", "email": "email_id"}
+    meta = frappe.get_meta(doctype)
+    fields = ["name", *(field for field in columns.values() if meta.has_field(field))]
+    filters = {"disabled": 0} if doctype == "Customer" else {}
+    term = str(search or "").strip()[:100]
+    or_filters = None
+    if term:
+        term_like = "%" + term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+        or_filters = [[doctype, field, "like", term_like] for field in fields]
+        if doctype == "Customer" and re.fullmatch(r"[+\d\s()-]+", term):
+            from servicing_os.api.counter_customers import _phone_customer_names
+            linked = sorted(_phone_customer_names(term, partial=True))
+            if linked:
+                or_filters.append([doctype, "name", "in", linked])
+    size = 24
+    rows = frappe.get_list(
+        doctype, filters=filters, fields=fields, or_filters=or_filters,
+        order_by=f"{prefix}_name asc, name asc", limit_start=(page - 1) * size,
+        limit_page_length=size + 1,
+    )
+    entries = [{"name": row["name"], **{key: row.get(field) or "" for key, field in columns.items()}}
+               for row in rows[:size]]
+    if doctype == "Supplier":
+        counts = party_history.open_supplier_order_counts([row["name"] for row in entries])
+        if counts is not None:
+            for row in entries:
+                row["open_purchase_orders"] = counts.get(row["name"], 0)
+    return {
+        "rows": entries,
+        "page": page, "page_size": size, "has_next": len(rows) > size,
+        "can_create": bool(frappe.has_permission(doctype, ptype="create")),
+        "can_edit": bool(frappe.has_permission(doctype, ptype="write")),
+    }
+
+
+def _require_profile(party_type, party):
+    if party_type not in ("Customer", "Supplier") or not isinstance(party, str) or not party.strip():
+        frappe.throw("Select a Customer or Supplier record.")
+    _require(party_type, docname=party)
+
+
+@frappe.whitelist(methods=["GET"])
+def get_party_profile(party_type, party):
+    _require_profile(party_type, party)
+    profile = party_history.profile(party_type, party)
+    profile["address_visible"] = bool(frappe.has_permission("Address", ptype="read"))
+    if party_type == "Customer" and profile["address_visible"]:
+        address_name = frappe.get_cached_value("Customer", party, "customer_primary_address")
+        if address_name:
+            addresses = frappe.get_list(
+                "Address", filters={"name": address_name},
+                fields=["address_line1", "address_line2", "city", "state", "pincode", "country"],
+                limit_page_length=1,
+            )
+            profile["address"] = addresses[0] if addresses else None
+    if party_type == "Supplier" and profile["address_visible"]:
+        from servicing_os.api.supplier_directory import supplier_address
+        if address := supplier_address(party):
+            profile["address"] = address
+    return profile
+
+
+@frappe.whitelist(methods=["GET"])
+def get_party_history(party_type, party, section="invoices", page=1):
+    _require_profile(party_type, party)
+    return party_history.history(party_type, party, section, page)
+
+
+@frappe.whitelist(methods=["GET"])
+def get_customer_ledger(customer, from_date=None, to_date=None, page=1):
+    _require_profile("Customer", customer)
+    return party_history.customer_ledger(customer, from_date, to_date, page)
+
+
+@frappe.whitelist(methods=["GET"])
 def search_customer_cards(search=""):
     _require("Customer")
     from servicing_os.api.counter_customers import search_customers
@@ -102,9 +190,11 @@ def get_customer_card(customer):
         )
         result["invoices"] = [dict(x) for x in invs]
         result["invoice_count"] = len(invs)
+        currency = current_currency() if any(x.docstatus == 1 for x in invs) else None
+        result["currency"] = currency
         result["outstanding_bdt"] = float(sum(
             Decimal(str(x.outstanding_amount or 0)) for x in invs
-            if x.docstatus == 1 and x.currency == current_currency()
+            if x.docstatus == 1 and x.currency == currency
         ))
     return result
 
@@ -169,21 +259,12 @@ def get_laptop_hub(search=""):
 
 
 @frappe.whitelist(methods=["POST"])
-def create_supplier_from_counter(name, supplier_group):
-    _require("Supplier", "create")
-    name = " ".join(str(name or "").strip().split())
-    if not 2 <= len(name) <= 120:
-        frappe.throw("Enter a supplier name (2–120 characters).")
-    if not frappe.db.exists("Supplier Group", supplier_group) or frappe.db.get_value(
-        "Supplier Group", supplier_group, "is_group"
-    ):
-        frappe.throw("Select a valid Supplier Group.")
-    if frappe.db.exists("Supplier", name):
-        frappe.throw("Supplier already exists. Select the existing record.")
-    doc = frappe.get_doc({"doctype": "Supplier", "supplier_name": name,
-                          "supplier_group": supplier_group, "supplier_type": "Individual"})
-    doc.insert()
-    return {"supplier": doc.name, "supplier_name": doc.supplier_name}
+def create_supplier_from_counter(name, supplier_group, address=None):
+    from servicing_os.api.supplier_directory import save_supplier
+
+    row = save_supplier({"supplier_name": name, "supplier_group": supplier_group,
+                         "supplier_type": "Individual", "address": address})
+    return {"supplier": row["name"], "supplier_name": row["supplier_name"]}
 
 
 @frappe.whitelist(methods=["POST"])

@@ -1,0 +1,11 @@
+.warranty-facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(140px,100%),1fr));gap:10px;margin:10px 0;padding:10px;border-radius:9px;background:var(--os-tint,#f5eee7)}
+.warranty-facts dt{font-size:.72rem;font-weight:650;color:var(--os-muted,#694f3b)}
+.warranty-facts dd{font-size:.86rem;margin:2px 0 0;overflow-wrap:anywhere;font-weight:650}
+.warranty-tag{display:inline-block;padding:4px 8px;border-radius:6px;color:var(--os-ink,#38291f);background:var(--os-selection,#eee4d7);font-size:.73rem;font-weight:750}
+.warranty-tag[data-state="expired"]{background:#f6e4df;color:#873a34}
+.warranty-tag[data-state="expiring"]{background:#ffefcf;color:#784c10}
+.warranty-tag[data-state="active"]{background:#e6f0e3;color:#375937}
+.warranty-text{white-space:pre-wrap;overflow-wrap:anywhere}
+.warranty-editor.inv-desk{border:0;padding:0}
+.warranty-editor form{display:grid;align-items:stretch}
+.warranty-editor form button{justify-self:start}

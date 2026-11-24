@@ -124,25 +124,14 @@ def get_product_setup():
             'price_list':selling_price_list()}
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def create_supplier(data):
-    _need('Supplier','create')
-    payload = json.loads(data) if isinstance(data,str) else (data or {})
-    name = ' '.join(str(payload.get('supplier_name') or '').split())
-    group = str(payload.get('supplier_group') or '').strip()
-    kind = str(payload.get('supplier_type') or 'Company').strip()
-    if not 2<=len(name)<=140:
-        frappe.throw('Enter supplier name (2–140 characters).')
-    if kind not in ('Company','Individual'):
-        frappe.throw('Supplier type must be Company or Individual.')
-    if not frappe.db.exists('Supplier Group',{'name':group,'is_group':0}):
-        frappe.throw('Choose a valid Supplier Group.')
-    if frappe.db.exists('Supplier',name) or frappe.db.exists('Supplier',{'supplier_name':name}):
-        frappe.throw('Supplier already exists. Select it from the existing list.')
-    doc=frappe.get_doc({'doctype':'Supplier','supplier_name':name,
-                        'supplier_group':group,'supplier_type':kind})
-    doc.insert()
-    return {'name':doc.name,'supplier_name':doc.supplier_name}
+    from servicing_os.api.supplier_directory import save_supplier
+
+    payload = frappe.parse_json(data) if isinstance(data, str) else data
+    if not isinstance(payload, dict):
+        frappe.throw("Supplier details are required.")
+    return save_supplier({**payload, "name": ""})
 
 
 @frappe.whitelist()
